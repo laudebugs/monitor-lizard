@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `A9` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), risk 6; [system-monitor](../../plans/system-monitor.md) section 5 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
