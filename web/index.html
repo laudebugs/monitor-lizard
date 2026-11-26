@@ -269,31 +269,36 @@ function priv() {
   ];
 }
 
+// Where a listening socket can be reached from: exposed (any machine on the network), lan (an Apple service on all interfaces), or local.
+const reachOf = (r) => (r.c.exposed ? (apple(r.g) ? 'lan' : 'exposed') : 'local');
 function listeners() {
   const q = S.q.toLowerCase(), f = S.lfilter;
-  const all = [];
-  for (const g of S.snap.groups) for (const c of g.conns) if (c.direction === 'listen') all.push({ g, c });
-  // Reachable from the network and not Apple first, then Apple services, then local-only; by port inside each.
-  const rank = (r) => (r.c.exposed ? (apple(r.g) ? 1 : 0) : 2);
-  all.sort((a, b) => rank(a) - rank(b) || a.c.local_port - b.c.local_port);
-  const match = (r, x) => x === 'all' || (x === 'exposed' ? r.c.exposed : !r.c.exposed);
-  const list = all.filter((r) => match(r, f) && (!q || String(r.c.local_port).includes(q) || r.g.label.toLowerCase().includes(q) || r.c.local_addr.includes(q)));
-  const pg = paginate(list, 'listen');
-  const chips = [['all', 'All'], ['exposed', 'Open to network'], ['local', 'Local only']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ lfilter: id, page: {} }) }, l + ' ', all.filter((r) => match(r, id)).length));
-  const T = 'grid-template-columns:80px 60px minmax(0,1fr) minmax(0,1.4fr) 80px 120px';
-  const reach = (r) => (r.c.exposed ? (apple(r.g) ? h('span', { class: 'tag', title: 'An Apple service reachable from your network' }, 'LAN') : h('span', { class: 'tag warn', title: 'Listening on all interfaces' }, 'EXPOSED')) : h('span', { class: 'tag' }, 'local'));
+  const rows = [];
+  for (const g of S.snap.groups) for (const c of g.conns) if (c.direction === 'listen') rows.push({ g, c });
+  // Exposed non-Apple first, then Apple services, then local-only; by port inside each tier.
+  const tier = { exposed: 0, lan: 1, local: 2 };
+  rows.sort((a, b) => tier[reachOf(a)] - tier[reachOf(b)] || a.c.local_port - b.c.local_port);
+  const inFilter = (r, id) => id === 'all' || (id === 'exposed' ? r.c.exposed : !r.c.exposed);
+  const shown = rows.filter((r) => inFilter(r, f) && (!q || String(r.c.local_port).includes(q) || r.g.label.toLowerCase().includes(q) || r.c.local_addr.toLowerCase().includes(q)));
+  const pg = paginate(shown, 'listen');
+  const chips = [['all', 'All'], ['exposed', 'Exposed'], ['local', 'Local only']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ lfilter: id, page: {} }) }, l + ' ', rows.filter((r) => inFilter(r, id)).length));
+  const cols = 'grid-template-columns:80px 60px minmax(0,1fr) minmax(0,1.4fr) 80px 120px';
+  const reach = (r) => { const k = reachOf(r); return k === 'exposed' ? h('span', { class: 'tag warn', title: 'Listening on all interfaces' }, 'EXPOSED') : k === 'lan' ? h('span', { class: 'tag', title: 'An Apple service reachable from your network' }, 'LAN') : h('span', { class: 'tag' }, 'local'); };
+  const missed = S.snap.totals.listening - rows.length;
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
-    h('div', { class: 'tr h ell', style: T }, h('span', { class: 'num' }, 'Port'), h('span', {}, 'Proto'), h('span', {}, 'Bind address'), h('span', {}, 'App'), h('span', { class: 'num' }, 'PID'), h('span', {}, 'Reach')),
-    pg.slice.map((r) => h('button', { class: 'tr ell', style: T, onClick: () => rec({ view: 'apps', sel: r.g.key, filter: 'all' }) },
+    h('div', { class: 'tr h ell', style: cols }, h('span', { class: 'num' }, 'Port'), h('span', {}, 'Proto'), h('span', {}, 'Bind address'), h('span', {}, 'App'), h('span', { class: 'num' }, 'PID'), h('span', {}, 'Reach')),
+    pg.slice.map((r) => h('button', { class: 'tr ell', style: cols, onClick: () => { $('q').value = ''; rec({ view: 'apps', sel: r.g.key, filter: 'all', q: '', page: {} }); } },
       h('span', { class: 'num', style: 'font-weight:500' }, r.c.local_port), h('span', { class: 'mut small' }, r.c.proto), h('span', { class: 'mut small' }, r.c.local_addr),
       h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'num mut' }, r.c.pid), h('span', {}, reach(r)))),
-    list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No listeners match.')), pg.pager);
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, S.q ? 'No listeners match "' + S.q + '".' : 'No listeners match.')), pg.pager);
   return [h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px' }, chips), table,
-    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.')];
+    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.' + (missed > 0 ? ' ' + missed + ' more listening sockets belong to processes that exited before they could be read.' : ''))];
 }
 
 const SOON = { network: ['Network', 'Every outbound connection by host, with reverse DNS, owner and first-seen date per app.'], persist: ['Persistence', 'Launch agents, daemons, login items and cron jobs, diffed against your baseline.'], history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
+// Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
+const FILTERABLE = ['apps', 'listeners'];
 const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners' };
 
 function render() {
@@ -323,7 +328,7 @@ function render() {
   $('layer').replaceChildren(...layer);
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
 }
-$('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!['apps', 'listeners'].includes(S.view) && S.q) S.view = 'apps'; render(); });
+$('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
 applyTheme(); render(); load(); loadPriv(); loadSudo();

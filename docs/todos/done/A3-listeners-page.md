@@ -25,7 +25,7 @@ Replace the Listeners placeholder with a table of every listening socket: port, 
 
 **In scope:**
 
-- Table with chips All, Exposed (all interfaces), Local only; exposed rows first, then by port.
+- Table with chips All, Exposed (all interfaces), Local only; exposed rows first (Apple services after other exposed rows), then by port.
 - Clicking a row opens that app in the Apps page.
 
 **Out of scope** (name the todo that covers it):
@@ -55,8 +55,8 @@ Replace the Listeners placeholder with a table of every listening socket: port, 
 
 ## Acceptance criteria
 
-- Row count with chip All equals `totals.listening` minus nothing: check against `/api/snapshot`.
-- Exposed chip count equals the number of distinct exposed listeners in the snapshot.
+- Row count with chip All equals the listening sockets attributed to an app in `/api/snapshot`. Any gap to `totals.listening` (sockets whose process exited before it could be read) is stated on the page.
+- Exposed chip count equals the number of exposed listening sockets in the snapshot (sockets, not distinct ports: a dual-stack `*:port` pair counts twice).
 - UI layout and interaction checked in a real browser at 1440 px and below 1100 px (record what was tested, or mark pending if no browser was available)
 
 ## Tests
@@ -66,7 +66,8 @@ jsdom smoke test as in A2: chip counts equal counts computed from the snapshot J
 ## Verification
 
 ```sh
-make check\nmake test
+make check
+make test
 ```
 
 ## Docs to update
@@ -81,7 +82,7 @@ make check\nmake test
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -95,6 +96,7 @@ make check\nmake test
 - **Verified:** a script (kept out of the repo) rendered the real page against a running server in a simulated DOM. On this Mac the chips read 88 / 62 / 26 and matched counts computed independently from `/api/snapshot`; the Open chip showed only EXPOSED or LAN rows and the Local chip only local rows; searching port 9222 returned the 1 expected row; a row click opened Apps with the detail panel; no script errors.
 - **Not verified:** layout and interaction in a real browser (none was connected), so the visual check at 1440 px and below 1100 px is **pending**.
 - **Observation:** 62 of the 88 listening sockets are open to the network on this Mac, most of them mDNS (port 5353) sockets from a few apps, which is why the Overview card for Apple services is aggregated.
-- **Deviation:** none.
-- **CI:** pending on the pull request; `/code-review` not yet run (pending, per `AGENTS.md`).
+- **Deviations from the sketch:** the Apple-services tier in the sort order; the footer note about sockets and exited processes; the search-jump rule now lives in a `FILTERABLE` list. The first version labelled the chip "Open to network"; it is "Exposed" as specified.
+- **Review (2026-11-26):** `/code-review high 6` ran a standards and a spec review. Fixed: chip label now matches the todo; the page states the gap between its count and `totals.listening` (sockets of exited processes) instead of leaving it silent; acceptance wording changed from "distinct exposed listeners" to sockets, matching the edge-case table; bind-address search was case-sensitive for IPv6; the empty state names the active search; a row click clears the search so the Apps list is not filtered by a Listeners term; vague names replaced (`rows`, `inFilter`, `cols`); one `reachOf` serves the sort and the tag; the search-jump list is a named constant. Not changed: the chip-building code repeats the Apps page shape (two copies; extract on a third), and chip counts ignore the search query by design. `/writing-review` on this todo's prose was not run (pending).
+- **CI:** green before review fixes; re-run pending.
 
