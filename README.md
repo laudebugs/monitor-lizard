@@ -12,3 +12,11 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo test
 
 Baseline lives in `~/.ownwatch/baseline.json`. See docs/PLAN.md.
+
+## Status and safety
+
+macOS only, early. Read-only by default and local-only (binds 127.0.0.1). The dashboard can stop your own processes after a confirmation; it never signals root processes, launchd or itself, and every write needs a per-run token. No telemetry, no network calls.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

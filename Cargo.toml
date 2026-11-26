@@ -2,6 +2,7 @@
 name = "ownwatch"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Local-first macOS security monitor: is everything on this machine mine?"
 
 [dependencies]
