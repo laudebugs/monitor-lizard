@@ -78,7 +78,7 @@ make test
 ## Risks and open questions
 
 - Labels are the owner's judgement: review the corpus before trusting scores.
-- Adding Node to CI for the runner is optional; prefer a Rust runner if the spike shows no benefit.
+- A JavaScript runner must run on Node: the owner found buildanagent does not work under Bun yet (see the 2026-11-26 note in `AGENTS.md`). Adding Node to the CI `code` job is optional; prefer a Rust runner if the spike shows no benefit.
 
 ## Definition of done
 
