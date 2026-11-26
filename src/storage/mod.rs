@@ -9,7 +9,7 @@ mod walk;
 
 pub use cache::{to_json, Cache, ScanFn};
 pub use rules::{Label, Rule};
-pub use volume::boot_capacity_json;
+pub use volume::boot_capacity_reply;
 
 use crate::sampler::Reading;
 use serde::Serialize;

@@ -362,3 +362,29 @@ test('Guide: the search box filters it and its page has a title', () => {
   assert.ok(t && t[1].includes("'guide'"));
   assert.equal(L.parseHash('#guide').view, 'guide');
 });
+
+test('the Performance tab round-trips through the address', () => {
+  for (const tab of ['cpugpu', 'disknet']) {
+    const s = { view: 'performance', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: { perfTab: tab } };
+    assert.equal(L.writeHash(s), '#performance?tab=' + tab);
+    assert.equal(L.parseHash('#performance?tab=' + tab).ex.perfTab, tab);
+  }
+  assert.equal(L.writeHash({ ...base, view: 'performance', ex: { perfTab: 'overview' } }), '#performance');
+  assert.equal(L.parseHash('#performance').ex.perfTab, 'overview');
+});
+
+test('an unknown or hostile Performance tab falls back to Overview', () => {
+  for (const v of ['nope', '', '__proto__', 'constructor', 'DISKNET', 'disknet,cpugpu']) assert.equal(L.parseHash('#performance?tab=' + v).ex.perfTab, 'overview', v);
+  assert.equal(L.parseHash('#performance?__proto__=disknet&tab=disknet').ex.perfTab, 'disknet');
+  assert.equal(L.parseHash('#apps?tab=disknet').ex.perfTab, undefined, 'the key belongs to Performance only');
+  assert.equal(Object.prototype.perfTab, undefined);
+});
+
+test('switching Performance tab pushes history, and the patch restores the tab', () => {
+  assert.equal(L.historyMode('#performance', '#performance?tab=disknet'), 'push');
+  assert.equal(L.historyMode('#performance?tab=disknet', '#performance'), 'push');
+  const patch = L.patchFromHash(L.parseHash('#performance?tab=disknet'), { sorts: {}, fil: {} });
+  assert.equal(patch.perfTab, 'disknet');
+  assert.equal(L.patchFromHash(L.parseHash('#performance'), { sorts: {}, fil: {} }).perfTab, 'overview');
+  assert.equal(L.toHashState({ view: 'performance', perfTab: 'cpugpu', sorts: {} }).ex.perfTab, 'cpugpu');
+});

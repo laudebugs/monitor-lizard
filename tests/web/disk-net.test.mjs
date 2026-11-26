@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
 const m = html.match(/\/\* disk-net:begin \*\/([\s\S]*?)\/\* disk-net:end \*\//);
 assert.ok(m, 'disk-net block not found in web/index.html');
-const { capacitySegments, formatBytes, formatRate, formatOps, networkState, rateChartMax } =
-  new Function(m[1] + '\nreturn { capacitySegments, formatBytes, formatRate, formatOps, networkState, rateChartMax };')();
+const { capacitySegments, capacityStatus, formatBytes, formatRate, formatOps, networkState, rateChartMax } =
+  new Function(m[1] + '\nreturn { capacitySegments, capacityStatus, formatBytes, formatRate, formatOps, networkState, rateChartMax };')();
 
 const GB = 1e9;
 test('used, purgeable and free segments add up to the whole bar', () => {
@@ -76,4 +76,41 @@ test('the chart top is the largest value in view but never below the floor', () 
   assert.equal(rateChartMax([[1, null, 5], [2]], 10), 10);
   assert.equal(rateChartMax([[1, null, 50], [20]], 10), 50);
   assert.equal(rateChartMax([[null], []], 7), 7);
+});
+
+test('NaN, negative, infinite and absurdly large parts count as unreadable, never as a NaN width', () => {
+  for (const bad of [NaN, -5, Infinity, 1e19, '12', undefined]) {
+    const r = capacitySegments({ used: 400, purgeable: bad, free: 600, unavailable: 'bad reading' });
+    assert.deepEqual(r.segments.map((x) => x.key), ['used', 'free']);
+    assert.ok(r.segments.every((x) => Number.isFinite(x.pct)));
+    assert.match(r.note, /bad reading/);
+    for (const key of ['used', 'free']) {
+      const args = { used: 400, purgeable: 0, free: 600, unavailable: 'no' };
+      args[key] = bad;
+      assert.deepEqual(capacitySegments(args).segments, [], key);
+    }
+  }
+});
+
+test('legend percentages are whole numbers that add up to 100', () => {
+  for (const [u, p, f] of [[1, 1, 1], [333, 333, 334], [1, 2, 997], [10, 20, 70], [1, 0, 2], [7, 7, 7]]) {
+    const r = capacitySegments({ used: u, purgeable: p, free: f, unavailable: null });
+    assert.equal(r.segments.reduce((a, x) => a + x.shown, 0), 100, [u, p, f].join());
+    assert.ok(r.segments.every((x) => Number.isInteger(x.shown)));
+  }
+  assert.deepEqual(capacitySegments({ used: 1, purgeable: 1, free: 1, unavailable: null }).segments.map((x) => x.shown), [34, 33, 33]);
+});
+
+test('the capacity card tells loading from failed from ready', () => {
+  assert.equal(capacityStatus({ volume: null, failed: false }), 'loading');
+  assert.equal(capacityStatus({ volume: null, failed: true }), 'failed');
+  assert.equal(capacityStatus({ volume: { used: {} }, failed: false }), 'ok');
+  assert.equal(capacityStatus({ volume: { used: {} }, failed: true }), 'failed');
+});
+
+test('the Overview tile and the tab share one rule: no connection is never a 0 B/s reading', () => {
+  const idle = networkState({ interfacesUp: 0, down: 0, up: 0 });
+  assert.equal(idle.text, 'No connection');
+  assert.notEqual(idle.kind, 'ok');
+  assert.equal(networkState({ interfacesUp: undefined, down: null, up: null }).kind, 'unavailable');
 });
