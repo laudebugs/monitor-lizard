@@ -62,7 +62,6 @@ web/index.html                      the dashboard (vanilla JS, no build step, no
 - **2026-11-26: in zsh `log` is a shell builtin.** It ignores unified-log arguments and returns nothing, so sudo and authd investigations looked empty. Always call `/usr/bin/log`.
 - **2026-11-26: the code is macOS only.** `ps`, `lsof`, `codesign`, `plutil` and `libproc` are used directly, so `cargo test` and `make check-code` need a Mac. CI's `code` job runs on `macos-latest`.
 - **2026-11-26: the browser extension was not connected**, so UI changes could only be smoke-tested in a simulated DOM (logic, not layout). Under rule 7, record layout checks as pending until someone looks in a real browser.
-- **2026-11-26: JavaScript tooling runs on Bun, not Node.** The doc scripts in `scripts/` are run with `bun`, pinned in `.bun-version` (CI reads it). They import `node:` modules, which Bun supports, and Bun reported the same results as Node on both scripts and on a deliberately broken todo.
 - **2026-11-26: the existing Rust is not rustfmt-clean.** `make fmt` exists but is not part of `make check`; run it only in a PR that does nothing else, or the diff buries real changes.
 
 ## Run `make check` before every commit

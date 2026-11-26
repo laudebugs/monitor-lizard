@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Every docs/ folder has a README.md, and every markdown file in it is linked from that README.
 // Exempt: TEMPLATE*.md, README.md itself, todo state folders (the board is derived, not indexed),
 // and research notes / reference source mirrors (raw material, indexed by their topic README).
