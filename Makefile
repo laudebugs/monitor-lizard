@@ -18,8 +18,9 @@ check-code: ## cargo check (typecheck + warnings as errors); clippy, duplication
 fmt: ## Format the code (not part of check: the existing code is not rustfmt-clean yet)
 	cargo fmt
 
-test: ## Run the unit tests (macOS only: they call ps and libproc)
+test: ## Run the unit tests (macOS only: they call ps and libproc) and the web logic tests (Node)
 	cargo test --locked
+	node --test tests/web/*.test.mjs
 
 todos: ## Print the todo board (derived, never committed)
 	node scripts/check-todos.mjs --board
@@ -27,7 +28,7 @@ todos: ## Print the todo board (derived, never committed)
 doctor: ## Check that required tools are installed
 	@command -v git >/dev/null || (echo "missing: git" && exit 1)
 	@command -v gh  >/dev/null || (echo "missing: gh (GitHub CLI)" && exit 1)
-	@command -v node >/dev/null || (echo "missing: node (needed by scripts/)" && exit 1)
+	@command -v node >/dev/null || (echo "missing: node (needed by scripts/ and by make test)" && exit 1)
 	@command -v cargo >/dev/null || (echo "missing: cargo (Rust toolchain)" && exit 1)
 	@[ "$$(uname -s)" = "Darwin" ] || (echo "this project targets macOS" && exit 1)
 	@echo "ok"

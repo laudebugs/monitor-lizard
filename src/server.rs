@@ -1,4 +1,4 @@
-use crate::{actions, baseline, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
+use crate::{actions, baseline, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -53,6 +53,7 @@ pub fn serve(port: u16) {
     refresh(&pers, Duration::from_secs(60), persistence::take);
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
+    history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
     thread::spawn(|| {
         let h = History::open().ok();
         watcher::watch(|e| { if let Some(h) = &h { let _ = h.record_sudo(&e); } })
@@ -75,7 +76,13 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/snapshot") => cached(&snap),
             (Method::Get, "/api/privilege") => cached(&privs),
             (Method::Get, "/api/persistence") => cached(&pers),
-            (Method::Get, "/api/metrics") => json_resp(serde_json::to_string(&sampler::since(&metrics, query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0))).unwrap_or_default()),
+            (Method::Get, "/api/metrics") => {
+                let since = query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
+                match query_param(query, "res").as_deref() {
+                    None | Some("raw") => json_resp(serde_json::to_string(&sampler::since(&metrics, since)).unwrap_or_default()),
+                    Some(res) => json_resp(serde_json::to_string(&History::open().and_then(|h| h.query_metrics(res, since)).unwrap_or_default()).unwrap_or_default()),
+                }
+            }
             (Method::Get, "/api/processes") => {
                 let sort = query_param(query, "sort").unwrap_or_else(|| "cpu".into());
                 let limit = query_param(query, "limit").and_then(|s| s.parse().ok()).unwrap_or(50);
@@ -91,7 +98,7 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/guide") => json_resp(crate::guide::to_json()),
             (Method::Get, "/api/settings") => json_resp(serde_json::to_string(&settings::load()).unwrap_or_default()),
             (Method::Post, "/api/settings") if write_ok => {
-                match settings::update(query_param(query, "notifications").as_deref(), query_param(query, "generic_text").as_deref(), query_param(query, "quiet_start").as_deref(), query_param(query, "quiet_end").as_deref()) {
+                match settings::update(query_param(query, "notifications").as_deref(), query_param(query, "generic_text").as_deref(), query_param(query, "quiet_start").as_deref(), query_param(query, "quiet_end").as_deref(), query_param(query, "metrics_history").as_deref()) {
                     Ok(s) => json_resp(serde_json::to_string(&s).unwrap_or_default()),
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }

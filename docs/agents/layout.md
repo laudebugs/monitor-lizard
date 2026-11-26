@@ -10,7 +10,7 @@
 | `src/main.rs` | CLI entry: `snapshot`, `json`, `serve`, `approve`, `privilege`, `watch`, `sudo-log`, `persistence` |
 | `src/collect.rs`, `src/group.rs`, `src/rules.rs`, `src/snapshot.rs`, `src/model.rs` | Process and socket collection, grouping by app, findings and the rule-based trust label (`rules::classify`), the snapshot type |
 | `src/paths.rs` | Where state lives (`~/.sys-monitor/`), with the one-time migration from `~/.ownwatch/` |
-| `src/baseline.rs`, `src/history.rs` | The approved-apps baseline (`baseline.json`) and the SQLite history (`history.db`: first-seen hosts, startup items, sudo launches, action audit), both under `src/paths.rs`'s data directory |
+| `src/baseline.rs`, `src/history.rs` | The approved-apps baseline (`baseline.json`) and the SQLite history (`history.db`: first-seen hosts, startup items, sudo launches, action audit; a `samples` table of downsampled CPU/memory history at 1 and 15 minute resolutions, opt-in via `settings.metrics_history`, never per-process), both under `src/paths.rs`'s data directory |
 | `src/privilege.rs`, `src/watcher.rs` | Authorization-log parsing and the live sudo/su launch watcher |
 | `src/persistence.rs` | Read-only scan of launch agents, launch daemons and cron; `is_new` marks items first seen after the learning period |
 | `src/actions.rs`, `src/server.rs` | Guarded Stop/Quit and the loopback HTTP server |
@@ -22,6 +22,7 @@
 | `src/notify.rs` | Deduplicated macOS notifications for high findings via `osascript`, off by default |
 | `src/llm.rs` | One blocking call to a local llama-server with a JSON-schema response format, parsed into a `Verdict`; clamping against the rules is A10 |
 | `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token |
+| `tests/web/` | Node logic tests for the dashboard (`node --test`); they extract the marked `url-state` block from `web/index.html`, so keep that block free of DOM access |
 | `web/fonts/` | IBM Plex Sans, bundled (three static weights, subsetted, WOFF2), embedded and served by `src/server.rs`; see `THIRD-PARTY-NOTICES.md` |
 
 ## One home per concept
