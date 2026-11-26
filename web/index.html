@@ -1100,11 +1100,13 @@ function linesChart(series, max, hgt) {
   }).join('');
   return svg;
 }
-// A two-layer stacked area (bottom, then bottom+top) for user/system CPU%: each layer keeps its
-// own running total rather than being drawn independently, so the visible top edge is the real sum.
+// A two-layer stacked area (bottom, then bottom+top) for user/system CPU%: `top`'s own edge is
+// plotted at bottom+top, its running cumulative total, not at its own raw value -- otherwise, on
+// any sample where system% < user%, the "system" layer's edge would sit below the user line instead
+// of stacked above it.
 function stackedArea(bottom, top, max, hgt) {
   const w = 600, pts = [];
-  for (let i = 0; i < bottom.length; i++) { const b = bottom[i], t = top[i]; if (b != null && t != null) pts.push([i, b, t]); }
+  for (let i = 0; i < bottom.length; i++) { const b = bottom[i], t = top[i]; if (b != null && t != null) pts.push([i, b, b + t]); }
   const svg = h('svg', { class: 'spark big', viewBox: '0 0 ' + w + ' ' + hgt, preserveAspectRatio: 'none', role: 'img' });
   if (!pts.length) return svg;
   const { x, y } = chartXY(bottom.length - 1 || 1, w, max, hgt);
