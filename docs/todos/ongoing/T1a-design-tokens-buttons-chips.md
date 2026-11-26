@@ -131,6 +131,14 @@ cargo run --release -- serve   # visit every page in both themes
 - It saw each at rest, on hover and on keyboard focus, zoomed in.
 - The chamfer and 1px edge render; hover shows an edge; focus shows a thick edge on all three variants in both themes.
 
+**Chip text that overflowed its cell** (compared with `main`, same window width of 1352 px):
+
+- On `main`, the Persistence TRUST chip ("Signed" plus a team ID) was 132 px wide in a 100 px cell and was cut off silently at the cell edge.
+- Before this fix the new chip was 145 px in the same cell, so it was also wider than its cell.
+- Chips now stop at their cell with an ellipsis, and the Persistence trust chip and the History signal chip carry the full text in `title`.
+- Measured on every page's chips afterwards: none is wider than its cell; only the 23 Persistence trust chips truncate, each with its full text in `title`.
+- Team IDs are still cut to about "SIGNED JQ5...", because that column is 100 px wide. Widening it belongs to the table-style todo.
+
 **Not looked at (open):**
 
 - The other pages in both themes at 1352 px and 400 px

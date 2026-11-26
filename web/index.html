@@ -74,7 +74,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .item h3{margin:0 0 2px;font-size:14px;font-weight:600}.item p{margin:0;font-size:13px;color:var(--mut);line-height:1.45}
 /* Chips carry their meaning in the text as well as the color. One variant sets only --c-bg and --c-fg. */
 .tag,.badge{--c-bg:var(--chip-n-bg);--c-fg:var(--chip-n-fg);background:var(--c-bg);color:var(--c-fg);border:1px solid color-mix(in srgb,var(--c-fg) 35%,var(--c-bg));font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
-.tag{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;white-space:nowrap}
+/* A chip never outgrows its cell: long text (a team ID) ends in an ellipsis and the full text is in the title. */
+.tag{display:inline-block;max-width:100%;min-height:22px;padding:2px 8px;line-height:16px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag.ok{--c-bg:var(--chip-ok-bg);--c-fg:var(--chip-ok-fg)}
 .tag.warn,.badge.warn{--c-bg:var(--chip-warn-bg);--c-fg:var(--chip-warn-fg)}
 .tag.bad,.badge.bad{--c-bg:var(--chip-bad-bg);--c-fg:var(--chip-bad-fg)}
@@ -469,7 +470,7 @@ function listeners() {
 // leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
 // it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
 const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
-const trustTag = (i) => { const t = psig(i); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok' }, t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : '')); };
+const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : ''); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter;
   const all = S.pers;
@@ -558,7 +559,7 @@ function history() {
   const actsTable = h('section', { class: 'card tbl' },
     sortHeader('act', [{ label: 'When', sort: 'when' }, { label: 'Signal', sort: 'signal' }, { label: 'Sent', sort: 'sent', cls: 'num' }, { label: 'Refused', sort: 'refused' }], actCols),
     ap.slice.length ? ap.slice.map((a) => { const sent = jsonOr(a.sent, []); return h('div', { class: 'tr', style: actCols + ';cursor:default' },
-      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag' }, a.sig)),
+      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag', title: a.sig }, a.sig)),
       h('span', { class: 'small' }, sent.length ? sent.length + ' pid(s): ' + sent.join(', ') : '-'), h('span', { class: 'mut small' }, refusedText(a))); })
       : h('div', { class: 'item' }, h('p', {}, allActs.length ? 'No actions match the search. ' : 'No Stop/Quit actions recorded yet.'), allActs.length ? clearBtn() : null), ap.pager);
   return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable];
