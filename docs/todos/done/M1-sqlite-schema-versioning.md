@@ -99,7 +99,7 @@ make test
 
 **Backup.** An unversioned file that already holds tables is copied once to `history.db.bak` with `VACUUM INTO`, which captures data still in the write-ahead log. The copy goes to a unique name and is linked into place, so two openers cannot write the same file.
 
-**Tests.** 7 new tests in `history::tests` cover the todo's five edge cases, a later step on an old database, and a four-thread race. The suite passes: 143 run, 2 ignored.
+**Tests.** 7 new tests in `history::tests` cover the todo's five edge cases, a later step on an old database, and a four-thread race. The suite passes: 145 run, 2 ignored, after merging the rename.
 
 **Real run.** An online copy of the real `history.db` in a scratch home, opened by the debug binary: version 0 became 1, `seen` (1,024 rows) and `persistence` (37 rows) were unchanged, and the backup held the same rows at version 0. The real data folder was not touched.
 
