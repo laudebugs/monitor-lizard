@@ -52,6 +52,25 @@
       "undo": null
     },
     {
+      "appears_in": null,
+      "command": "monitor-lizard storage",
+      "description": "Scans a fixed list of known folders (developer caches, app caches, logs, Downloads, Mail, Applications and node_modules folders) and prints their sizes on disk as JSON, each labelled safe, review or yours, with how much of the disk is used, purgeable and open. It only reads, stops after 20 seconds and runs at low priority.",
+      "example": null,
+      "id": "sm-storage",
+      "safety": "read-only",
+      "tags": [
+        "disk",
+        "space",
+        "storage",
+        "cache",
+        "purgeable",
+        "json"
+      ],
+      "title": "Show where space went",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
       "appears_in": "Apps",
       "command": "monitor-lizard classify <group-key>",
       "description": "Prints the trust label, the rules that fired and the actions allowed for one app group.",

@@ -155,9 +155,9 @@ impl Drop for Disks {
 }
 
 /// Total, available and used bytes for the boot volume, via `statfs` (a syscall, not a process).
-/// Purgeable space is not broken out separately: on APFS, `f_bavail` already counts reclaimable
-/// purgeable space as available, matching what Finder and `df` show, so a second `getattrlist`
-/// call for `ATTR_VOL_SPACE_PURGEABLE` would be redundant for the figures this reports.
+/// `f_bavail` is the free space `df` shows and does not include purgeable space: as of 2026-11 on
+/// macOS 27 it matched `NSURLVolumeAvailableCapacityKey`, while the "important usage" figure was
+/// about 41 GB higher. The storage scanner reads that figure to split purgeable out.
 // SAFETY: `stat` is a plain value type; `libc::statfs` on "/" writes into it and returns 0 on
 // success, nonzero (checked) on failure, before anything here reads it.
 pub fn boot_volume_capacity() -> Option<(u64, u64)> {

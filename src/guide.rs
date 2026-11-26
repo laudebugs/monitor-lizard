@@ -82,6 +82,13 @@ pub static COMMANDS: &[Command] = &[
         tags: &["cpu", "memory", "disk", "gpu", "json"],
     },
     Command {
+        id: "sm-storage", topic: OWN_TOPIC, title: "Show where space went",
+        command: "monitor-lizard storage",
+        description: "Scans a fixed list of known folders (developer caches, app caches, logs, Downloads, Mail, Applications and node_modules folders) and prints their sizes on disk as JSON, each labelled safe, review or yours, with how much of the disk is used, purgeable and open. It only reads, stops after 20 seconds and runs at low priority.",
+        example: None, safety: Safety::ReadOnly, appears_in: None, undo: None,
+        tags: &["disk", "space", "storage", "cache", "purgeable", "json"],
+    },
+    Command {
         id: "sm-classify", topic: OWN_TOPIC, title: "Explain why a group got its label",
         command: "monitor-lizard classify <group-key>",
         description: "Prints the trust label, the rules that fired and the actions allowed for one app group.",

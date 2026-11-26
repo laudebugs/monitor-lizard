@@ -1,9 +1,10 @@
 # 0004. A Tauri menu-bar shell runs the existing server and page
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Plan:** [storage-and-guide](../plans/storage-and-guide.md)
 - **Amended 2026-11-26:** the A17a spike ran ([report](../research/tauri-shell-spike/README.md)). The shell is feasible, so the technical risks below are mostly resolved. Acceptance now depends on one owner-run test, the Full Disk Access test, and two checks are added to the decision. The status stays Proposed. Todo A17 carries the gate.
+- **Amended 2026-11-26 (later the same day):** the owner ran the Full Disk Access test (checklist in the [spike report](../research/tauri-shell-spike/README.md)). Three outcomes: (1) a grant to the default, ad-hoc-signed build does not survive a rebuild (new code hash, same ad-hoc signing) -- `Operation not permitted` after relaunch without re-adding; (2) a brand-new Developer ID identity that was never granted FDA is of course denied until added, same as any new app; (3) once a Developer-ID-signed build is granted, a later rebuild signed with the **same** Developer ID identity keeps the grant without re-adding it -- `Ok(ReadDir(...))` after relaunch. This confirms the one claim the gate was testing: a stable Developer ID signing identity, not the ad-hoc default, is what gives the shell a Full Disk Access grant that survives normal rebuilds. **Gate passed. Status: Accepted.** Todo A17 is unblocked.
 
 ## Context
 
@@ -26,15 +27,15 @@ Proposed: add a Tauri v2 shell as a second binary in the same workspace. It star
 - The webview is given no capability. Before acceptance, check that the external page has no `invoke` path (`withGlobalTauri` and the injected `__TAURI_INTERNALS__`) and record the result.
 - The shell binds a free port instead of 4747; `src/server.rs` is split into `bind_free()` and `serve_on()` for it.
 - Command line use (`sys-monitor serve`) keeps working and does not need the shell.
-- **Acceptance gate:** this ADR becomes Accepted only if the owner's Full Disk Access test passes, meaning a grant given to the bundle still applies after a rebuild with a Developer ID signature. If it does not, reject the ADR: the tray alone does not justify the memory and the signing cost.
+- **Acceptance gate (passed):** this ADR required the owner's Full Disk Access test to pass, meaning a grant given to the bundle still applies after a rebuild with a Developer ID signature. It passed (see the amendment above); the build and release job must therefore always sign with the Developer ID identity, never ship an ad-hoc-signed bundle, since only the Developer ID signature keeps the grant across rebuilds.
 
 ## Consequences
 
 - One UI stays. The page is not forked, which was the reason ADR 0002 rejected SwiftUI.
 - The shell needs a signing and notarization setup and a release job. That is real work and a recurring cost.
-- A bundle may give permissions such as Full Disk Access one identity, instead of whatever terminal ran the binary. This is the claim the gate tests; it is not yet shown.
+- A bundle gives permissions such as Full Disk Access to one stable identity instead of whatever terminal ran the binary, confirmed by the Full Disk Access test above -- but only when every release is signed with the Developer ID identity; an ad-hoc or unsigned build loses the grant on its very next rebuild.
 - The shell uses about 133 MB while running, nearly 20 times `sys-monitor serve`, and the tray runs a second snapshot every 10 s.
-- Todo A17 follows once this is accepted. Nothing else in the storage plan depends on it.
+- Todo A17 is unblocked now that this ADR is Accepted.
 
 ## Alternatives considered
 
