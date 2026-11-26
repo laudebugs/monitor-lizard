@@ -6,6 +6,7 @@ license = "MIT"
 description = "Local-first macOS security monitor: is everything on this machine mine?"
 
 [dependencies]
+libc = "0.2.191"
 libproc = "0.15.0"
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
