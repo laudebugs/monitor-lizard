@@ -5,7 +5,7 @@
 | ID | `R1` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11, D12 |
-| Depends on | T1, N1, A9 |
+| Depends on | T1b, N1, A9 |
 | ADRs | None |
 | Branch | `feat/r1-overview-redesign` |
 | PR title | `feat(web): redesign Overview as a list of decisions with evidence` |
@@ -14,7 +14,7 @@
 
 ## Goal
 
-Replace the Overview with the layout on design board "F · Overview": a one-sentence verdict as the title, count tiles that link to pre-filtered pages, a "Needs a decision" list with evidence and the rule that fired, a "Since you last looked" feed, a Machine strip with links, and outbound sockets by app.
+Replace the Overview with the layout on design board "F · Overview". It has a one-sentence verdict as the title, count tiles that link to pre-filtered pages, a "Needs a decision" list with evidence and the rule that fired. It also has a "Since you last looked" feed, a Machine strip with links, and outbound sockets by app.
 
 ## Context
 

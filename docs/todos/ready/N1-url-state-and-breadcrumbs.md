@@ -33,7 +33,7 @@ Make every view addressable: page, filters, search text, sort and selected item 
 
 **Out of scope** (name the todo that covers it):
 
-- The global search box: N2. Restyling: T1.
+- The global search box: N2. Restyling: T1a and T1b.
 
 ## Target files
 

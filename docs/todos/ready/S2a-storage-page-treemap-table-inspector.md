@@ -1,22 +1,20 @@
-# S2: Storage page
+# S2a: Storage page: status strip, treemap, table and inspector
 
 | Field | Value |
 |---|---|
-| ID | `S2` |
+| ID | `S2a` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D1, D9 |
-| Depends on | S1, B7, T1 |
+| Depends on | S1, B7, T1a |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
-| Branch | `feat/s2-storage-page` |
-| PR title | `feat(web): add the Storage page` |
-| Size | L (over 400: split before you start) |
+| Branch | `feat/s2a-storage-page` |
+| PR title | `feat(web): add the Storage page with treemap, table and inspector` |
+| Size | M (200-400) |
 | PR | — |
 
 ## Goal
 
-Add the Storage nav item and page from design direction D: a status strip, a treemap of sections, a suggested clean-ups list, a folder table with a share-of-disk bar, "Inside System Data" and an inspector. Removal buttons are present but disabled until S3.
-
-Split before starting: S2a (status strip, treemap, table, inspector) and S2b (suggested clean-ups, Inside System Data, Export HTML report). Chain S2b on S2a.
+Add the Storage nav item and the first half of the page from design direction D: a status strip, a treemap of sections, a folder table with a share-of-disk bar and an inspector. Removal buttons are present but disabled until S3b. The clean-ups list and "Inside System Data" are S2b.
 
 ## Context
 
@@ -31,12 +29,12 @@ Split before starting: S2a (status strip, treemap, table, inspector) and S2b (su
 - Nav item "Storage"; polling `GET /api/storage` once on open and on Rescan; a scanning indicator and a stale marker.
 - Treemap built from flex columns; each tile is a `<button>`; the selected tile filters the table and sets the inspector.
 - Labels `SAFE`, `REVIEW`, `YOURS` as chips; unavailable values show their reason, never 0.
-- Use the shared tokens, buttons and chips from T1; add no page-specific button styles (plan D9).
+- Use the shared tokens, buttons and chips from T1a; add no page-specific button styles (plan D9).
 - Keyboard: Tab reaches every tile and row; arrow keys move between tiles.
 
 **Out of scope** (name the todo that covers it):
 
-- Removal: S3. Forecast and weekly growth: S4. Disk writes panel: S5.
+- Suggested clean-ups, Inside System Data and the HTML report: S2b. Removal: S3a and S3b. Forecast and weekly growth: S4. Disk writes panel: S5.
 
 ## Target files
 
@@ -86,7 +84,7 @@ Plan status; `README.md` page list if it names pages.
 ## Risks and open questions
 
 - Every new page lands in the same file; watch the size budget in `docs/guidelines/maintainability.md`.
-- If T1 has not landed yet, build with the tokens in design boards D to H and move them into T1's classes in the same PR.
+- If T1a has not landed yet, build with the tokens in design boards D to H and move them into T1's classes in the same PR.
 
 ## Definition of done
 

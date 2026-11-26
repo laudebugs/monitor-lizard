@@ -5,7 +5,7 @@
 | ID | `R2` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11, D14 |
-| Depends on | T1, N1, N3, A9 |
+| Depends on | T1b, N1, N3, A9 |
 | ADRs | None |
 | Branch | `feat/r2-network-redesign` |
 | PR title | `feat(web): redesign Network with grouping, counts and a host inspector` |
@@ -14,7 +14,7 @@
 
 ## Goal
 
-Redesign Network as on board "G · Network": a verdict title ("1 new host in the last hour"), filters with counts, Group by App, Host or Port, a table with relative first-seen times, and an inspector for the selected host with Related links.
+Redesign Network as on board "G · Network". It has a verdict title ("1 new host in the last hour"), filters with counts, and grouping by App, Host or Port. The table shows relative first-seen times, and an inspector for the selected host shows Related links.
 
 ## Context
 

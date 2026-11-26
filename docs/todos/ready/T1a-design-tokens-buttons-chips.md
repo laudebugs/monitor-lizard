@@ -1,22 +1,20 @@
-# T1: Design tokens and app shell for every page
+# T1a: Design tokens, buttons and chips
 
 | Field | Value |
 |---|---|
-| ID | `T1` |
+| ID | `T1a` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
-| Branch | `feat/t1-design-tokens-and-app-shell` |
-| PR title | `feat(web): shared tokens, buttons, chips and sidebar for every page` |
-| Size | L (over 400: split before you start) |
+| Branch | `feat/t1a-design-tokens-buttons-chips` |
+| PR title | `feat(web): shared tokens, buttons, chips and filters` |
+| Size | M (200-400) |
 | PR | — |
 
 ## Goal
 
-Move the whole dashboard to the Console look from the design canvas: violet tokens, chamfered mono-caps buttons, square chips, grouped sidebar with count badges, and one set of table, inspector and filter styles. After this todo every page looks consistent even where its layout has not been redesigned.
-
-Split before starting: T1a (tokens, buttons, chips, filters) and T1b (sidebar groups with badges, table and inspector styles, light theme).
+Move the dashboard's shared styles to the Console look from the design canvas: violet tokens, chamfered mono-caps buttons, square chips and filter controls, and a matching light theme. Sidebar groups, the shared page shell and table and inspector styles are T1b.
 
 ## Context
 
@@ -30,13 +28,13 @@ Split before starting: T1a (tokens, buttons, chips, filters) and T1b (sidebar gr
 - Keep the existing token names and change values; add `--cut` (chamfer size) and chip colors.
 - Buttons `.btn`, `.btn-acc`, `.btn-danger` with clip-path chamfer; focus ring preserved.
 - Chips for severity, trust, scope and status; text always present, never color alone.
-- Sidebar groups and badges for counts of items needing a decision.
 - A light theme with the same shapes; contrast at least 4.5:1 for text and 3:1 for chip text on its fill, checked.
 - No remote assets; fonts stay the bundled IBM Plex.
 
 **Out of scope** (name the todo that covers it):
 
-- New layouts: R1 to R3. Apps, Listeners, Privilege and History keep their layouts.
+- Sidebar groups, count badges, the page shell and table and inspector styles: T1b.
+- New layouts: R1, R2, R3b. Apps, Listeners, Privilege and History keep their layouts.
 
 ## Target files
 
@@ -84,7 +82,7 @@ cargo run --release -- serve   # visit every page in both themes
 
 ## Risks and open questions
 
-- Large single-file diff; split as described so review stays possible.
+- Large single-file diff; T1b is split off so review stays possible.
 
 ## Definition of done
 

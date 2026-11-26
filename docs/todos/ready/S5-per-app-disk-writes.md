@@ -5,7 +5,7 @@
 | ID | `S5` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D7 |
-| Depends on | S2, B3, B9 |
+| Depends on | S2a, B3, B9 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/s5-per-app-disk-writes` |
 | PR title | `feat(metrics): opt-in hourly disk writes per app` |
@@ -48,6 +48,7 @@ Show which apps wrote the most to disk in the last 24 hours, with an hourly trac
 ## Steps
 
 - [ ] Tests for roll-up and counter resets first.
+- [ ] Change `settings::update` from four fixed parameters to a struct, so a new setting does not need another parameter.
 - [ ] Key per-process counters by pid and start time so a reused pid is not mixed in.
 - [ ] Add the erase route behind the same Origin and token checks as other writes.
 

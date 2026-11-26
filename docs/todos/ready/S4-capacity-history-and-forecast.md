@@ -5,7 +5,7 @@
 | ID | `S4` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D6 |
-| Depends on | S1, B9 |
+| Depends on | S1 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/s4-capacity-history-and-forecast` |
 | PR title | `feat(storage): keep daily capacity history and forecast when the disk fills` |
@@ -18,13 +18,13 @@ Store one capacity sample a day and show "grew 14.2 GB this week" and "full in a
 
 ## Context
 
-- B9 creates the SQLite sample tables behind a setting that defaults to off. This todo adds a `capacity` metric at one-day resolution, kept 90 days.
+- B9's metrics history is optional and off by default. Capacity history holds nothing about apps, so this todo uses its own small table and does not depend on that setting.
 
 ## Scope
 
 **In scope:**
 
-- A daily write of used, purgeable and free bytes, taken from the S1 capacity reading.
+- A daily write of used, purgeable and free bytes, taken from the S1 capacity reading, into a new `capacity_daily` table created with `CREATE TABLE IF NOT EXISTS`. No migration is needed.
 - `GET /api/storage/history` returning the series.
 - Forecast: least-squares line over the last 14 days of used (including purgeable); report days until used reaches capacity and a range from the line's standard error.
 - Page: the status strip fields and a small chart with the forecast as a dashed line.
@@ -55,13 +55,13 @@ Store one capacity sample a day and show "grew 14.2 GB this week" and "full in a
 | Fewer than 7 days of data | "Collecting history", no forecast |
 | Flat or shrinking usage | "Not growing", no days figure |
 | Large one-day drop (a big clean-up) | Fit uses days after the drop |
-| History setting off | Nothing written; page says history is off and how to turn it on |
+| Database not writable | Page still shows current capacity; the forecast says history is unavailable |
 | Clock moves backwards | Sample ignored |
 
 ## Acceptance criteria
 
 - After 8 days of samples the strip shows a forecast with a range.
-- Turning history off stops writes and keeps no rows beyond the 90-day cap.
+- No row older than 90 days is kept.
 
 ## Tests
 
@@ -76,7 +76,7 @@ make test
 
 ## Docs to update
 
-Plan status; resource-monitoring plan if B9's schema changes.
+Plan status.
 
 ## Risks and open questions
 

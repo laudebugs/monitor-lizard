@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `db79262`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [system-monitor](system-monitor.md), [resource-monitoring](resource-monitoring.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [S1](../todos/ready/S1-storage-scanner-and-api.md), [S2](../todos/ready/S2-storage-page.md), [S3](../todos/ready/S3-move-to-trash-action.md), [S4](../todos/ready/S4-capacity-history-and-forecast.md), [S5](../todos/ready/S5-per-app-disk-writes.md), [G1](../todos/ready/G1-guide-table-help-and-api.md), [G2](../todos/ready/G2-guide-page.md). The desktop shell is [A17](../todos/ready/A17-tauri-menu-bar-shell.md) and [ADR 0004](../decisions/0004-tauri-menu-bar-shell.md). Navigation and data: [N1](../todos/ready/N1-url-state-and-breadcrumbs.md), [N2](../todos/ready/N2-global-search.md), [N3](../todos/ready/N3-table-export-columns-copy-row.md). Look and layout: [T1](../todos/ready/T1-design-tokens-and-app-shell.md), [R1](../todos/ready/R1-overview-redesign.md), [R2](../todos/ready/R2-network-redesign.md), [R3](../todos/ready/R3-persistence-redesign.md). Baseline: [A9](../todos/ready/A9-mark-as-expected.md).
+- **Todos:** [S1](../todos/ready/S1-storage-scanner-and-api.md), [S2a](../todos/ready/S2a-storage-page-treemap-table-inspector.md), [S2b](../todos/ready/S2b-storage-clean-ups-and-system-data.md), [S3a](../todos/ready/S3a-move-to-trash-route.md), [S3b](../todos/ready/S3b-move-to-trash-page.md), [S4](../todos/ready/S4-capacity-history-and-forecast.md), [S5](../todos/ready/S5-per-app-disk-writes.md), [G1](../todos/ready/G1-guide-table-help-and-api.md), [G2](../todos/ready/G2-guide-page.md). The desktop shell is [A17](../todos/ready/A17-tauri-menu-bar-shell.md) and [ADR 0004](../decisions/0004-tauri-menu-bar-shell.md). Navigation and data: [N1](../todos/ready/N1-url-state-and-breadcrumbs.md), [N2](../todos/ready/N2-global-search.md), [N3](../todos/ready/N3-table-export-columns-copy-row.md). Look and layout: [T1a](../todos/ready/T1a-design-tokens-buttons-chips.md), [T1b](../todos/ready/T1b-page-shell-sidebar-tables.md), [R1](../todos/ready/R1-overview-redesign.md), [R2](../todos/ready/R2-network-redesign.md), [R3a](../todos/ready/R3a-persistence-data.md), [R3b](../todos/ready/R3b-persistence-redesign.md). Baseline: [A9](../todos/ready/A9-mark-as-expected.md). Database: [M1](../todos/ready/M1-sqlite-schema-versioning.md).
 
 ## 1. Goal
 
@@ -16,14 +16,14 @@ Add two pages to the dashboard that answer questions the app cannot answer today
 As of 2026-11-26, on `main`:
 
 - `src/sampler.rs` keeps CPU, memory and network samples in a ring buffer and serves them at `/api/metrics` (B1 is done). Disk metrics are todo B2; the Disk and network tab is B7.
-- `src/server.rs` has one guarded write, `POST /api/kill`, that needs a matching Origin and the per-run token, and records an action in `History`.
+- `src/server.rs` has three writes that need a matching Origin and the per-run token: `POST /api/kill`, `/api/approve` and `/api/settings`. Only `/api/kill` records to `History`.
 - `src/persistence.rs` is the pattern for a scanner whose result is cached and served as JSON.
 - `src/main.rs` has a hand-written usage line; there is no `help` command.
 - `web/index.html` is one file with a `NAV` list, no build step and bundled IBM Plex fonts.
 
 ## 3. What others do
 
-From the 2026-11-26 research (see the design canvas "Sys Monitor Redesign Directions", board "Research and directions"): people report macOS "System Data" as an unexplained 100 to 500 GB, a Storage pane stuck on "Calculating", and monitors that show many numbers and no verdict. On HN, commenters want a disk tool that is always installed, quick actions, shareable reports and per-app history. Quotes from Product Hunt and Apple Community came from search summaries and are secondary. Apple's own documentation was not read.
+The evidence is in the [research note](../research/storage-and-navigation-complaints/README.md). People report macOS "System Data" as an unexplained 100 to 500 GB, a Storage pane stuck on "Calculating", and monitors that show many numbers and no verdict. On HN, commenters want a disk tool that is always installed, quick actions, shareable reports and per-app history. Product Hunt and Apple Community points came from search summaries and are secondary. Apple's own documentation was not read.
 
 ## 4. Decisions
 
@@ -32,15 +32,15 @@ From the 2026-11-26 research (see the design canvas "Sys Monitor Redesign Direct
 - **D3.** Sizes are allocated bytes (`st_blocks * 512`), not apparent size, so a sparse file such as `Docker.raw` is not over-counted.
 - **D4.** Labels come from a rules table, like `rules::classify`: `safe` only for locations on an allowlist of things an app rebuilds or re-downloads; `review` where removal has side effects; `yours` for user files. A model never sets the label (system-monitor D4).
 - **D5.** Removal moves items to the Trash. The browser sends an item id from the latest scan, never a path. The server re-resolves it, refuses symlinks and anything outside the allowlist or the home folder, and refuses an item that changed since the scan. Every move is recorded in `History`.
-- **D6.** Growth history is capacity samples in SQLite through B9: system-wide, one value a day, kept 90 days. The forecast is a straight-line fit over the last 14 days and says "collecting history" before 7 days exist.
-- **D7.** Per-app disk writes are opt-in and off by default. They store hourly byte deltas per app group for 7 days, can be erased from Settings, and never store file names. This keeps the resource-monitoring rule that per-process history is not written by default.
+- **D6.** Growth history is one capacity sample a day, system-wide, kept 90 days in its own SQLite table. It is written even when the B9 metrics-history setting is off, because it holds nothing about apps. The forecast is a straight-line fit over the last 14 days and says "collecting history" before 7 days exist.
+- **D7.** Per-app disk writes are opt-in and off by default. They store hourly byte deltas per app group for 7 days, can be erased from the setting's control on the Storage page, and never store file names. This keeps the resource-monitoring rule that per-process history is not written by default.
 - **D8.** The Guide's commands live in one Rust table that feeds `sys-monitor help`, `GET /api/guide` and the page, so they cannot drift. The page copies commands and never runs one.
-- **D9.** Look and feel follow design direction D (violet console, treemap, suggested clean-ups), the Guide board, and the Overview, Network and Persistence boards, all in the owner's canvas "Sys Monitor Redesign Directions" (2026-11-26). Fonts stay the bundled IBM Plex. The owner decided on 2026-11-26 that the whole app takes this look, so T1 restyles every page and R1 to R3 redesign three of them; the other four pages (Apps, Listeners, Privilege, History) have no design yet.
-- **D10.** Two options stay undecided and have their own spike: how to move to the Trash without a new permission prompt (S3), and whether the Tauri shell is worth its signing cost (ADR 0004). The owner approved the Tauri spike (A17a) on 2026-11-26 and accepted its recommendation the same day: ADR 0004 is amended and stays Proposed, and acceptance depends on the owner's Full Disk Access test (A17).
-- **D11.** Every page has the same anatomy, so data is easy to find and read: breadcrumb and search, a one-line verdict as the title, filters with counts, a table, and an inspector with Related links and the rule that flagged an item.
+- **D9.** Look and feel follow design direction D (violet console, treemap, suggested clean-ups), the Guide board, and the Overview, Network and Persistence boards, all in the owner's canvas "Sys Monitor Redesign Directions" (2026-11-26). Fonts stay the bundled IBM Plex. The owner decided on 2026-11-26 that the whole app takes this look, so T1a and T1b restyle every page and R1, R2 and R3b redesign three of them; the other four pages (Apps, Listeners, Privilege, History) have no design yet.
+- **D10.** Two options stay undecided and have their own spike: how to move to the Trash without a new permission prompt (S3a), and whether the Tauri shell is worth its signing cost (ADR 0004). The owner approved the Tauri spike (A17a) on 2026-11-26 and accepted its recommendation the same day: ADR 0004 is amended and stays Proposed, and acceptance depends on the owner's Full Disk Access test (A17).
+- **D11.** Every page has the same anatomy: breadcrumb and search, a one-line verdict as the title, filters with counts, a table, and an inspector. The inspector has Related links and the rule that flagged the item. The shared shell in T1b provides it.
 - **D12.** Page state lives in the URL hash (page, filters, sort, selected item), so a view can be bookmarked, shared and restored on reload (N1). Counts and "Related" links open pre-filtered views.
 - **D13.** One search box, focused with `/`, finds apps, ports, hosts, startup items and Guide entries across pages (N2).
-- **D14.** Every table can export what is on screen as CSV or JSON, choose its columns and copy a row as JSON; times show relative text with the absolute time on hover; status is always text, never color alone (N3).
+- **D14.** Every table can export what is on screen as CSV or JSON, choose its columns and copy a row as JSON (N3). Times show relative text with the absolute time on hover, and status is always text, never color alone.
 - **D15.** Owner decision 2026-11-26: the opt-in per-app disk writes setting in D7 is accepted.
 
 ## 5. Order of work
@@ -48,23 +48,28 @@ From the 2026-11-26 research (see the design canvas "Sys Monitor Redesign Direct
 | Todo | Title | Depends on |
 |---|---|---|
 | S1 | Storage scanner and `/api/storage` | B2 |
-| S2 | Storage page | S1, B7, T1 |
-| S3 | Move to Trash action | S2 |
-| S4 | Capacity history and forecast | S1, B9 |
-| S5 | Per-app disk writes (opt-in) | S2, B3, B9 |
+| S2a | Storage page: status strip, treemap, table, inspector | S1, B7, T1a |
+| S2b | Storage page: suggested clean-ups, Inside System Data | S2a |
+| S3a | Move to Trash route and audit log | S1 |
+| S3b | Move to Trash on the page | S2a, S3a |
+| S4 | Capacity history and forecast | S1 |
+| S5 | Per-app disk writes (opt-in) | S2a, B3, B9 |
 | G1 | Guide table, `help` and `/api/guide` | None |
 | G2 | Guide page | G1 |
-| A17 | Tauri menu-bar shell | ADR 0004 accepted |
+| A17 | Tauri menu-bar shell | None (held by ADR 0004) |
 | N1 | URL state and breadcrumbs | None |
 | N2 | Global search | N1, G1 |
 | N3 | Table export, column chooser, copy row | None |
 | A9 | Mark as expected (feedback baseline) | None |
-| T1 | Design tokens and app shell for every page | None |
-| R1 | Overview redesign | T1, N1, A9 |
-| R2 | Network redesign | T1, N1, N3, A9 |
-| R3 | Persistence redesign | T1, N1, N3, A9 |
+| M1 | SQLite schema versioning | None |
+| T1a | Design tokens, buttons and chips | None |
+| T1b | Page shell, sidebar groups, table styles | T1a, N1 |
+| R1 | Overview redesign | T1b, N1, A9 |
+| R2 | Network redesign | T1b, N1, N3, A9 |
+| R3a | Persistence data: schedule, fingerprints, removals | M1 |
+| R3b | Persistence page redesign | R3a, T1b, N1, N3, A9 |
 
-G1, G2, N1, N3, A9 and T1 can start now. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
+G1, G2, N1, N3, A9, M1 and T1a can start now, and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
 
 ## 6. Risks and open questions
 
@@ -72,5 +77,6 @@ G1, G2, N1, N3, A9 and T1 can start now. The S chain waits for B2, B7 and B9. R4
 2. **Purgeable space.** The "important usage" figure that separates purgeable from free is marked unverified in the resource-monitoring research. S1 starts by checking it.
 3. **Full Disk Access.** Mail and Messages folders need it. Without it those rows are unavailable. A signed app bundle (A17) would give one stable identity to grant it to, which is unverified.
 4. **Scan cost.** A slow scan would make the monitor its own top consumer. S1 sets a time budget and runs at low priority.
-5. **Design gap.** Apps, Listeners, Privilege and History have no redesign. Until they do, T1 gives them the new tokens and shell but not the new layout.
+5. **Design gap.** Apps, Listeners, Privilege and History have no redesign. Until they do, T1a and T1b give them the new tokens and shell but not the new layout.
 6. **A9 is new scope.** The designs have "Mark as expected" buttons for hosts, startup items and alerts. The feedback baseline is listed as not yet written in the system-monitor plan; A9 is its first slice.
+7. **No migration mechanism.** `History` only creates tables that are missing, so adding a column to an existing table needs M1 first (R3a does). New tables, as in S3a, S4 and S5, need none.

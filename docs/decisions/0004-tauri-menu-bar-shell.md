@@ -3,15 +3,16 @@
 - **Status:** Proposed
 - **Date:** 2026-11-26
 - **Plan:** [storage-and-guide](../plans/storage-and-guide.md)
-- **Amended 2026-11-26:** the A17a spike ran ([report](../research/tauri-shell-spike/README.md)). The shell is feasible, so the technical risks below are mostly resolved. Acceptance now depends on one owner-run test, the Full Disk Access test, and two checks are added to the decision. The status stays Proposed.
+- **Amended 2026-11-26:** the A17a spike ran ([report](../research/tauri-shell-spike/README.md)). The shell is feasible, so the technical risks below are mostly resolved. Acceptance now depends on one owner-run test, the Full Disk Access test, and two checks are added to the decision. The status stays Proposed. The gate is owned by todo A17.
 
 ## Context
 
-[ADR 0002](0002-rust-core-polling-collectors-local-web-ui.md) chose a Rust core and a loopback web page, and noted that "a Tauri menu-bar app can wrap the same server and page later". Nothing has been planned since. Three things now ask for an app: notifications cannot offer a click-through or action buttons without one (A14), the Storage scanner needs Full Disk Access for Mail and Messages, and a menu-bar item could show free space and the finding count without a browser tab open.
+[ADR 0002](0002-rust-core-polling-collectors-local-web-ui.md) chose a Rust core and a loopback web page, and noted that "a Tauri menu-bar app can wrap the same server and page later". Nothing has been planned since. Three things now ask for an app. Notifications cannot offer a click-through or action buttons without one (A14). The Storage scanner needs Full Disk Access for Mail and Messages. A menu-bar item could show free space and the finding count without a browser tab open.
 
 Spike result, 2026-11-26 (details and labels in the [report](../research/tauri-shell-spike/README.md)):
 
-- **Verified:** a Tauri 2.12.7 shell builds on macOS 27; the server runs in-process; the webview loads the loopback page; the Host, Origin and token checks work unchanged (a request with no token or a wrong token got 403); the tray title and tooltip update every 10 s; the app hides from the Dock; the bundle is 8.8 MiB. No capability and no `invoke` command was needed.
+- **Verified:** a Tauri 2.12.7 shell builds on macOS 27, and the server runs in-process. The webview loads the loopback page, and the Host, Origin and token checks work unchanged (a request with no token or a wrong token got 403).
+- **Also verified:** the tray title and tooltip update every 10 s, the app hides from the Dock, and the bundle is 8.8 MiB. No capability and no `invoke` command was needed.
 - **Cost, measured:** about 133 MB resident against 7 MB for `sys-monitor serve`, a 99 USD a year developer program (the owner already holds a Developer ID identity) and a signing and notarization release job.
 - **Not verified:** whether a bundle keeps Full Disk Access across rebuilds (needs the owner), the tray menu items (could not be clicked), that `invoke` is denied from the page (`window.__TAURI_INTERNALS__` is still injected), and clipboard writes from a click.
 

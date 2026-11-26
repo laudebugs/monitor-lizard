@@ -26,7 +26,8 @@ Put every command and term the user may need in one Rust table, and use it for `
 **In scope:**
 
 - `src/guide.rs` with `COMMANDS` and `TERMS` as static tables and a `Safety` enum.
-- Entries for every `sys-monitor` subcommand and the macOS and developer commands on the design board: `df -h /`, `diskutil apfs list`, `tmutil listlocalsnapshots /`, `tmutil deletelocalsnapshots <date>`, `du -sh ~/Library/* | sort -h`, `xcrun simctl delete unavailable`, `docker system df`, `docker system prune`, `brew cleanup -n`.
+- Entries for every `sys-monitor` subcommand.
+- Entries for the macOS and developer commands on the design board: `df -h /`, `diskutil apfs list`, `tmutil listlocalsnapshots /`, `tmutil deletelocalsnapshots <date>`, `du -sh ~/Library/* | sort -h`, `xcrun simctl delete unavailable`, `docker system df`, `docker system prune`, `brew cleanup -n`.
 - `sys-monitor help [word]` prints the table, filtered by the word.
 - `GET /api/guide` returns both tables as JSON.
 - A test that every `main.rs` subcommand has a table entry.

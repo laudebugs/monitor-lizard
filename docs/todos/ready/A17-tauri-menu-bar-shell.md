@@ -9,16 +9,16 @@
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D10 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md), [0004](../../decisions/0004-tauri-menu-bar-shell.md) |
-| Branch | `spike/a17-tauri-menu-bar-shell` |
+| Branch | `feat/a17-tauri-menu-bar-shell` |
 | PR title | `feat(shell): add a Tauri menu-bar shell around the local server` |
-| Size | L (over 400: split before you start) |
+| Size | M (200-400) |
 | PR | — |
 
 ## Goal
 
 Run the existing server and page inside a Tauri v2 app with a tray item showing free space and the count of high findings, without changing how writes are guarded.
 
-Split before building: A17a is the spike (a throwaway branch that answers the open questions and updates the ADR), A17b the shell, A17c signing and release.
+The spike (A17a) is done, so this todo is the shell itself. Signing and release automation is a later todo that is not written yet.
 
 ## Context
 
@@ -30,8 +30,8 @@ Split before building: A17a is the spike (a throwaway branch that answers the op
 
 **In scope:**
 
-- A17a spike: load `http://127.0.0.1:<port>/` in a Tauri webview; confirm the Host and Origin checks and the per-run token still work; confirm a tray item updates every 10 s; confirm what a signed bundle does for Full Disk Access; estimate the cost of Developer ID signing and notarization.
-- A17b: a second binary, a tray menu (Open dashboard, Rescan, Quit), no `invoke` commands for writes.
+- Already shown in the spike (A17a): the webview loads the loopback page with the guards unchanged, and the tray updates every 10 s. The cost of signing was estimated. The Full Disk Access check is the gate in the Steps.
+- The shell: a second binary, a tray menu (Open dashboard, Rescan, Quit), and no `invoke` commands for writes.
 
 **Out of scope** (name the todo that covers it):
 
@@ -47,8 +47,8 @@ Split before building: A17a is the spike (a throwaway branch that answers the op
 
 ## Steps
 
-- [x] A17a: the spike ran on `spike/a17-tauri-menu-bar-shell` (commit `2cab5de`, throwaway code kept on the owner's machine, not pushed or merged) and its report is in `docs/research/tauri-shell-spike/`.
-- [ ] **Owner gate, Full Disk Access test:** follow the steps in the report (section "Full Disk Access test"): grant Full Disk Access to the bundle, confirm it can read `~/Library/Mail`, rebuild, and confirm the grant still applies; repeat with a Developer ID signature. Record the result in the ADR. If the grant does not survive a rebuild, reject ADR 0004 and close this todo.
+- Done: the A17a spike ran on `spike/a17-tauri-menu-bar-shell` (commit `2cab5de`; throwaway code kept on the owner's machine, not pushed or merged), and its report is in `docs/research/tauri-shell-spike/`.
+- [ ] **Owner gate, Full Disk Access test:** follow the steps in the report, section "Full Disk Access test". Grant Full Disk Access to the bundle, confirm it can read `~/Library/Mail`, rebuild, and confirm the grant still applies. Repeat with a Developer ID signature. Record the result in the ADR. If the grant does not survive a rebuild, reject ADR 0004 and close this todo.
 - [ ] Click-test the tray menu (Open dashboard, Rescan, Quit) and clipboard writes from a click; the spike could not.
 - [ ] Check that `invoke` is denied from the page and record how.
 - [ ] Only after the gate passes: create the shell with the smallest capability set that works, reusing the spike's `bind_free()` and `serve_on()` split in `src/server.rs`.
@@ -77,6 +77,7 @@ Rust tests for port selection and shutdown; a manual run recorded per `AGENTS.md
 ```sh
 make check
 make test
+cd src-tauri && cargo tauri build --bundles app
 ```
 
 ## Docs to update

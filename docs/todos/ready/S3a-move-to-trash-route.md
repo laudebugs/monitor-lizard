@@ -1,20 +1,20 @@
-# S3: Move to Trash action
+# S3a: Move to Trash route and audit log
 
 | Field | Value |
 |---|---|
-| ID | `S3` |
+| ID | `S3a` |
 | Status | `ready` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D5, D10 |
-| Depends on | S2 |
+| Depends on | S1 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
-| Branch | `feat/s3-move-to-trash-action` |
+| Branch | `feat/s3a-move-to-trash-route` |
 | PR title | `feat(storage): move scanned items to the Trash with an audit entry` |
 | Size | M (200-400) |
 | PR | — |
 
 ## Goal
 
-Let the user move one or more scanned items to the Trash from the Storage page, behind a preview and a confirmation. It is the only way the app removes files.
+Let the server move scanned items to the Trash behind guards, with a dry run and an audit entry. It is the only way the app removes files. The page side is S3b.
 
 ## Context
 
@@ -26,13 +26,14 @@ Let the user move one or more scanned items to the Trash from the Storage page, 
 **In scope:**
 
 - `POST /api/trash?ids=a,b` with the Origin check and the per-run token.
-- The server re-resolves each id from the latest scan, then refuses: symlinks, paths outside the allowlist or `$HOME`, items whose size or modified time changed since the scan, and items labelled `yours` unless the request carries `confirm_yours=1` from a second confirmation.
+- The server re-resolves each id from the latest scan. It then refuses symlinks, paths outside the allowlist or `$HOME`, and items whose size or modified time changed since the scan. It also refuses items labelled `yours` unless the request carries `confirm_yours=1`, sent after a second confirmation.
 - A dry-run `POST /api/trash?ids=...&dry=1` that returns what would move, with sizes and the reason for any refusal.
-- One audit entry per request: ids, paths, bytes, refusals.
-- Page: "Review" opens the preview; "Move to Trash" is enabled only after the preview has been shown.
+- One audit entry per request in a new `trash_moves` table (time, ids, paths, bytes, refusals), created with `CREATE TABLE IF NOT EXISTS`, so no migration is needed. The existing `actions` table stores only pids and cannot hold paths.
+- `/api/history` returns the trash moves so the History page can list them.
 
 **Out of scope** (name the todo that covers it):
 
+- The preview dialog and enabling the page's buttons: S3b.
 - Permanent deletion, `docker prune`, `tmutil deletelocalsnapshots`: not planned; the Guide explains them instead.
 
 ## Target files
@@ -42,8 +43,7 @@ Let the user move one or more scanned items to the Trash from the Storage page, 
 | `src/storage.rs` | `resolve(ids)`, refusal rules |
 | `src/actions.rs` | `trash(paths)` |
 | `src/server.rs` | route |
-| `src/history.rs` | action kind `trash` if the table needs it |
-| `web/index.html` | preview dialog, enable buttons |
+| `src/history.rs` | `trash_moves` table, writer and reader |
 
 ## Steps
 
@@ -67,7 +67,7 @@ Let the user move one or more scanned items to the Trash from the Storage page, 
 ## Acceptance criteria
 
 - A moved item appears in the Trash and can be put back.
-- Every move is on the History page with its size.
+- Every move is returned by `/api/history` with its path and size.
 - No request can move a path the last scan did not list.
 
 ## Tests

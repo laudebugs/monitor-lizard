@@ -34,9 +34,9 @@ Scan a fixed list of locations on the boot volume, label each item `safe`, `revi
 
 **Out of scope** (name the todo that covers it):
 
-- Any deletion: S3.
+- Any deletion: S3a and S3b.
 - Capacity history: S4.
-- The page: S2.
+- The page: S2a and S2b.
 
 ## Target files
 

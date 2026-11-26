@@ -30,7 +30,7 @@ Let the user say "this is expected" for a remote host, a startup item or a singl
 - `POST /api/approve?kind=host&key=...` with the same Origin and per-run token guards as other writes.
 - Marked hosts and startup items drop out of the New filters and the Overview list; they stay in their tables with an "expected" chip.
 - `sys-monitor approve` accepts the typed form and keeps the old form working.
-- Each marking is recorded in the History action log, and an "Unmark" action undoes it.
+- Each marking is recorded in a new `baseline_changes` table (time, kind, key, mark or unmark), created with `CREATE TABLE IF NOT EXISTS`, because the `actions` table stores only pids. An "Unmark" action undoes it.
 
 **Out of scope** (name the todo that covers it):
 
@@ -41,10 +41,10 @@ Let the user say "this is expected" for a remote host, a startup item or a singl
 | File | Change |
 |---|---|
 | `src/baseline.rs` | typed keys, migration, `unapprove` |
-| `src/history.rs` | action kind for baseline changes |
+| `src/history.rs` | `baseline_changes` table and writer |
 | `src/server.rs` | `kind` parameter, `POST /api/unapprove` |
 | `src/main.rs` | CLI form |
-| `web/index.html` | buttons and chips (restyled by T1 and R1 to R3) |
+| `web/index.html` | buttons and chips (restyled by T1a, T1b, R1, R2 and R3b) |
 
 ## Steps
 
@@ -85,7 +85,7 @@ make test
 
 ## Risks and open questions
 
-- Marking a malicious item expected hides it from the Overview. The row keeps an "expected" chip and the History log shows who marked it and when.
+- Marking a malicious item expected hides it from the Overview. The row keeps an "expected" chip and the History log shows when it was marked.
 
 ## Definition of done
 
