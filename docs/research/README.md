@@ -19,6 +19,7 @@ Add each topic below in the same PR.
 | [local-classifier](local-classifier/README.md) | Local models and runtimes for classifying processes; rules decide, the model only explains |
 | [resource-monitoring](resource-monitoring/README.md) | What CPU, GPU, memory, disk and network data macOS gives a non-root app, and how to sample and chart it |
 | [buildanagent-adoption](buildanagent-adoption/README.md) | How the owner's buildanagent SDK could run the classifier agent; led to the hybrid in ADR 0003 |
+| [tauri-shell-spike](tauri-shell-spike/README.md) | A Tauri v2 menu-bar shell runs the server and page unchanged; signing and Full Disk Access decide whether it is worth it |
 
 ## Cite, date, and say what was not verified
 
@@ -49,3 +50,4 @@ Date: YYYY-MM-DD · Scope: <what> · Legend: ✅ confirmed · ✏️ corrected �
 ```
 
 Row IDs are `<todo id>-<n>` so parallel PRs never collide. Never renumber. Correct a wrong claim in place and give the correction its own row, so every change stays visible.
+| [storage-and-navigation-complaints](storage-and-navigation-complaints/README.md) | What people ask of a system monitor and where Mac disk space goes: Hacker News threads, with secondary sources labelled |

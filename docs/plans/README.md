@@ -13,3 +13,4 @@ A plan is the design: what we build and why, the current state, the decisions, a
 | [system-monitor.md](system-monitor.md) | In progress |
 | [resource-monitoring.md](resource-monitoring.md) | Draft |
 | [classifier-agent.md](classifier-agent.md) | Draft |
+| [storage-and-guide.md](storage-and-guide.md) | Draft |
