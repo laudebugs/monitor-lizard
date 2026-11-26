@@ -1,4 +1,4 @@
-use crate::{baseline, collect, group, history::History, model::*, rules};
+use crate::{baseline, collect, group, history::History, model::*, notify, rules};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn take() -> Snapshot {
@@ -36,6 +36,7 @@ pub fn take() -> Snapshot {
         }
         findings.sort_by_key(|f| f.severity);
     }
+    notify::dispatch(&findings);
     for g in groups.iter_mut() {
         let (trust, fired) = rules::classify(g, &findings);
         g.trust = trust;

@@ -106,6 +106,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 <body>
 <div class="shell">
 <nav class="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 0 64 64"><g stroke="currentColor" stroke-width="6" fill="none" stroke-linecap="square"><path d="M32 10 L32 20 L18 20 L18 32 L10 32"/><path d="M32 20 L46 20 L46 32 L54 32"/><path d="M32 20 L32 34 L20 34 L20 46"/><path d="M32 34 L44 34 L44 46"/></g><g fill="currentColor"><rect x="29" y="7" width="6" height="6"/><rect x="15" y="29" width="6" height="6"/><rect x="43" y="29" width="6" height="6"/><rect x="17" y="43" width="6" height="6"/><rect x="41" y="43" width="6" height="6"/></g></svg></span><span>Sys Monitor</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
+<div id="notif" style="padding:0 8px"></div>
 <div id="theme" style="padding:0 8px"></div>
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
 <main class="main">
@@ -126,7 +127,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -259,6 +260,11 @@ const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privi
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
 const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [] }); } catch (e) {} };
+const loadSettings = async () => { try { quiet({ settings: await (await api('/api/settings')).json() }); } catch (e) {} };
+async function setNotifications(level) {
+  try { const s = await (await api('/api/settings?notifications=' + level, 'POST')).json(); rec({ settings: s }); toast('Notifications: ' + level + '.' + (level !== 'off' ? ' Findings already on this Mac will not notify; only new ones will.' : '')); }
+  catch (e) { toast('Could not change notifications: ' + e.message); }
+}
 const toast = (t) => rec({ toast: t });
 const mute = (id) => { S.muted.add(id); localStorage.setItem('sysmon-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -534,6 +540,7 @@ function render() {
   // createElement has no SVG namespace; set the icon markup after the fact.
   document.querySelectorAll('#nav svg').forEach((svg, i) => { svg.innerHTML = '<path d="' + NAV[i][2] + '" stroke-linecap="round" stroke-linejoin="round"/>'; });
   $('title').textContent = TITLES[S.view] || '';
+  $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (!S.snap) c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...'));
@@ -558,7 +565,7 @@ function render() {
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); render(); load(); loadPriv(); loadSudo(); loadPers(); loadHist();
+applyTheme(); render(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
 </script>
 </body>
