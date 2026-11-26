@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1b` |
-| Status | `done` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | T1a, N1 |
 | ADRs | None |
@@ -44,7 +44,7 @@ Give every page the same anatomy: breadcrumb and search on top, a verdict line a
 
 - [x] Add the title-sentence functions with tests first.
 - [x] Convert each page renderer to call `pageShell`; keep its body unchanged.
-- [x] Check every page in both themes at the tab's width (1019 px) and at 400 px. 1360 px was not available (see the Implementation Record).
+- [ ] Check every page in both themes at the normal width and at 400 px. Done at 1019 px and 400 px; the owner's session looks at 1352 px next.
 
 ## Edge cases (must be covered)
 
@@ -58,7 +58,7 @@ Give every page the same anatomy: breadcrumb and search on top, a verdict line a
 
 ## Acceptance criteria
 
-- All nine pages share the shell and look consistent. Checked at 1019 px and 400 px; not at 1360 px (the window cannot be resized).
+- All nine pages share the shell and look consistent. The first draft said ten pages; there are nine page ids, so the spec was wrong. Checked at 1019 px and 400 px; the 1352 px check is pending (the owner's session).
 - Every badge links to the pre-filtered page it counts. Overview has no badge, because it has no filtered page to link to.
 
 ## Tests
@@ -86,10 +86,10 @@ cargo run --release -- serve   # visit every page in both themes
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; both axes ran and the fix commits answer them
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
-- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [ ] Moved `ongoing/` -> `done/` in the last work commit, after the 1352 px check; plan updated; Implementation Record added
 
 ## Implementation Record
 
@@ -104,13 +104,32 @@ cargo run --release -- serve   # visit every page in both themes
 - The export note is one line. A "File details" button opens the full text, which stays in the page.
 - A skip link and shared inspector classes were added.
 
+**Review fixes** (second commit round).
+
+- The Network title waits for the host history. Every verdict title now names the data it counts and shows the page name until it has loaded:
+
+| Page | Waits for |
+|---|---|
+| Overview | snapshot, privilege log, startup items |
+| Apps, Listeners | snapshot |
+| Privilege | privilege log |
+| Persistence | startup items |
+| Network | snapshot, host history |
+| History, Performance, Guide | nothing (the name) |
+
+- The Apps inspector has a Related section: remote hosts, listening sockets, startup items and new hosts, each only when it opens rows. Links come from `writeHash`. They filter by the app's name (its path for startup items), so an app with a similar name may also show.
+- Network and Persistence have no inspector, so they have no Related section. A Guide link per app is not done: Guide entries name pages, not apps, and the hash has no key for it.
+- Counts in sentences use `plural()`, so "1 app" reads right.
+- Two failed numbers stay on purpose. The badge counts all failed authorization requests; the Overview tile counts sudo only and says so. The tile links to the failed filter.
+- One function counts apps needing review for the title, the badge and the tile.
+- Times are `<time>` elements with the exact time in the title and in text for a screen reader. Badge names start with the shown text, such as "99+ apps need review, 120 in total".
+- NAV entries are objects. Performance's live toggle uses the title actions slot. The unused `crumb` parameter was dropped.
+
 **Deviations.**
 
-- The Privilege badge counts all failed authorization requests, not only sudo ones, so it equals the rows its link shows. The Overview tile still counts sudo.
-- The top bar holds breadcrumb and search and is not redrawn, so typing keeps focus. The shell returns the breadcrumb separately.
-- The skip link is a button, since a `#` link would change the page state.
-- The sidebar is rebuilt only when it changes, and keeps focus when it is.
-- Overview has no badge.
+- The first draft said ten pages. There are nine page ids, so the spec was wrong.
+- The skip link is a button, because a `#` link would change the page state.
+- Overview has no badge, because it has no filtered page.
 - Table row grids and widths are untouched.
 
 **Checked in Chrome** (this build, scratch HOME, port 4972, tab width 1019 px, window not resized):
@@ -123,8 +142,8 @@ cargo run --release -- serve   # visit every page in both themes
 
 **Not checked.**
 
-- 1360 px width, Privilege and Apps in dark at the tab width, the inspector beside the table, forced colors, and a screen reader.
+- 1352 px width, with the inspector beside the table: the owner's session will look. 1360 px is not claimed. Also Privilege and Apps in dark at the tab width, forced colors, and a screen reader.
 - The Network table's first columns still collapse; that bug has its own fix.
 - Keyboard focus in the table is lost on each poll redraw. It was not changed.
 - Authorization times stay as time of day, because the log gives text, not seconds.
-- `/code-review` and `/writing-review` are for the owner's session.
+- `/writing-review` is for the owner's session.
