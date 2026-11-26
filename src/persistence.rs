@@ -1,12 +1,10 @@
 //! Startup items: launch agents/daemons and cron. Read-only. A new item appearing after the first scan
 //! is the classic sign of something installing itself, so we remember first-seen times.
-use crate::{collect, history::History, model::Signing};
+use crate::{collect, history::{History, LEARNING_SECS}, model::Signing};
 use serde::Serialize;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// After this long since the very first scan, a newly appearing item counts as "new".
-const LEARNING_SECS: u64 = 60;
 const NEW_WINDOW_SECS: u64 = 7 * 24 * 3600;
 
 #[derive(Serialize, Clone, Debug)]
@@ -31,9 +29,21 @@ pub fn item_from_cron(line: &str) -> Option<Item> {
     let cmd = if l.starts_with('@') { l.split_once(char::is_whitespace)?.1.trim().to_string() }
               else { l.split_whitespace().skip(5).collect::<Vec<_>>().join(" ") };
     if cmd.is_empty() { return None; }
-    Some(Item { path: format!("crontab:{l}"), scope: "user", kind: "cron", label: cmd.chars().take(80).collect(), program: cmd.split_whitespace().next().unwrap_or("").into(),
+    Some(Item { path: format!("crontab:{l}"), scope: "user", kind: "cron", label: cmd.chars().take(80).collect(), program: first_word(&cmd),
         run_at_load: l.starts_with("@reboot"), keep_alive: false, signing: None, first_seen: 0, is_new: false })
 }
+
+/// The program of a cron command: a quoted path may contain spaces, otherwise the first word.
+fn first_word(cmd: &str) -> String {
+    let c = cmd.trim_start();
+    if let Some(q) = c.chars().next().filter(|q| *q == '"' || *q == '\'') {
+        if let Some(end) = c[1..].find(q) { return c[1..1 + end].to_string(); }
+    }
+    c.split_whitespace().next().unwrap_or("").to_string()
+}
+
+/// Items from the output of `crontab -l`; lines that are not jobs ("no crontab for ...") yield nothing.
+pub fn parse_crontab(out: &str) -> Vec<Item> { out.lines().filter_map(item_from_cron).collect() }
 
 fn scan_dir(dir: &str, scope: &'static str, kind: &'static str, out: &mut Vec<Item>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
@@ -60,8 +70,8 @@ pub fn take() -> Vec<Item> {
     scan_dir(&format!("{home}/Library/LaunchAgents"), "user", "LaunchAgent", &mut items);
     scan_dir("/Library/LaunchAgents", "system", "LaunchAgent", &mut items);
     scan_dir("/Library/LaunchDaemons", "system", "LaunchDaemon", &mut items);
-    if let Ok(o) = Command::new("crontab").arg("-l").output() {
-        items.extend(String::from_utf8_lossy(&o.stdout).lines().filter_map(item_from_cron));
+    if let Some(o) = Command::new("crontab").arg("-l").output().ok().filter(|o| o.status.success()) {
+        items.extend(parse_crontab(&String::from_utf8_lossy(&o.stdout)));
     }
     std::thread::scope(|s| {
         for it in items.iter_mut().filter(|i| i.program.starts_with('/') && std::path::Path::new(&i.program).exists()) {
@@ -69,12 +79,19 @@ pub fn take() -> Vec<Item> {
         }
     });
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    if let Ok(mut h) = History::open() {
-        if let Ok((first, earliest)) = h.record_persistence(&items, now) {
-            for it in &mut items {
-                it.first_seen = first.get(&it.path).copied().unwrap_or(now);
-                it.is_new = is_new(it.first_seen, earliest, now);
-            }
+    let recorded = History::open().and_then(|mut h| {
+        let paths: Vec<&str> = items.iter().map(|i| i.path.as_str()).collect();
+        h.record_persistence(&paths, now)
+    });
+    match recorded {
+        Ok((first, earliest)) => for it in &mut items {
+            it.first_seen = first.get(&it.path).copied().unwrap_or(now);
+            it.is_new = is_new(it.first_seen, earliest, now);
+        },
+        // Fail loudly: without history nothing can be called new, and silence would look like "all clear".
+        Err(e) => {
+            eprintln!("ownwatch: could not record startup items, so none can be marked new: {e}");
+            for it in &mut items { it.first_seen = now; }
         }
     }
     items.sort_by(|a, b| b.is_new.cmp(&a.is_new).then(a.scope.cmp(b.scope)).then(a.label.cmp(&b.label)));
@@ -96,6 +113,32 @@ mod tests {
         assert!(!is_new(1050, 1000, 1100), "inside the learning period");
         assert!(is_new(1200, 1000, 1300), "appeared after learning");
         assert!(!is_new(1200, 1000, 1200 + NEW_WINDOW_SECS), "too old to flag");
+    }
+    #[test]
+    fn cron_program_may_be_quoted_and_contain_spaces() {
+        let it = item_from_cron(r#"0 * * * * "/Applications/Foo Bar.app/run" --x"#).unwrap();
+        assert_eq!(it.program, "/Applications/Foo Bar.app/run");
+        assert_eq!(item_from_cron("0 * * * * '/opt/a b/c'").unwrap().program, "/opt/a b/c");
+        assert_eq!(item_from_cron("0 * * * * /usr/bin/true --x").unwrap().program, "/usr/bin/true");
+    }
+    #[test]
+    fn crontab_output_without_jobs_gives_no_items() {
+        assert!(parse_crontab("").is_empty());
+        assert!(parse_crontab("no crontab for someone\n").is_empty());
+        assert_eq!(parse_crontab("# m h dom mon dow\nMAILTO=x\n*/5 * * * * /bin/echo hi\n").len(), 1);
+    }
+    #[test]
+    fn scan_skips_unreadable_and_non_plist_files_and_keeps_spaces_in_programs() {
+        let dir = std::env::temp_dir().join(format!("ow-scan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), "not a plist").unwrap();
+        std::fs::write(dir.join("garbage.plist"), "this is not a property list").unwrap();
+        std::fs::write(dir.join("ok.plist"), r#"<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>com.test.ok</string><key>Program</key><string>/Applications/Foo Bar.app/Contents/MacOS/foo</string></dict></plist>"#).unwrap();
+        let mut out = Vec::new();
+        scan_dir(dir.to_str().unwrap(), "user", "LaunchAgent", &mut out);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(out.len(), 1, "only the valid plist is listed");
+        assert_eq!((out[0].label.as_str(), out[0].program.as_str()), ("com.test.ok", "/Applications/Foo Bar.app/Contents/MacOS/foo"));
     }
     #[test]
     fn cron_lines() {

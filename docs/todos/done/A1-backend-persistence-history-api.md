@@ -79,7 +79,12 @@ Rust unit tests in `src/persistence.rs` and `src/history.rs`, at least 4 new cas
 ## Verification
 
 ```sh
-make check\nmake test\ncargo run --release -- persistence | head\ncargo run --release -- serve &\ncurl -s localhost:4747/api/persistence | head -c 300\ncurl -s localhost:4747/api/history | head -c 300
+make check
+make test
+cargo run --release -- persistence | head
+cargo run --release -- serve &
+curl -s localhost:4747/api/persistence | head -c 300
+curl -s localhost:4747/api/history | head -c 300
 ```
 
 ## Docs to update
@@ -96,7 +101,7 @@ make check\nmake test\ncargo run --release -- persistence | head\ncargo run --re
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -110,5 +115,6 @@ make check\nmake test\ncargo run --release -- persistence | head\ncargo run --re
 - **Real run on this Mac:** 37 startup items (17 system daemons, 15 system agents, 5 user agents) in about 0.5 s; none new on the first scan; 4 run unsigned programs (a Cisco uninstall script, Docker's socket helper and two MacGPG2 helper scripts); 2 Google Keystone user agents have an empty plist, so no program. `/api/history` returned 477 first-seen rows and 5 audit rows. Both endpoints return 403 for a foreign `Host` header.
 - **Deviation:** none from the sketch.
 - **Open:** the learning-period seeding means a startup item installed within the first minute of the first scan is never flagged; acceptable for a first run. Login items are still not covered. The pages that consume these endpoints are A2, A4 and A5.
-- **CI:** pending on the pull request; `/code-review` not yet run (pending, per `AGENTS.md`).
+- **Review (2026-11-26):** `/code-review high 5` ran a standards and a spec review. Fixed: the `persistence` command missing from the layout doc; a quoted cron program path was cut at the first space (regression test added); `/api/history` returned empty lists on a database error (now a 500); a failed first-seen write silently left items "not new" (now logged, `first_seen` falls back to now); the learning period was declared twice (now one constant); `record_persistence` takes paths instead of whole items; tests added for an unreadable plist, a missing crontab and a plist program path with spaces; row limits named. Not changed, with reasons: `earliest` is the time of the very first scan by design, so a removed old item cannot move it; `scope` and `kind` stay strings and the first-seen tuple stays a tuple (judgement calls, noted for a later refactor); `/writing-review` on this todo's prose was not run (pending).
+- **CI:** green on the pull request before review fixes; re-run pending.
 
