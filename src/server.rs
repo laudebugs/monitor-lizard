@@ -1,4 +1,4 @@
-use crate::{actions, baseline::{self, Kind}, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
+use crate::{actions, baseline::{self, Kind}, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, storage, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -54,6 +54,7 @@ pub fn serve(port: u16) {
     refresh(&pers, Duration::from_secs(60), persistence::take);
     // Say at startup if the history cannot be opened (for instance a database from a newer build), instead of showing empty pages.
     drop(history::open_or_report());
+    let storage_cache: Arc<storage::Cache> = Default::default();
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
     history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
@@ -79,6 +80,7 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/snapshot") => cached(&snap),
             (Method::Get, "/api/privilege") => cached(&privs),
             (Method::Get, "/api/persistence") => cached(&pers),
+            (Method::Get, "/api/storage") => json_resp(storage_cache.request(query_param(query, "fresh").as_deref() == Some("1"), storage::scan)),
             (Method::Get, "/api/metrics") => {
                 let since = query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
                 match query_param(query, "res").as_deref() {

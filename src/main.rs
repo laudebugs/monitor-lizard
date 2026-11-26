@@ -1,4 +1,4 @@
-mod actions; mod baseline; mod classify; mod collect; mod group; mod guide; mod history; mod iokit; mod llm; mod model; mod notify; mod paths; mod persistence; mod privilege; mod procusage; mod rules; mod sampler; mod server; mod settings; mod snapshot; mod watcher;
+mod actions; mod baseline; mod classify; mod collect; mod group; mod guide; mod history; mod iokit; mod llm; mod model; mod notify; mod paths; mod persistence; mod privilege; mod procusage; mod rules; mod sampler; mod server; mod settings; mod snapshot; mod storage; mod watcher;
 use std::collections::BTreeMap;
 
 fn main() {
@@ -25,6 +25,7 @@ fn main() {
         Some("persistence") => for i in persistence::take() {
             println!("{}{:<12} {:<7} {} -> {}", if i.is_new { "NEW " } else { "    " }, i.kind, i.scope, i.label, i.program);
         },
+        Some("storage") => println!("{}", storage::to_json(Some(&storage::scan()), false, true)),
         Some("metrics") => println!("{}", serde_json::to_string_pretty(&sampler::one_shot()).unwrap()),
         Some("classify") => match args.next() {
             Some(key) => {
