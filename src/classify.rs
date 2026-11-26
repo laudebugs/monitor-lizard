@@ -6,7 +6,7 @@
 //! This module's name sits next to `rules::classify`, which is a different thing: that one decides
 //! a group's trust *label* from its signals; this one decides what the label *allows*, and builds
 //! the evidence record, once a label already exists.
-use crate::{history::History, llm, model::{Direction, Group, Label}, persistence, snapshot};
+use crate::{llm, model::{Direction, Group, Label}, persistence, snapshot};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -162,7 +162,7 @@ fn build_evidence(g: &Group, first_seen_age_secs: Option<u64>, persistent: bool)
 pub fn evidence(group_key: &str) -> Option<Evidence> {
     let snap = snapshot::take();
     let g = snap.groups.iter().find(|g| g.key == group_key)?;
-    let first_seen_age_secs = History::open().ok().and_then(|h| h.first_seen(group_key).ok().flatten()).map(|fs| snap.at.saturating_sub(fs));
+    let first_seen_age_secs = crate::history::open_or_report().and_then(|h| h.first_seen(group_key).ok().flatten()).map(|fs| snap.at.saturating_sub(fs));
     let persistent = persistence::take().iter().any(|i| g.procs.iter().any(|p| p.exe == i.program) || i.program.starts_with(&g.key));
     Some(build_evidence(g, first_seen_age_secs, persistent))
 }

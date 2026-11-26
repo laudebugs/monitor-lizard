@@ -1,4 +1,4 @@
-use crate::{baseline, collect, group, history::History, model::*, notify, rules};
+use crate::{baseline, collect, group, model::*, notify, rules};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn take() -> Snapshot {
@@ -24,7 +24,7 @@ pub fn take() -> Snapshot {
     });
     let mut findings = rules::evaluate(&groups);
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    if let Ok(mut h) = History::open() {
+    if let Some(mut h) = crate::history::open_or_report() {
         let _ = h.record(&groups, now);
         // Only approved apps: for unapproved ones every host is new and "unreviewed" already covers it.
         for (key, hosts) in h.recent_new(now).unwrap_or_default() {

@@ -56,24 +56,47 @@ fn user_version(c: &Connection) -> rusqlite::Result<usize> {
     c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).map(|v| v as usize)
 }
 
-/// Writes the backup under a name no other opener uses, then links it into place. Two processes can
-/// reach this point together, and VACUUM INTO straight to the shared name would let one see the
-/// other's half-written file; the link fails for the loser, so the first complete copy wins.
-fn copy_once(c: &Connection, backup: &std::path::Path) -> rusqlite::Result<()> {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let mut name = backup.as_os_str().to_owned();
-    name.push(format!(".{}-{nanos}-{:?}.tmp", std::process::id(), std::thread::current().id()));
-    let tmp = PathBuf::from(name);
-    let _ = std::fs::remove_file(&tmp);
-    c.execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])?;
-    // An existing backup (AlreadyExists) is the expected loser's outcome; any other failure to
-    // link would leave no backup, so it must not be swallowed.
-    let linked = std::fs::hard_link(&tmp, backup);
-    let _ = std::fs::remove_file(&tmp);
-    match linked {
-        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(rusqlite::Error::InvalidPath(PathBuf::from(format!("{}: {e}", backup.display())))),
-        _ => Ok(()),
+/// A failed file operation, with the operation and the path, so the message
+/// says what went wrong instead of hiding it in an unrelated error variant.
+fn file_error(operation: &str, path: &std::path::Path, cause: impl std::fmt::Display) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(format!("could not {operation} {}: {cause}", path.display()).into())
+}
+
+/// Removes its file when dropped, so a backup that fails halfway never leaves a temporary copy of
+/// the database behind.
+struct TempFile(PathBuf);
+impl Drop for TempFile { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
+
+/// Deletes temporary backups left by a process that died mid-write. Only called while holding the
+/// open lock, so no live process can be writing one.
+fn remove_stale_backups(backup: &std::path::Path) {
+    let (Some(dir), Some(name)) = (backup.parent(), backup.file_name().and_then(|n| n.to_str())) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let f = e.file_name();
+        let f = f.to_string_lossy();
+        if f.starts_with(&format!("{name}.")) && f.ends_with(".tmp") { let _ = std::fs::remove_file(e.path()); }
     }
+}
+
+/// Writes a copy of the database to `backup`, owner-only, and checks it holds the version that was
+/// read before anything changed. The caller holds the open lock, so the copy cannot be of a database
+/// another process has already migrated.
+fn write_backup(c: &Connection, backup: &std::path::Path, version_before: usize) -> rusqlite::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut name = backup.as_os_str().to_owned();
+    name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = TempFile(PathBuf::from(name));
+    // VACUUM INTO accepts an existing empty file. Creating it first with mode 0600 keeps the copy of
+    // the sudo-launch history private; letting SQLite create it would apply the umask (usually 0644).
+    std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp.0).map_err(|e| file_error("create the backup file", &tmp.0, e))?;
+    c.execute("VACUUM INTO ?1", [tmp.0.to_string_lossy().as_ref()])?;
+    std::fs::set_permissions(&tmp.0, std::fs::Permissions::from_mode(0o600)).map_err(|e| file_error("make the backup owner-only", &tmp.0, e))?;
+    let copy = Connection::open_with_flags(&tmp.0, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| file_error("reopen the backup", &tmp.0, e))?;
+    let copied = user_version(&copy).map_err(|e| file_error("read the version of the backup", &tmp.0, e))?;
+    drop(copy);
+    if copied != version_before { return Err(file_error("verify the backup", &tmp.0, format!("it is at schema version {copied}, expected {version_before}"))); }
+    std::fs::rename(&tmp.0, backup).map_err(|e| file_error("move the backup into place at", backup, e))
 }
 
 /// Brings the database up to `steps.len()`. Refuses a database whose version is higher: it was
@@ -93,7 +116,7 @@ fn migrate(c: &mut Connection, steps: &[&str], backup: Option<&std::path::Path>)
     if found == 0 {
         if let Some(b) = backup {
             let has_tables: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table')", [], |r| r.get(0))?;
-            if has_tables && !b.exists() { copy_once(c, b)?; }
+            if has_tables && !b.exists() { write_backup(c, b, found)?; }
         }
     }
     for (i, sql) in steps.iter().enumerate().skip(found) {
@@ -108,6 +131,37 @@ fn migrate(c: &mut Connection, steps: &[&str], backup: Option<&std::path::Path>)
     Ok(())
 }
 
+/// Creates the data folder owner-only when it does not exist yet. An existing folder is left as the
+/// user set it.
+fn create_private_dir(dir: &std::path::Path) {
+    use std::os::unix::fs::DirBuilderExt;
+    if !dir.exists() { let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir); }
+}
+
+/// Takes the exclusive lock file that sits next to the database. The lock is released when the
+/// returned file is dropped, or when the process dies.
+fn open_lock(db: &std::path::Path) -> rusqlite::Result<std::fs::File> {
+    let mut name = db.as_os_str().to_owned();
+    name.push(".lock");
+    let path = PathBuf::from(name);
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(&path).map_err(|e| file_error("open the lock file for", &path, e))?;
+    f.lock().map_err(|e| file_error("lock", &path, e))?;
+    Ok(f)
+}
+
+/// What the dashboard and the command line say when the history cannot be opened.
+pub fn unavailable(e: &rusqlite::Error) -> String { format!("history unavailable: {e} (database: {})", path().display()) }
+
+/// Opens the history, or says why not (once per process, on stderr) and returns None. For callers
+/// that can carry on without history; a database from a newer build would otherwise look empty.
+pub fn open_or_report() -> Option<History> {
+    static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    History::open().map_err(|e| {
+        if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) { eprintln!("monitor-lizard: {}", unavailable(&e)); }
+    }).ok()
+}
+
 pub struct History(Connection);
 
 fn path() -> PathBuf { crate::paths::data_dir().join("history.db") }
@@ -115,10 +169,14 @@ fn path() -> PathBuf { crate::paths::data_dir().join("history.db") }
 impl History {
     pub fn open() -> rusqlite::Result<Self> { Self::at(&path()) }
     pub fn at(p: &std::path::Path) -> rusqlite::Result<Self> {
-        if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+        if let Some(d) = p.parent() { create_private_dir(d); }
+        // One opener at a time reads the version, backs up and migrates, across processes and across
+        // threads (each open() of the lock file is its own lock owner, so threads exclude each other
+        // too). Without it a second opener could read version 0 after the first had migrated and
+        // back up the already-migrated file.
+        let _lock = open_lock(p)?;
+        remove_stale_backups(&backup_path(p));
         let mut c = Connection::open(p)?;
-        // A second process opening the file at the same moment waits for the first one's migration
-        // instead of failing with "database is locked".
         c.busy_timeout(std::time::Duration::from_secs(10))?;
         // Migrate before switching journal mode so a file from a newer version is refused untouched.
         migrate(&mut c, MIGRATIONS, Some(&backup_path(p)))?;
@@ -352,7 +410,7 @@ pub fn start_metrics_writer(ring: crate::sampler::Ring, enabled: impl Fn() -> bo
         loop {
             std::thread::sleep(std::time::Duration::from_secs(30));
             if !enabled() { continue; } // skip opening the database at all while the setting is off
-            let Ok(h) = History::open() else { continue };
+            let Some(h) = open_or_report() else { continue };
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             metrics_tick(&h, &ring, true, &mut last_read, &mut cpu_backlog, &mut mem_backlog, now);
         }
@@ -540,13 +598,115 @@ mod tests {
     }
 
     #[test]
-    fn two_processes_opening_at_once_both_succeed_and_the_schema_is_applied_once() {
+    fn four_threads_opening_at_once_all_succeed_and_the_schema_is_applied_once() {
         let dir = scratch("race");
         let db = dir.join("h.db");
         write_unversioned_database(&db);
         let threads: Vec<_> = (0..4).map(|_| { let db = db.clone(); std::thread::spawn(move || History::at(&db).map(drop)) }).collect();
         for t in threads { t.join().unwrap().expect("every opener succeeds"); }
         assert_eq!(version_of(&db), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+
+    /// Child half of the two-process test: waits for the start file, then opens the database.
+    #[test]
+    fn child_open_for_the_two_process_test() {
+        let (Ok(db), Ok(go)) = (std::env::var("ML_TEST_DB"), std::env::var("ML_TEST_GO")) else { return };
+        while !std::path::Path::new(&go).exists() { std::thread::sleep(std::time::Duration::from_millis(1)); }
+        History::at(std::path::Path::new(&db)).expect("child opens the database");
+    }
+
+    #[test]
+    fn two_real_processes_opening_at_once_make_one_backup_of_the_old_database() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("two-procs");
+        let db = dir.join("h.db");
+        write_unversioned_database(&db);
+        let go = dir.join("go");
+        let exe = std::env::current_exe().unwrap();
+        let children: Vec<_> = (0..2).map(|_| std::process::Command::new(&exe)
+            .args(["--exact", "history::tests::child_open_for_the_two_process_test", "--test-threads=1"])
+            .env("ML_TEST_DB", &db).env("ML_TEST_GO", &go).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap()).collect();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        std::fs::write(&go, "").unwrap();
+        for mut c in children { assert!(c.wait().unwrap().success(), "both processes open the database"); }
+        assert_eq!(version_of(&db), 1);
+        let bak = Connection::open(backup_path(&db)).unwrap();
+        assert_eq!(user_version(&bak).unwrap(), 0, "the backup is the pre-migration file");
+        assert_eq!(bak.query_row("SELECT hits FROM seen", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
+        assert_eq!(std::fs::metadata(backup_path(&db)).unwrap().permissions().mode() & 0o777, 0o600);
+        let leftovers: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
+        assert!(leftovers.is_empty(), "no temporary backup remains");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_open_lock_excludes_other_holders_in_the_same_process() {
+        let dir = scratch("lock");
+        let db = dir.join("h.db");
+        let first = open_lock(&db).unwrap();
+        let second = std::fs::OpenOptions::new().write(true).open(dir.join("h.db.lock")).unwrap();
+        assert!(matches!(second.try_lock(), Err(std::fs::TryLockError::WouldBlock)), "a second open of the lock file must wait");
+        drop(first);
+        assert!(second.try_lock().is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_backup_is_owner_only_even_when_the_source_is_not_and_a_new_data_folder_is_0700() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("modes");
+        let db = dir.join("fresh").join("h.db");
+        drop(History::at(&db).unwrap());
+        assert_eq!(std::fs::metadata(db.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+        let old = dir.join("old.db");
+        write_unversioned_database(&old);
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+        drop(History::at(&old).unwrap());
+        assert_eq!(std::fs::metadata(backup_path(&old)).unwrap().permissions().mode() & 0o777, 0o600);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_stale_temporary_backup_from_a_dead_process_is_removed_on_the_next_open() {
+        let dir = scratch("stale");
+        let db = dir.join("h.db");
+        write_unversioned_database(&db);
+        let stale = dir.join("h.db.bak.99999.tmp");
+        std::fs::write(&stale, "half a copy").unwrap();
+        drop(History::at(&db).unwrap());
+        assert!(!stale.exists());
+        assert!(backup_path(&db).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_failed_backup_stops_the_migration_leaves_no_temporary_file_and_says_what_failed() {
+        let dir = scratch("backup-fails");
+        let db = dir.join("h.db");
+        write_unversioned_database(&db);
+        let mut c = Connection::open(&db).unwrap();
+        let missing = dir.join("no-such-folder").join("h.db.bak");
+        let err = migrate(&mut c, MIGRATIONS, Some(&missing)).unwrap_err().to_string();
+        assert!(err.contains("could not create the backup file") && err.contains("no-such-folder"), "{err}");
+        assert_eq!(user_version(&c).unwrap(), 0, "nothing was migrated without a backup");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_newer_database_is_refused_with_the_data_path_in_the_message_and_stays_identical_byte_for_byte() {
+        let dir = scratch("newer-bytes");
+        let db = dir.join("h.db");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE future(x); INSERT INTO future VALUES(1);").unwrap();
+        c.pragma_update(None, "user_version", (MIGRATIONS.len() + 1) as i64).unwrap();
+        drop(c);
+        let before = std::fs::read(&db).unwrap();
+        let e = History::at(&db).err().expect("refused");
+        let text = unavailable(&e);
+        assert!(text.starts_with("history unavailable: ") && text.contains("newer version"), "{text}");
+        assert_eq!(std::fs::read(&db).unwrap(), before);
         let _ = std::fs::remove_dir_all(dir);
     }
 
