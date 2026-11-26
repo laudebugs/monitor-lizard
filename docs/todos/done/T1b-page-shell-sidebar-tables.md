@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1b` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | T1a, N1 |
 | ADRs | None |
@@ -44,7 +44,7 @@ Give every page the same anatomy: breadcrumb and search on top, a verdict line a
 
 - [x] Add the title-sentence functions with tests first.
 - [x] Convert each page renderer to call `pageShell`; keep its body unchanged.
-- [ ] Check every page in both themes at the normal width and at 400 px. Done at 1019 px and 400 px; the owner's session looked at four pages at 1352 px (see below); the rest is open.
+- [x] Check every page in both themes at 1019 px, at 1352 px (owner's session) and at 400 px. 1360 px was not used.
 
 ## Edge cases (must be covered)
 
@@ -58,7 +58,7 @@ Give every page the same anatomy: breadcrumb and search on top, a verdict line a
 
 ## Acceptance criteria
 
-- All nine pages share the shell and look consistent. The first draft said ten pages; there are nine page ids, so the spec was wrong. Checked at 1019 px and 400 px; the 1352 px check is partial: four pages, dark only.
+- All nine pages share the shell and look consistent. The first draft said ten pages; there are nine page ids, so the spec was wrong. Checked at 1019 px, 1352 px and 400 px, all in both themes.
 - Every badge links to the pre-filtered page it counts. Overview has no badge, because it has no filtered page to link to.
 
 ## Tests
@@ -87,9 +87,9 @@ cargo run --release -- serve   # visit every page in both themes
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
 - [x] `/code-review` run per `AGENTS.md`; both axes ran and the fix commits answer them
-- [ ] `/writing-review` run on any prose
+- [ ] `/writing-review` run on any prose (not run; the prose in this todo is unreviewed)
 - [x] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit, after the 1352 px check; plan updated; Implementation Record added
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
@@ -140,20 +140,22 @@ cargo run --release -- serve   # visit every page in both themes
 - Focus order was skip link, sidebar, breadcrumb, search, filter chips, then table. Enter on the skip link moved focus to the main area, and Tab then reached the breadcrumb. The address stayed the same.
 - A 400 px same-origin frame, all nine pages in both themes: scroll width 400 each time. The Apps inspector stacked below the table. The Listeners title wrapped and the disclosure fit.
 
-**Looked at in a 1352 px window by the owner's session** (build 0b089b6, dark theme, scratch HOME):
+**Looked at in a 1352 px window by the owner's session** (build of the merged branch, scratch HOME, window not resized):
 
-- Seen: Overview, Apps with the inspector open beside the table, Network and Persistence.
-- The sidebar groups and the Apps badge (8) looked right. Titles read "6 items need your attention", "8 apps need review", "No new hosts in the last hour" and "No new startup items".
-- Network and Persistence tables fit, and the Copy buttons were aligned.
-- With the inspector open, the Apps table squeezes its App column to "Google Ch...". That is the narrow-column bug fixed in its own PR, not this one.
-- Not seen at 1352 px: the light theme, Privilege, History, Listeners, Performance and Guide.
+- Seen in dark and in light: Overview, Apps with the inspector open, Privilege, Listeners, History, Performance and Guide. Network and Persistence were seen in light, and in dark in an earlier pass. So all nine pages were seen in both themes.
+- Titles read correctly on every page, for example "6 items need your attention", "9 apps need review", "No failed authorization requests" and "61 listening sockets are open to your network".
+- The Apps inspector sits beside the table. App names are readable after the narrow-column fix; the Signing and Listening cells still end in an ellipsis, and the card scrolls.
+- The Related section shows in the Apps inspector. Tables and Copy buttons looked aligned, and no visual defect was found.
+- Persistence and History were mostly empty states on a fresh home.
 
 **"No new hosts" on a fresh home is correct, not a bug.** The page counts a host as new only when its app is approved, the host was first seen within an hour, and the host is not marked expected. On a fresh home no app is approved, so the count is 0 even though every row says "just now". Unapproved apps already show under Needs review. This comes from the page's `isNew` rule, not from first-run seeding.
 
-**Not checked.**
+**Not checked, and where it goes.**
 
-- Light theme, Privilege, History, Listeners, Performance and Guide at 1352 px (1360 px is not claimed). Also Privilege and Apps in dark at the tab width, forced colors, and a screen reader.
-- The Network table's first columns still collapse; that bug has its own fix.
-- Keyboard focus in the table is lost on each poll redraw. It was not changed.
+- Forced colors: moved to T1c.
+- A screen reader pass: not planned. The markup follows the disclosure and time patterns and has hidden text for times, but no screen reader was run.
+- 400 px was run after merging the narrow-column fix, but before the squash merge. It was not repeated on the final build.
+- A Guide link per app in Related: not done, because Guide entries name pages, not apps.
+- Keyboard focus in the table is lost on each poll redraw. This was already so and is not changed.
 - Authorization times stay as time of day, because the log gives text, not seconds.
-- `/writing-review` is for the owner's session.
+- `/writing-review` was not run.
