@@ -26,7 +26,9 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}
 .num,.code,.mono,.search{font-family:var(--font-mono)}
 button{font:inherit;color:inherit;cursor:pointer}
-button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.main:focus{outline:none}
+.skip{position:absolute;left:8px;top:-60px;z-index:30;padding:8px 14px;background:var(--acc);color:var(--accfg);border:0;font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.skip:focus{top:8px}
 .shell{display:flex;flex-wrap:wrap;min-height:100vh}
 .side{flex:1 1 220px;max-width:236px;min-width:200px;background:var(--panel);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:18px}
 @media(min-width:861px){.side{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}} /* nav stays put while the page scrolls */
@@ -36,11 +38,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .logo svg{width:100%;height:100%;display:block}
 .nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
 .nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
+.navgroup{padding:10px 10px 4px;font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.1em;color:var(--mut)}
+/* The count sits beside the nav button, not inside it: it is its own link to the filtered page it counts, and a link cannot live inside a button. */
+.navrow{position:relative}.navrow .nav.has-badge{padding-right:52px}
+.navrow a.badge{position:absolute;right:10px;top:50%;transform:translateY(-50%);text-decoration:none}
 .grow{flex:1 1 auto;min-width:0}
 .badge{min-width:22px;text-align:center;padding:2px 6px}
 .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
-.crumb{font-size:12px;color:var(--mut);margin:12px 0 4px}.crumb a{color:inherit}.crumb span[aria-hidden]{margin:0 6px}
-.top h1{margin:0;font-size:20px;font-weight:600}
+.crumb{font-size:12px;color:var(--mut);flex:1 1 200px;min-width:0;overflow-wrap:anywhere}.crumb a{color:inherit}.crumb span[aria-hidden]{margin:0 6px}
+/* The verdict sentence is the page title: it wraps, never clips. */
+.ptitle{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 16px;margin-bottom:16px}
+.ptitle h1{margin:0;font-size:22px;line-height:1.25;font-weight:600;overflow-wrap:anywhere}
+.psub{margin:4px 0 0;font-size:13px}
+.pactions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.split{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
 .search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
 .search::placeholder{color:var(--mut)}
 .card{background:var(--panel);border:1px solid var(--line)}
@@ -84,6 +95,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .tbl{overflow-x:auto;position:relative}
 .xbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
 .xnote{flex:1 1 220px;min-width:0}
+.xinfo{flex:1 1 100%;margin:0;padding:8px 0 0;line-height:1.5}
 .colmenu{padding:6px 0;min-width:180px}
 .colopt{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 12px;font-size:12px;white-space:nowrap}.colopt:hover{background:var(--sel)}
 .has-copy>.tr{--pr:64px}
@@ -118,7 +130,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 @media(min-width:1101px){.tbl{overflow-x:clip}.tbl.xscroll{overflow-x:auto}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
 .tr{display:grid;grid-template-columns:minmax(120px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px;--gap:12px;--pl:16px;--pr:16px;gap:var(--gap);align-items:center;min-height:46px;padding:0 var(--pr) 0 var(--pl);width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
 .tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
-button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
+button.tr:hover{background:var(--sel)}.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
+.time{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .tr.ell{min-width:0}.tr.ell>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{min-height:30px;padding:4px 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.chip:hover{color:var(--fg);border-color:var(--mut)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
@@ -129,6 +142,9 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 .handle:hover:after,.handle:focus-visible:after{background:var(--acc)}
 .handle:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 @media(min-width:1101px){.drawer{position:sticky;top:calc(var(--hh) + 16px);align-self:flex-start;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}.handle{display:block}}
+/* The inspector's header and sections, shared by every page that has one. */
+.insp-head{display:flex;align-items:center;gap:10px;padding:16px 16px 12px}
+.insp-sec{border-top:1px solid var(--line);padding:12px 16px}
 .kv{display:grid;grid-template-columns:90px 1fr;gap:6px 12px;font-size:13px;padding:14px 16px;margin:0;border-top:1px solid var(--line)}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-all}
 .pr{display:grid;grid-template-columns:62px minmax(0,1fr) 54px 64px 64px;gap:8px;align-items:center;min-height:42px;padding:0 16px;border-top:1px solid var(--line);font-size:13px}
 .expander{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);cursor:pointer;color:var(--acc);font-weight:500}
@@ -144,14 +160,14 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 </style>
 </head>
 <body>
+<button class="skip" id="skip" type="button">Skip to main content</button>
 <div class="shell">
 <nav class="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 0 64 64"><g stroke="currentColor" stroke-width="6" fill="none" stroke-linecap="square"><path d="M32 10 L32 20 L18 20 L18 32 L10 32"/><path d="M32 20 L46 20 L46 32 L54 32"/><path d="M32 20 L32 34 L20 34 L20 46"/><path d="M32 34 L44 34 L44 46"/></g><g fill="currentColor"><rect x="29" y="7" width="6" height="6"/><rect x="15" y="29" width="6" height="6"/><rect x="43" y="29" width="6" height="6"/><rect x="17" y="43" width="6" height="6"/><rect x="41" y="43" width="6" height="6"/></g></svg></span><span>Monitor Lizard</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
 <div id="notif" style="padding:0 8px"></div>
 <div id="theme" style="padding:0 8px"></div>
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
-<main class="main">
-<header class="top"><h1 id="title">Overview</h1><div class="grow"></div><input id="q" class="search" type="search" placeholder="Search apps, ports" aria-label="Search apps and ports"></header>
-<nav id="crumb" class="crumb" aria-label="Breadcrumb"></nav>
+<main class="main" id="main" tabindex="-1">
+<header class="top"><nav id="crumb" class="crumb" aria-label="Breadcrumb"></nav><input id="q" class="search" type="search" placeholder="Search apps, ports" aria-label="Search apps and ports"></header>
 <div id="content"></div>
 </main>
 </div>
@@ -210,7 +226,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', volume: null, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', volume: null, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -570,6 +586,16 @@ function fileName(page, ext, now) {
 function tableAligned(headCells, rowCells, pageRows) {
   return rowCells.length === pageRows && rowCells.every((n) => n === headCells);
 }
+// The note beside the export buttons: one line that is always shown, and the full text behind a button. The facts a
+// reader must not lose are in the full text: the file stays on this Mac until shared, commands can hold secrets,
+// and the CSV apostrophe guard. `meta` is { info, warn? }.
+function exportNote(meta) {
+  const info = (meta && meta.info) || 'the rows shown', warn = meta && meta.warn;
+  return {
+    line: (warn ? 'May contain secrets. ' : '') + 'Stays on this Mac until you share it.',
+    full: 'The file holds ' + info + '. ' + (warn ? warn + ' ' : '') + 'In the CSV, a cell starting with = + - or @ gets a leading \' so spreadsheets do not run it; the JSON is unchanged. The file is made in this page and is a copy: it stays on this Mac until you share it.',
+  };
+}
 // Each page keeps only the tables it draws, so rows of tables left behind are not held in memory.
 function pruneTables(tables, keep) {
   for (const k of Object.keys(tables)) if (!keep.includes(k)) delete tables[k];
@@ -649,10 +675,14 @@ function columnsMenu(key, header) {
         h('input', { type: 'checkbox', checked: shown.includes(c), disabled: shown.length === 1 && shown[0] === c, 'data-autofocus': (lastColToggle === null ? i === 0 : lastColToggle === key + ':' + c.id) ? '' : null, onChange: () => { lastColToggle = key + ':' + c.id; setHidden(key, toggleHidden(all, hidden, c.id)); rec({}); } }), c.label))) : null);
 }
 function exportBar(key, header) {
-  const n = rowsOf(key).length, meta = TABLE_META[key] || {}, info = meta.info || 'the rows shown';
-  const btn = (kind) => h('button', { class: 'btn sm', type: 'button', title: (n ? 'Saves ' + n + (n === 1 ? ' row' : ' rows') : 'Saves only the column names') + ' as ' + kind.toUpperCase() + ', with the shown columns and your filters and sort. The file holds ' + info + '.' + (meta.warn ? ' ' + meta.warn : '') + ' It is made in this page and goes nowhere else.', onClick: () => exportTable(key, header, kind) },
+  const n = rowsOf(key).length, meta = TABLE_META[key] || {}, note = exportNote(meta), open = !!S.xopen[key];
+  const btn = (kind) => h('button', { class: 'btn sm', type: 'button', title: (n ? 'Saves ' + n + (n === 1 ? ' row' : ' rows') : 'Saves only the column names') + ' as ' + kind.toUpperCase() + ', with the shown columns and your filters and sort. ' + note.full, onClick: () => exportTable(key, header, kind) },
     n ? 'Export ' + kind.toUpperCase() + ' (' + n + (n === 1 ? ' row' : ' rows') + ')' : 'Nothing to export (' + kind.toUpperCase() + ')');
-  return h('div', { class: 'xbar' }, btn('csv'), btn('json'), columnsMenu(key, header), h('span', { class: 'mut small xnote' }, 'File holds ' + info + '. ' + (meta.warn ? meta.warn + ' ' : '') + 'In the CSV, a cell starting with = + - or @ gets a leading \' so spreadsheets do not run it; the JSON is unchanged. The file is a copy: it stays on this Mac until you share it.'));
+  // A real button, not hover text: it works from the keyboard, and the full text stays in the page (hidden, not removed).
+  const more = h('button', { class: 'btn sm', type: 'button', id: 'xmore-' + key, 'aria-expanded': String(open), 'aria-controls': 'xinfo-' + key,
+    onClick: () => { rec({ xopen: Object.assign({}, S.xopen, { [key]: !open }) }); const b = $('xmore-' + key); if (b) b.focus(); } }, open ? 'Hide file details' : 'File details');
+  return h('div', { class: 'xbar' }, btn('csv'), btn('json'), columnsMenu(key, header), h('span', { class: 'mut small xnote' }, note.line), more,
+    h('p', { class: 'mut small xinfo', id: 'xinfo-' + key, hidden: !open }, note.full));
 }
 // Hidden columns and the row buttons are applied to the drawn table after each render, so every table gets
 // both from its sortHeader call and no page draws them itself.
@@ -788,11 +818,11 @@ async function load(fresh) {
     quiet(Object.assign({ snap }, selPatch(S, snap))); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
   catch (e) { $('live').textContent = 'offline: ' + e.message; }
 }
-const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
+const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [], privOk: true }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 // The reply is { items, changes }. Items that are no longer found stay in the data but not on this page, which lists what is installed now.
-const loadPers = async () => { try { const d = await (await api('/api/persistence')).json(); quiet({ pers: (Array.isArray(d) ? d : (d && d.items) || []).filter((i) => !i.removed_at) }); } catch (e) {} };
-const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [] }); } catch (e) {} };
+const loadPers = async () => { try { const d = await (await api('/api/persistence')).json(); quiet({ pers: (Array.isArray(d) ? d : (d && d.items) || []).filter((i) => !i.removed_at), persOk: true }); } catch (e) {} };
+const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [], histOk: true }); } catch (e) {} };
 const expectedTag = () => h('span', { class: 'tag', title: 'You marked this as expected' }, 'expected');
 // params is one of { key } (the server's own key for a finding or startup item) or { app, addr } for a host:
 // the page never builds baseline keys. kind is app, host, startup or finding; the server audits each change first.
@@ -835,6 +865,14 @@ async function setNotifications(level) {
   catch (e) { toast('Could not change notifications: ' + e.message); }
 }
 const toast = (t) => rec({ toast: t });
+// Failed authorization requests: the same rows the Privilege page lists under its Failed filter.
+const failedAuth = () => S.priv.filter((e) => !e.ok).length;
+// Failed requests from sudo alone, in the Overview tile and its banner.
+const failedSudo = () => S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+const reviewCount = () => (S.snap ? countReview(S.snap.groups, status) : 0);
+// What each verdict title waits for (see TITLE_NEEDS).
+const loadedNow = () => ({ snap: !!S.snap, priv: S.privOk, pers: S.persOk, hist: S.histOk });
+const verdict = (view, facts) => verdictTitle(view, titleReady(view, loadedNow()) ? facts : null);
 const mute = (id) => { S.muted.add(id); localStorage.setItem('monitor-lizard-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
 async function stop(sig) {
@@ -861,7 +899,7 @@ function cards() {
   }
   const pending = g.filter((x) => status(x) === 'review');
   if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'btn-acc', () => rec({ view: 'apps', filter: 'review' })]] });
-  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  const failed = failedSudo();
   if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'btn-acc', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
@@ -871,9 +909,9 @@ function cards() {
 
 function overview() {
   const s = S.snap, g = s.groups, c = cards();
-  const review = g.filter((x) => status(x) === 'review').length;
+  const review = reviewCount();
   const lan = g.reduce((n, x) => n + new Set(x.conns.filter((k) => k.exposed).map((k) => k.local_port)).size, 0);
-  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  const failed = failedSudo();
   const tile = (l, v, sub, go, col) => h('button', { class: 'tile', onClick: go }, h('span', { class: 'l' }, l), h('span', { class: 'v', style: col ? 'color:var(--' + col + ')' : '' }, v), h('span', { class: 's' }, sub));
   const talk = g.filter((x) => x.conns.some((k) => k.direction === 'outbound')).map((x) => [x.label, x.conns.filter((k) => k.direction === 'outbound').length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const max = talk.length ? talk[0][1] : 1;
@@ -882,12 +920,12 @@ function overview() {
   const markedSection = expectedF.length ? h('details', { class: 'card', style: 'margin-top:20px;padding:10px 16px' }, h('summary', { style: 'cursor:pointer;font-weight:500' }, 'Marked as expected (' + expectedF.length + ')'),
     expectedF.map((f) => h('div', { class: 'item' }, h('span', { class: 'tag', style: 'flex:none;max-width:none;align-self:flex-start' }, 'expected'), h('div', { class: 'grow', style: 'min-width:0;overflow-wrap:anywhere' }, h('h3', {}, f.group + ': ' + (RULE_TEXT[f.rule] || f.rule)), h('p', {}, 'Applies only to ' + findingScope(f) + '. Anything new is reported again.')),
       h('button', { class: 'btn sm', onClick: () => mark(findingCalls(f), false, f.group + ' (' + f.rule + ')') }, 'Unmark')))) : null;
-  return [
+  return pageShell({ title: verdict('overview', { attention: c.length }), subtitle: plural(g.length, 'app', 'apps') + ', ' + plural(s.totals.outbound, 'outbound socket', 'outbound sockets') + ' right now', body: [
     banner,
     h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px' },
       tile('Needs review', review, 'apps not yet approved', () => rec({ view: 'apps', filter: 'review' }), review ? 'warn' : 'ok'),
       tile('Open to LAN', lan, 'ports on all interfaces', () => rec({ view: 'apps' })),
-      tile('Failed sudo', failed, 'last 2 hours', () => rec({ view: 'priv' }), failed ? 'bad' : ''),
+      tile('Failed sudo', failed, 'sudo only, last 2 hours', () => rec({ view: 'priv', fil: Object.assign({}, S.fil, { 'auth-result': 'failed' }), page: {} }), failed ? 'bad' : ''),
       tile('Outbound', s.totals.outbound, 'sockets right now', () => rec({ view: 'apps' }))),
     h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:20px' },
       h('section', { style: 'flex:999 1 520px;min-width:0' }, h('h2', { class: 'sec' }, 'Needs your attention' + (expectedF.length ? ' (' + expectedF.length + ' marked expected, listed below)' : '')),
@@ -898,7 +936,7 @@ function overview() {
         h('div', { class: 'card', style: 'padding:6px 16px' }, talk.map((t) => h('div', { style: 'padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px' },
           h('div', { style: 'display:flex;justify-content:space-between;font-size:13px' }, h('span', {}, t[0]), h('span', { class: 'mut' }, t[1])), h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round(t[1] / max * 100) + '%' }))))))),
     markedSection,
-  ];
+  ] });
 }
 
 function apps() {
@@ -926,24 +964,36 @@ function apps() {
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match the current filters. '), clearBtn()), pg.pager);
   const g = S.snap.groups.find((x) => x.key === S.sel);
   const handle = g ? h('div', { class: 'handle', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the app detail panel', 'aria-valuenow': S.drawerW || 380, 'aria-valuemin': DRAWER_MIN, 'aria-valuemax': DRAWER_MAX, tabindex: '0', onMousedown: startDrawerResize, onKeydown: drawerHandleKeys, onDblclick: () => { S.drawerW = null; localStorage.removeItem('drawer-width'); render(); } }) : null;
-  return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), filters), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, handle, g ? drawer(g, listen(g), sig(g)) : null)];
+  return pageShell({ title: verdict('apps', { review: reviewCount() }), subtitle: plural(all.length, 'app', 'apps') + ' with network activity', filters: [chips, h('span', { class: 'grow' }), filters], body: table, inspector: g ? [handle, drawer(g, listen(g), sig(g))] : null });
 }
 
+// The pages that know about this app, each with how many rows it opens. Network, Listeners and History filter by the
+// app's name; startup items by its path. The Network and Persistence pages have no inspector of their own.
+function related(g) {
+  const path = unprefixed(g.key), isPath = path.startsWith('/');
+  const hosts = new Set(g.conns.filter((c) => c.direction === 'outbound' && c.remote_addr && c.scope !== 'loopback').map((c) => c.remote_addr)).size;
+  const counts = { hosts, sockets: g.conns.filter((c) => c.direction === 'listen').length, startup: isPath ? S.pers.filter((i) => i.program.toLowerCase().includes(path.toLowerCase())).length : 0, newHosts: S.seen.filter((x) => x.group_key === g.key).length };
+  const links = relatedLinks(counts, g.label, path);
+  if (!links.length) return null;
+  return h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, 'Related'),
+    h('ul', { style: 'list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px' }, links.map((l) => h('li', {}, h('a', { href: l.hash, title: 'Filtered by this app. An app with a similar name may also show.' }, l.text)))));
+}
 function drawer(g, listen, sig) {
   const st = status(g), flags = S.snap.findings.filter((f) => f.group === g.label);
   const mine = g.procs.filter((p) => p.user !== 'root');
   const outs = g.conns.filter((c) => c.direction === 'outbound');
   return h('aside', { class: 'drawer card' + (S.drawerW ? ' sized' : ''), style: S.drawerW ? '--dw:' + S.drawerW + 'px' : '', 'aria-label': 'App detail' },
-    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, unprefixed(g.key))),
+    h('div', { class: 'insp-head' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, unprefixed(g.key))),
       h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
       h('button', { class: 'btn sm', title: 'Copies this app\'s row as JSON', onClick: () => copyRow('apps', g) }, 'Copy as JSON'),
       !g.approved && !apple(g) ? h('button', { class: 'btn btn-acc sm', onClick: () => approve(g) }, 'Approve app') : null,
       mine.length ? h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
       h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
-    (g.rules_fired || []).length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Label: ' + g.trust + ' (decided by rules)'), g.rules_fired.map((r) => h('p', { style: 'margin:0 0 4px;font-size:13px' }, h('span', { class: 'mut' }, r + ': '), RULE_TEXT[r] || r))) : null,
-    flags.length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
+    (g.rules_fired || []).length ? h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, 'Label: ' + g.trust + ' (decided by rules)'), g.rules_fired.map((r) => h('p', { style: 'margin:0 0 4px;font-size:13px' }, h('span', { class: 'mut' }, r + ': '), RULE_TEXT[r] || r))) : null,
+    flags.length ? h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
     h('dl', { class: 'kv' }, h('dt', {}, 'Signing'), h('dd', {}, sig), h('dt', {}, 'Listening'), h('dd', {}, listen), h('dt', {}, 'Outbound'), h('dd', {}, outs.length + ' sockets to ' + new Set(outs.map((c) => c.remote_addr)).size + ' hosts')),
+    related(g),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),
       (S.expand.procs ? g.procs : g.procs.slice(0, 12)).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
         h('span', { class: 'num' }, p.cpu.toFixed(1) + '%'), h('span', { class: 'num' }, Math.round(p.rss_kb / 1024) + 'M'),
@@ -955,22 +1005,22 @@ function drawer(g, listen, sig) {
 }
 
 function priv() {
-  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  const failed = failedSudo();
   const T = 'grid-template-columns:90px 70px minmax(180px,1.4fr) minmax(220px,2fr);min-width:640px';
   const fRes = fv('auth-result');
   const sp = paginate(sortRows(S.sudo, 'sudo', { time: (e) => e.ts, command: (e) => e.args }), 'sudo');
   const authRows = S.priv.filter((e) => fRes === 'all' || (fRes === 'ok' ? e.ok : !e.ok));
   const ap = paginate(sortRows(authRows, 'auth', { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right, requester: (e) => base(e.client) }), 'auth');
-  return [
+  return pageShell({ title: verdict('priv', { failed: failedAuth() }), body: [
     failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. If the requester shows "(exited)", it was gone before it could be read. The live capture below records new ones with their parent chain.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
     h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'Requester chain' }], 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px'),
-      S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Monitor Lizard is serving shows up here.')), sp.pager),
+      S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, timeCell(e.ts)), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Monitor Lizard is serving shows up here.')), sp.pager),
     h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
       dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
     h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
       ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', style: 'min-width:0;overflow-wrap:anywhere' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', style: 'min-width:0;overflow-wrap:anywhere' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
-  ];
+  ] });
 }
 
 // Where a listening socket can be reached from: exposed (any machine on the network), lan (an Apple service on all interfaces), or local.
@@ -997,8 +1047,8 @@ function listeners() {
       h('span', { class: 'num', style: 'font-weight:500' }, r.c.local_port), h('span', { class: 'mut small' }, r.c.proto), h('span', { class: 'mut small' }, r.c.local_addr),
       h('span', nameAttrs(r.g.label), r.g.label), h('span', { class: 'num mut' }, r.c.pid), h('span', {}, reach(r)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, S.q ? 'No listeners match "' + S.q + '". ' : 'No listeners match the current filters. '), clearBtn()), pg.pager);
-  return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), dropdown('f-listen-proto', proto, [['all', 'Any protocol'], ['TCP', 'TCP'], ['UDP', 'UDP']], (v) => setFil('listen-proto', v), 'Protocol filter', true)), table,
-    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.' + (missed > 0 ? ' ' + missed + ' more listening sockets belong to processes that exited before they could be read.' : ''))];
+  return pageShell({ title: verdict('listeners', { exposed: rows.filter((r) => r.c.exposed).length }), subtitle: plural(rows.length, 'listening socket', 'listening sockets'), filters: [chips, h('span', { class: 'grow' }), dropdown('f-listen-proto', proto, [['all', 'Any protocol'], ['TCP', 'TCP'], ['UDP', 'UDP']], (v) => setFil('listen-proto', v), 'Protocol filter', true)], body: [table,
+    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.' + (missed > 0 ? ' ' + missed + ' more listening sockets belong to processes that exited before they could be read.' : ''))] });
 }
 
 
@@ -1022,9 +1072,9 @@ function persistence() {
       h('span', nameAttrs(i.label, 'display:flex;align-items:center;gap:6px'), i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
-      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.mark_key }]], i.expected, i.label)))),
+      timeCell(i.first_seen, 'mut small'), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.mark_key }]], i.expected, i.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No items match the current filters. ' : 'No startup items found.'), all.length ? clearBtn() : null), pg.pager);
-  return [h('div', { class: 'filters' }, chips), table];
+  return pageShell({ title: verdict('persist', { fresh: all.filter((i) => i.is_new).length }), subtitle: plural(all.length, 'startup item', 'startup items') + ' found', filters: chips, body: table });
 }
 
 
@@ -1062,10 +1112,10 @@ function network() {
     pg.slice.map((r) => h('div', { class: 'tr ell', style: cols },
       h('span', nameAttrs(r.g.label), r.g.label), h('span', { class: 'mut small', title: r.remote }, r.remote),
       h('span', { class: 'mut small' }, r.ports.join(', ')), h('span', {}, h('span', { class: 'tag' }, r.scope)),
-      h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'), h('span', { style: 'display:flex;align-items:center;gap:6px' }, hostExpected(r) ? expectedTag() : null, markBtn([['host', { app: r.g.key, addr: r.remote }]], hostExpected(r), r.remote + ' for ' + r.g.label)))),
+      h('span', { class: 'num' }, r.sockets), timeCell(r.first_seen, 'mut small'), h('span', { style: 'display:flex;align-items:center;gap:6px' }, hostExpected(r) ? expectedTag() : null, markBtn([['host', { app: r.g.key, addr: r.remote }]], hostExpected(r), r.remote + ' for ' + r.g.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No connections match the current filters. ' : 'No outbound connections right now.'), all.length ? clearBtn() : null), pg.pager);
-  return [h('div', { class: 'filters' }, chips), table,
-    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')];
+  return pageShell({ title: verdict('network', { newHosts: all.filter(isNew).length }), subtitle: plural(all.length, 'host', 'hosts') + ' contacted by apps right now', filters: chips, body: [table,
+    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')] });
 }
 
 
@@ -1086,7 +1136,7 @@ function historyView() {
   const hostsTable = h('section', { class: 'card tbl', style: 'margin-bottom:20px' },
     sortHeader('hist', [{ label: 'When', sort: 'when' }, { label: 'App', sort: 'app' }, { label: 'Host', sort: 'host' }, { label: 'Hits', sort: 'hits', cls: 'num' }], hostCols),
     hp.slice.length ? hp.slice.map((s) => h('div', { class: 'tr', style: hostCols + ';cursor:default' },
-      h('span', { class: 'mut small' }, new Date(s.first_seen * 1000).toLocaleString()), h('span', { style: 'font-weight:500' }, labelOf(s.group_key)),
+      timeCell(s.first_seen, 'mut small'), h('span', { style: 'font-weight:500' }, labelOf(s.group_key)),
       h('span', { class: 'mut small', style: 'word-break:break-all' }, s.remote), h('span', { class: 'num' }, s.hits)))
       : h('div', { class: 'item' }, h('p', {}, allHosts.length ? 'No hosts match the search. ' : 'No new hosts recorded yet.'), allHosts.length ? clearBtn() : null), hp.pager);
   const allActs = [...S.acts].sort((a, b) => b.ts - a.ts); // newest first, baked into the base order
@@ -1097,7 +1147,7 @@ function historyView() {
   const actsTable = h('section', { class: 'card tbl' },
     sortHeader('act', [{ label: 'When', sort: 'when' }, { label: 'Signal', sort: 'signal' }, { label: 'Sent', sort: 'sent', cls: 'num' }, { label: 'Refused', sort: 'refused' }], actCols),
     ap.slice.length ? ap.slice.map((a) => { const sent = jsonOr(a.sent, []); return h('div', { class: 'tr', style: actCols + ';cursor:default' },
-      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag', title: a.sig }, a.sig)),
+      timeCell(a.ts, 'mut small'), h('span', {}, h('span', { class: 'tag', title: a.sig }, a.sig)),
       h('span', { class: 'small' }, sent.length ? sent.length + ' pid(s): ' + sent.join(', ') : '-'), h('span', { class: 'mut small' }, refusedText(a))); })
       : h('div', { class: 'item' }, h('p', {}, allActs.length ? 'No actions match the search. ' : 'No Stop/Quit actions recorded yet.'), allActs.length ? clearBtn() : null), ap.pager);
   const bp = paginate([...S.baseChanges], 'bc');
@@ -1105,10 +1155,10 @@ function historyView() {
   const changesTable = h('section', { class: 'card tbl' },
     h('div', { class: 'tr h', style: bcCols }, ['When', 'Change', 'Kind', 'Item'].map((l) => h('span', {}, l))),
     bp.slice.length ? bp.slice.map((c) => h('div', { class: 'tr', style: bcCols + ';cursor:default' },
-      h('span', { class: 'mut small' }, new Date(c.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag ' + (c.note ? 'bad' : '') , title: c.note || '' }, c.note ? 'not saved' : c.marked ? 'expected' : 'unmarked')),
+      timeCell(c.ts, 'mut small'), h('span', {}, h('span', { class: 'tag ' + (c.note ? 'bad' : '') , title: c.note || '' }, c.note ? 'not saved' : c.marked ? 'expected' : 'unmarked')),
       h('span', { class: 'mut small' }, c.kind), h('span', { class: 'mut small', style: 'word-break:break-all' }, c.key)))
       : h('div', { class: 'item' }, h('p', {}, 'Nothing marked as expected yet.')), bp.pager);
-  return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable, h('h2', { class: 'sec' }, 'Marked as expected'), changesTable];
+  return pageShell({ title: verdictTitle('history'), body: [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable, h('h2', { class: 'sec' }, 'Marked as expected'), changesTable] });
 }
 
 // A Reading<T> from the Rust side serializes as {value: T}, {unavailable: "reason"} or the bare
@@ -1341,15 +1391,13 @@ function performanceView_() {
   const stale = !!last && (Date.now() / 1000 - last.ts) > 8;
   const winLabel = S.perfWin === '1h' ? 'hour' : '5 min';
   const tabs = [['overview', 'Overview'], ['cpugpu', 'CPU and GPU'], ['disknet', 'Disk and network']];
-  return [
-    h('div', { class: 'filters' },
+  return pageShell({ title: verdictTitle('performance'), filters: [
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Performance tab' }, tabs.map(([id, l]) => h('button', { class: S.perfTab === id ? 'chip on' : 'chip', style: 'height:34px', onClick: () => { rec({ perfTab: id }); if (id === 'disknet') loadVolume(); } }, l))),
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Time window' }, [['5m', 'Last 5 min'], ['1h', 'Last hour']].map(([v, l]) => h('button', { class: S.perfWin === v ? 'chip on' : 'chip', style: 'height:34px', onClick: () => rec({ perfWin: v }) }, l))),
-      h('span', { class: 'grow' }),
-      h('span', { class: 'small mut' }, last ? (S.perfLive ? 'live, every 2 s' : 'paused') : 'collecting the first sample...'),
-      h('button', { class: 'btn sm', onClick: () => rec({ perfLive: !S.perfLive }) }, S.perfLive ? 'Pause' : 'Resume')),
-    S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : S.perfTab === 'disknet' ? h('div', {}, ...perfDiskNetTab_(win, last)) : perfOverviewTab_(win, last, stale, winLabel),
-  ];
+      ],
+    actions: [h('span', { class: 'small mut' }, last ? (S.perfLive ? 'live, every 2 s' : 'paused') : 'collecting the first sample...'),
+      h('button', { class: 'btn sm', onClick: () => rec({ perfLive: !S.perfLive }) }, S.perfLive ? 'Pause' : 'Resume')],
+    body: S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : S.perfTab === 'disknet' ? h('div', {}, ...perfDiskNetTab_(win, last)) : perfOverviewTab_(win, last, stale, winLabel) });
 }
 
 const SAFETY_TAG = { 'read-only': 'ok', 'changes files': 'warn', 'needs sudo': 'bad' };
@@ -1369,17 +1417,17 @@ const copyCommand = (e) => copyFlow(e.command, {
   select: (el) => { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); },
 });
 function guideDetail(e) {
-  const page = NAV.find(([, label]) => label === e.appears_in), c = S.gcopy && S.gcopy.id === e.id ? S.gcopy.state : '';
-  const part = (title, ...kids) => h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, title), ...kids);
+  const page = NAV.find((n) => n.label === e.appears_in), c = S.gcopy && S.gcopy.id === e.id ? S.gcopy.state : '';
+  const part = (title, ...kids) => h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, title), ...kids);
   return h('aside', { class: 'drawer card', 'aria-label': 'Command detail' },
-    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('h2', { class: 'grow', style: 'font-size:16px;font-weight:600;margin:0' }, e.title), h('span', { class: 'tag ' + (SAFETY_TAG[e.safety] || ''), style: 'flex:none' }, e.safety)),
+    h('div', { class: 'insp-head' }, h('h2', { class: 'grow', style: 'font-size:16px;font-weight:600;margin:0' }, e.title), h('span', { class: 'tag ' + (SAFETY_TAG[e.safety] || ''), style: 'flex:none' }, e.safety)),
     h('div', { style: 'padding:0 16px 14px;display:flex;flex-direction:column;gap:8px' },
       h('div', { class: 'code', id: 'guide-cmd' }, e.command),
       h('div', { style: 'display:flex;align-items:center;gap:10px' }, h('button', { class: 'btn btn-acc sm', id: 'guide-copy', onClick: () => copyCommand(e) }, c === 'copied' ? 'Copied' : c === 'manual' ? 'Press Cmd+C' : 'Copy'),
         h('span', { class: 'small mut', 'aria-hidden': 'true' }, c === 'copied' ? 'Copied to the clipboard.' : c === 'manual' ? 'The clipboard is blocked, so the command is selected.' : ''))),
     part('What it does', h('p', { style: 'margin:0;font-size:13px;line-height:1.45' }, e.description)),
     e.example ? part('Example output (' + e.example.macos + ')', h('pre', { class: 'code', style: 'margin:0;white-space:pre-wrap' }, e.example.output)) : null,
-    e.appears_in ? part('Where it appears', page ? h('a', { href: '#' + page[0] }, e.appears_in) : h('span', {}, e.appears_in)) : null,
+    e.appears_in ? part('Where it appears', page ? h('a', { href: '#' + page.id }, e.appears_in) : h('span', {}, e.appears_in)) : null,
     e.undo ? part('How to undo', h('p', { style: 'margin:0;font-size:13px;line-height:1.45' }, e.undo)) : null);
 }
 // The line under a list that hides weak matches. The button reveals them and keeps focus on the first one.
@@ -1389,17 +1437,18 @@ const weakLine = (hidden, kind, focusId) => h('div', { class: 'small mut', style
 function guide() {
   const g = S.guide;
   if (g.state === 'idle') loadGuide();
-  if (g.state === 'error') return [h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'The guide did not load. '), h('button', { class: 'btn sm', onClick: loadGuide }, 'Try again')))];
-  if (g.state !== 'ready') return [h('p', { class: 'mut' }, 'Loading the guide...')];
+  const title = verdictTitle('guide');
+  if (g.state === 'error') return pageShell({ title, body: h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'The guide did not load. '), h('button', { class: 'btn sm', onClick: loadGuide }, 'Try again'))) });
+  if (g.state !== 'ready') return pageShell({ title, body: h('p', { class: 'mut' }, 'Loading the guide...') });
   const commands = g.data.commands || [], terms = g.data.terms || [], gloss = S.gtab === 'glossary', all = S.q.trim() !== '' && S.gall === S.q;
   const topics = guideTopics(commands), topic = topics.includes(S.gtopic) ? S.gtopic : 'all';
   const tabs = [['commands', 'Commands'], ['glossary', 'Glossary']].map(([id, l]) => h('button', { class: 'chip' + (S.gtab === id ? ' on' : ''), id: 'g-tab-' + id, 'aria-pressed': String(S.gtab === id), onClick: () => guideAct('g-tab-' + id, { gtab: id, gcopy: null, page: {} }) }, l));
   const chips = gloss ? [] : [['all', 'All'], ...topics.map((t) => [t, topicLabel(t)])].map(([id, l]) => h('button', { class: 'chip' + (topic === id ? ' on' : ''), id: 'g-topic-' + id, 'aria-pressed': String(topic === id), onClick: () => guideAct('g-topic-' + id, { gtopic: id, gcopy: null }) }, l + ' ', h('span', { class: 'mut' }, guideSearch(commands, S.q, id, all).shown.length)));
-  const bar = h('div', { class: 'filters' }, h('div', { class: 'seg', role: 'group', 'aria-label': 'Guide section' }, tabs), chips);
+  const bar = [h('div', { class: 'seg', role: 'group', 'aria-label': 'Guide section' }, tabs), chips];
   const { shown: rows, hidden } = guideSearch(gloss ? terms : commands, S.q, gloss ? 'all' : topic, all);
   S.gnote = guideSummary(rows.length, hidden.length, gloss ? 'term' : 'command');
-  if (!rows.length && !hidden.length) return [bar, h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'Nothing matches that. '), h('button', { class: 'btn sm', onClick: () => { clearFilters(); $('q').focus(); } }, 'Clear filters')))];
-  if (gloss) return [bar, h('section', { class: 'card', 'aria-label': 'Glossary' }, h('h2', { class: 'sec', style: 'margin:0;padding:12px 16px 0' }, 'Glossary'), rows.map((t) => h('div', { class: 'item' }, h('div', {}, h('h3', { id: 'g-term-' + t.id, tabindex: '-1' }, t.term), h('p', {}, t.meaning)))), hidden.length ? weakLine(hidden, 'term', 'g-term-' + hidden[0].id) : null)];
+  if (!rows.length && !hidden.length) return pageShell({ title, filters: bar, body: h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'Nothing matches that. '), h('button', { class: 'btn sm', onClick: () => { clearFilters(); $('q').focus(); } }, 'Clear filters'))) });
+  if (gloss) return pageShell({ title, filters: bar, body: h('section', { class: 'card', 'aria-label': 'Glossary' }, h('h2', { class: 'sec', style: 'margin:0;padding:12px 16px 0' }, 'Glossary'), rows.map((t) => h('div', { class: 'item' }, h('div', {}, h('h3', { id: 'g-term-' + t.id, tabindex: '-1' }, t.term), h('p', {}, t.meaning)))), hidden.length ? weakLine(hidden, 'term', 'g-term-' + hidden[0].id) : null) });
   const cur = guidePick(rows, S.gsel);
   // A selection the filters hide gives way to the first result; the address follows without a new history entry.
   if (S.gsel && (!cur || cur.id !== S.gsel)) { S.gsel = null; S.hashReplace = true; }
@@ -1407,10 +1456,100 @@ function guide() {
   const groups = S.q.trim() ? [[null, rows]] : guideGroups(rows);
   const plain = 'list-style:none;margin:0;padding:0';
   const list = h('section', { class: 'card', style: 'flex:1 1 360px;min-width:0', 'aria-label': 'Commands' }, groups.map(([t, rs]) => [t ? h('h2', { class: 'sec', style: 'margin:0;padding:12px 16px 6px' }, topicLabel(t)) : null, h('ul', { style: plain }, rs.map(row))]), hidden.length ? weakLine(hidden, 'command', 'g-row-' + hidden[0].id) : null);
-  return [bar, h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, list, cur ? guideDetail(cur) : null)];
+  return pageShell({ title, filters: bar, body: list, inspector: cur ? guideDetail(cur) : null });
 }
 
-const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['performance', 'Performance', 'M3 17l5-9 4 5 3-6 6 10'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18'], ['guide', 'Guide', 'M6 4h12v16H6zM6 16h12M9 8h6']];
+/* page-shell:begin */
+// Pure helpers for the page shell: navigation groups, the sidebar counts, the verdict sentence that titles each
+// page, and relative time. No DOM or storage access, so tests load this block together with url-state (TITLES).
+const NAV_GROUPS = ['Security', 'Machine', 'Help'];
+// A group heads its items in the sidebar; a test checks that none is missing.
+const NAV = [
+  { id: 'overview', label: 'Overview', icon: 'M3 12l9-8 9 8M5 10v10h14V10', group: 'Security' },
+  { id: 'apps', label: 'Apps', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z', group: 'Security' },
+  { id: 'network', label: 'Network', icon: 'M2 12h4l3-8 6 16 3-8h4', group: 'Security' },
+  { id: 'listeners', label: 'Listeners', icon: 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12', group: 'Security' },
+  { id: 'priv', label: 'Privilege', icon: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', group: 'Security' },
+  { id: 'persist', label: 'Persistence', icon: 'M4 6h16M4 12h16M4 18h10', group: 'Security' },
+  { id: 'history', label: 'History', icon: 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18', group: 'Security' },
+  { id: 'performance', label: 'Performance', icon: 'M3 17l5-9 4 5 3-6 6 10', group: 'Machine' },
+  { id: 'guide', label: 'Guide', icon: 'M6 4h12v16H6zM6 16h12M9 8h6', group: 'Help' },
+];
+const countText = (n) => (n > 99 ? '99+' : String(n));
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+// The counts for items that need a decision. Each one is the number of rows on the page its link opens (see badgeHash).
+// A count of zero or less shows no badge at all.
+function navBadges(f) {
+  const out = {}, x = f || {};
+  // The accessible name starts with what is shown, so a screen reader and the screen agree: "99+ apps need review, 120 in total".
+  const add = (id, n, tone, one, many) => { if (Number.isFinite(n) && n > 0) out[id] = { n, text: countText(n), tone, label: n > 99 ? '99+ ' + many + ', ' + n + ' in total' : plural(n, one, many) }; };
+  add('apps', x.review, 'warn', 'app needs review', 'apps need review');
+  add('priv', x.failed, 'bad', 'failed authorization request', 'failed authorization requests');
+  add('persist', x.fresh, 'warn', 'new startup item', 'new startup items');
+  return out;
+}
+// One count of apps that need review, used by the title, the badge and the Overview tile. `statusOf` is the page's status().
+const countReview = (groups, statusOf) => groups.filter((g) => statusOf(g) === 'review').length;
+// Which data each verdict title counts. A title says "nothing" only after all of it has loaded; before that the page name is used.
+const TITLE_NEEDS = { overview: ['snap', 'priv', 'pers'], apps: ['snap'], priv: ['priv'], listeners: ['snap'], persist: ['pers'], network: ['snap', 'hist'] };
+const titleReady = (view, loaded) => !Object.prototype.hasOwnProperty.call(TITLE_NEEDS, view) || TITLE_NEEDS[view].every((k) => !!(loaded && loaded[k]));
+// The page title is one sentence that says what the page found. A page with no verdict yet, and a page whose data has
+// not loaded (facts missing), uses its name instead, so a title never claims "nothing" before anything was read.
+function verdictTitle(view, f) {
+  const name = Object.prototype.hasOwnProperty.call(TITLES, view) ? TITLES[view] : '';
+  const get = (k) => (f && Number.isFinite(f[k]) && f[k] >= 0 ? f[k] : null);
+  const n = view === 'overview' ? get('attention') : view === 'apps' ? get('review') : view === 'priv' ? get('failed') : view === 'listeners' ? get('exposed') : view === 'persist' ? get('fresh') : view === 'network' ? get('newHosts') : null;
+  if (n === null) return name;
+  if (view === 'overview') return n ? plural(n, 'item needs', 'items need') + ' your attention' : 'Nothing needs your attention';
+  if (view === 'apps') return n ? plural(n, 'app needs', 'apps need') + ' review' : 'Nothing needs review';
+  if (view === 'priv') return n ? plural(n, 'failed authorization request', 'failed authorization requests') : 'No failed authorization requests';
+  if (view === 'listeners') return n ? plural(n, 'listening socket is', 'listening sockets are') + ' open to your network' : 'No listening socket is open to your network';
+  if (view === 'persist') return n ? plural(n, 'new startup item', 'new startup items') : 'No new startup items';
+  return n ? plural(n, 'new host', 'new hosts') + ' in the last hour' : 'No new hosts in the last hour';
+}
+// "5m ago" for a time in epoch seconds; `long` gives "5 minutes ago" for a screen reader. The cell carries the exact time as well.
+function relTime(sec, now, long) {
+  if (typeof sec !== 'number' || !Number.isFinite(sec)) return '-';
+  const d = Math.max(0, now - sec);
+  const ago = (n, short, one, many) => (long ? plural(n, one, many) + ' ago' : n + short + ' ago');
+  if (d < 60) return 'just now';
+  if (d < 3600) return ago(Math.floor(d / 60), 'm', 'minute', 'minutes');
+  if (d < 86400) return ago(Math.floor(d / 3600), 'h', 'hour', 'hours');
+  if (d < 2592000) return ago(Math.floor(d / 86400), 'd', 'day', 'days');
+  if (d < 31536000) return ago(Math.floor(d / 2592000), 'mo', 'month', 'months');
+  return ago(Math.floor(d / 31536000), 'y', 'year', 'years');
+}
+// Links from one app to the pages that know about it, each only when it opens at least one row. Hashes come from
+// writeHash, so they stay inside the allow-lists. The filter is the app's name (or its path for startup items), so an
+// app with a similar name may also show. counts: { hosts, sockets, startup, newHosts }.
+function relatedLinks(counts, label, path) {
+  const c = counts || {}, out = [];
+  const add = (n, text, hash) => { if (n > 0) out.push({ text, hash }); };
+  add(c.hosts, plural(c.hosts, 'remote host', 'remote hosts') + ' on Network', writeHash({ view: 'network', q: label }));
+  add(c.sockets, plural(c.sockets, 'listening socket', 'listening sockets') + ' on Listeners', writeHash({ view: 'listeners', q: label }));
+  add(c.startup, plural(c.startup, 'startup item', 'startup items') + ' on Persistence', writeHash({ view: 'persist', q: path }));
+  add(c.newHosts, plural(c.newHosts, 'new host', 'new hosts') + ' on History', writeHash({ view: 'history', q: label }));
+  return out;
+}
+/* page-shell:end */
+// The cell stays one element: the short text for the eye, the exact time as visible-on-hover title, and a
+// full sentence for a screen reader and for touch, where there is no hover.
+function timeCell(sec, cls) {
+  if (typeof sec !== 'number' || !Number.isFinite(sec) || Number.isNaN(new Date(sec * 1000).getTime())) return h('span', { class: cls || '' }, '-');
+  const now = Date.now() / 1000, abs = new Date(sec * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return h('time', { class: 'time ' + (cls || ''), datetime: new Date(sec * 1000).toISOString(), title: abs },
+    h('span', { 'aria-hidden': 'true' }, relTime(sec, now)), h('span', { class: 'sr-only' }, abs + ', ' + relTime(sec, now, true)));
+}
+const crumbNodes = () => crumb().flat().filter(Boolean);
+// Every page is drawn through this. The breadcrumb and search sit in the fixed top bar (the search box must keep focus
+// while a poll redraws the page), so the shell returns the breadcrumb separately from the page nodes. `filters` are the
+// children of the filter row and `actions` sit at the right of the title (Performance puts its live toggle there);
+// `inspector` sits beside `body`, and below it on a narrow screen. Without an inspector the body takes the full width.
+function pageShell({ title, subtitle, actions, filters, body, inspector }) {
+  const head = h('div', { class: 'ptitle' }, h('div', { class: 'grow' }, h('h1', { id: 'title' }, title), subtitle ? h('p', { class: 'psub mut' }, subtitle) : null), actions ? h('div', { class: 'pactions' }, actions) : null);
+  const bar = filters && nodesOf([filters]).length ? h('div', { class: 'filters' }, filters) : null;
+  return { crumb: crumbNodes(), nodes: [head, bar, inspector ? h('div', { class: 'split' }, body, inspector) : body] };
+}
 // Each part of the trail is a link, so a selected item can be opened in a new tab and lands on the same item.
 function crumb() {
   const g = S.snap && S.snap.groups.find((x) => x.key === S.sel);
@@ -1418,43 +1557,59 @@ function crumb() {
   return parts.map((p, i) => [i ? h('span', { 'aria-hidden': 'true' }, '\u203A') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, p.text) : h('a', { href: p.href }, p.text)]);
 }
 
+// The sidebar is rebuilt only when what it shows changes, so a poll does not drop keyboard focus from it; after a
+// real change, focus goes back to the control that had it.
+let navSig = '';
+const badgeHash = (id) => (id === 'apps' ? writeHash({ view: 'apps', filter: 'review' }) : id === 'priv' ? writeHash({ view: 'priv', dd: { 'auth-result': 'failed' } }) : writeHash({ view: 'persist', filter: 'new' }));
+function drawNav() {
+  const badges = navBadges({ review: reviewCount(), failed: failedAuth(), fresh: S.pers.filter((i) => i.is_new).length });
+  const sig = JSON.stringify([S.view, badges]);
+  if (sig === navSig) return;
+  navSig = sig;
+  const nav = $('nav'), had = nav.contains(document.activeElement) ? document.activeElement.dataset.nav : null;
+  const item = ({ id, label, icon }) => {
+    const b = own(badges, id), svg = h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' });
+    svg.innerHTML = '<path d="' + icon + '" stroke-linecap="round" stroke-linejoin="round"/>'; // createElement has no SVG namespace for innerHTML children
+    return h('div', { class: 'navrow' },
+      h('button', { class: 'nav' + (S.view === id ? ' on' : '') + (b ? ' has-badge' : ''), type: 'button', 'data-nav': id, 'aria-current': S.view === id ? 'page' : null, onClick: () => { rec({ view: id }); if (id === 'performance') loadMetrics(); } }, svg, h('span', { class: 'grow' }, label)),
+      b ? h('a', { class: 'badge ' + b.tone, href: badgeHash(id), 'data-nav': 'badge-' + id, title: b.label, 'aria-label': b.label }, b.text) : null);
+  };
+  nav.replaceChildren(...NAV_GROUPS.map((g) => h('div', { role: 'group', 'aria-labelledby': 'navg-' + g.toLowerCase() }, h('div', { class: 'navgroup', id: 'navg-' + g.toLowerCase() }, g), NAV.filter((n) => n.group === g).map(item))));
+  if (had) { const el = nav.querySelector('[data-nav="' + had + '"]'); if (el) el.focus(); }
+}
+// The top bar's breadcrumb and the page below it change together.
+const show = (page) => { $('crumb').replaceChildren(...nodesOf(page.crumb)); $('content').replaceChildren(...nodesOf(page.nodes)); };
 function render() {
   pruneTables(TABLES, Object.keys(PAGE_SORTS[S.view] || {})); pruneTables(HEADERS, Object.keys(PAGE_SORTS[S.view] || {}));
-  const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
-  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
-  const newPers = S.pers.filter((i) => i.is_new).length;
-  const badge = { apps: pending && [pending, 'warn'], priv: failed && [failed, 'bad'], persist: newPers && [newPers, 'warn'] };
-  $('nav').replaceChildren(...NAV.map(([id, label]) => h('button', { class: 'nav ' + (S.view === id ? 'on' : ''), onClick: () => { rec({ view: id }); if (id === 'performance') loadMetrics(); } },
-    h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' }), h('span', { class: 'grow' }, label), badge[id] ? h('span', { class: 'badge ' + badge[id][1] }, badge[id][0]) : null)));
-  // createElement has no SVG namespace; set the icon markup after the fact.
-  document.querySelectorAll('#nav svg').forEach((svg, i) => { svg.innerHTML = '<path d="' + NAV[i][2] + '" stroke-linecap="round" stroke-linejoin="round"/>'; });
-  $('title').textContent = TITLES[S.view] || '';
+  drawNav();
   const searchHint = S.view === 'guide' ? 'Search commands and terms' : 'Search apps, ports';
   $('q').placeholder = searchHint; $('q').setAttribute('aria-label', S.view === 'guide' ? searchHint : 'Search apps and ports');
-  $('crumb').replaceChildren(...crumb().flat().filter(Boolean));
   $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (S.view !== 'guide') S.gsig = null;
-  if (!S.snap && S.view !== 'guide') c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...')); // the Guide needs no snapshot
-  else if (S.view === 'overview') c.replaceChildren(...nodesOf(overview()));
-  else if (S.view === 'apps') c.replaceChildren(...nodesOf(apps()));
-  else if (S.view === 'priv') c.replaceChildren(...nodesOf(priv()));
-  else if (S.view === 'listeners') c.replaceChildren(...nodesOf(listeners()));
-  else if (S.view === 'persist') c.replaceChildren(...nodesOf(persistence()));
-  else if (S.view === 'performance') c.replaceChildren(...nodesOf(performanceView_()));
-  else if (S.view === 'network') c.replaceChildren(...nodesOf(network()));
-  else if (S.view === 'history') c.replaceChildren(...nodesOf(historyView()));
+  let page = null;
+  if (!S.snap && S.view !== 'guide') page = pageShell({ title: TITLES[S.view] || '', body: h('p', { class: 'mut' }, 'Collecting the first snapshot...') }); // the Guide needs no snapshot
+  else if (S.view === 'overview') page = overview();
+  else if (S.view === 'apps') page = apps();
+  else if (S.view === 'priv') page = priv();
+  else if (S.view === 'listeners') page = listeners();
+  else if (S.view === 'persist') page = persistence();
+  else if (S.view === 'performance') page = performanceView_();
+  else if (S.view === 'network') page = network();
+  else if (S.view === 'history') page = historyView();
+  if (page) show(page);
   else if (S.view === 'guide') {
     // Rebuilt only when what the Guide shows changes: a poll must not drop focus or the selected command.
     if (guideSig(S) !== S.gsig || !c.hasChildNodes()) {
-      c.replaceChildren(...nodesOf(guide()));
+      const g = guide();
+      show(g);
       const prev = S.gsig && JSON.parse(S.gsig); S.gsig = guideSig(S);
       const now = JSON.parse(S.gsig);
       if (prev && (prev[0] !== now[0] || prev[1] !== now[1] || prev[2] !== now[2] || prev[4] !== now[4]) && S.gnote) announce(S.gnote);
     }
   }
-  else c.replaceChildren(h('p', { class: 'mut' }, 'Unknown view.')); // every NAV id has a branch above; this only guards a future NAV entry added without one
+  else show(pageShell({ title: 'Unknown view', body: h('p', { class: 'mut' }, 'Unknown view.') })); // every NAV id has a branch above; this only guards a future NAV entry added without one
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
     h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
@@ -1470,6 +1625,8 @@ function render() {
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
 }
+// A button, not a #link: a link would change the address, and the address is the page's state.
+$('skip').addEventListener('click', () => $('main').focus());
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };

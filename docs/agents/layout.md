@@ -25,8 +25,8 @@
 | `src/settings.rs` | `~/.monitor-lizard/settings.json`: notification level, quiet hours, generic text, seeded |
 | `src/notify.rs` | Deduplicated macOS notifications for high findings via `osascript`, off by default |
 | `src/llm.rs` | One blocking call to a local llama-server with a JSON-schema response format, parsed into a `Verdict`; clamping against the rules is A10 |
-| `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token |
-| `tests/web/` | Node logic tests for the dashboard (`node --test`); they extract the marked `url-state`, `export`, `guide-search`, `guide-copy`, `view-items` and `disk-net` blocks (capacity bar sizing, rate formatting, no-connection state) from `web/index.html`, so keep `url-state`, `export` and `guide-search` free of DOM and storage access. `tests/fixtures/` holds the Guide table and the search results that `cargo test` and the web tests both check |
+| `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token. Every page renderer returns `pageShell({ title, subtitle, filters, body, inspector })`; the breadcrumb and search sit in a fixed top bar so the search box keeps focus while a poll redraws the page |
+| `tests/web/` | Node logic tests for the dashboard (`node --test`); they extract the marked `url-state`, `export`, `guide-search`, `guide-copy`, `page-shell`, `view-items` and `disk-net` blocks (capacity bar sizing, rate formatting, no-connection state) from `web/index.html`, so keep `url-state`, `export`, `page-shell` and `guide-search` free of DOM and storage access. `tests/fixtures/` holds the Guide table and the search results that `cargo test` and the web tests both check |
 | `web/fonts/` | IBM Plex Sans, bundled (three static weights, subsetted, WOFF2), embedded and served by `src/server.rs`; see `THIRD-PARTY-NOTICES.md` |
 
 ## One home per concept
