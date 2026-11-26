@@ -24,7 +24,8 @@ As of 2026-11-26 on `main`, after A6:
 
 - `src/group.rs` and `src/snapshot.rs` build app groups from processes and sockets; `src/rules.rs` produces findings (exposed listener, unsigned binary with sockets, unreviewed app, open debug port, new remote host); `src/actions.rs` signals own-user processes behind a confirm dialog.
 - Every group carries a rule-based label and the rules that produced it (`Group.trust` and `Group.rules_fired`, filled in by `rules::classify`, todo A6). The dashboard's own `status()` in `web/index.html` still drives the review filters.
-- The repo has no model, no HTTP client crate and no `classify` module.
+- `src/classify.rs` computes `allowed_actions(label, group)` (never an action `actions::execute` would refuse) and `evidence(group_key)` (a bounded, 256-character-capped fact record for one group), both Rust-only decisions the model cannot override (A7).
+- The repo has no model and no HTTP client crate; A8 is the first thing to add either.
 
 ## 3. What the research found
 

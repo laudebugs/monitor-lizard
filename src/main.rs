@@ -1,4 +1,4 @@
-mod actions; mod baseline; mod collect; mod group; mod history; mod model; mod paths; mod persistence; mod privilege; mod rules; mod sampler; mod server; mod snapshot; mod watcher;
+mod actions; mod baseline; mod classify; mod collect; mod group; mod history; mod model; mod paths; mod persistence; mod privilege; mod rules; mod sampler; mod server; mod snapshot; mod watcher;
 use std::collections::BTreeMap;
 
 fn main() {
@@ -26,10 +26,25 @@ fn main() {
             println!("{}{:<12} {:<7} {} -> {}", if i.is_new { "NEW " } else { "    " }, i.kind, i.scope, i.label, i.program);
         },
         Some("metrics") => println!("{}", serde_json::to_string_pretty(&sampler::one_shot()).unwrap()),
+        Some("classify") => match args.next() {
+            Some(key) => {
+                let snap = snapshot::take();
+                match snap.groups.iter().find(|g| g.key == key) {
+                    Some(g) => {
+                        println!("label: {:?}", g.trust);
+                        println!("rules_fired: {:?}", g.rules_fired);
+                        println!("allowed_actions: {:?}", classify::allowed_actions(g.trust, g));
+                        if let Some(ev) = classify::evidence(&key) { println!("{}", serde_json::to_string_pretty(&ev).unwrap()); }
+                    }
+                    None => eprintln!("no such group: {key}"),
+                }
+            }
+            None => eprintln!("usage: sys-monitor classify <group-key>"),
+        },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
-        _ => eprintln!("usage: sys-monitor [snapshot | persistence | metrics | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
+        _ => eprintln!("usage: sys-monitor [snapshot | persistence | metrics | classify <group-key> | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
     }
 }
 
