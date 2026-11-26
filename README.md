@@ -1,4 +1,4 @@
-# Sys Monitor
+# Monitor Lizard
 
 Local-first macOS monitor that groups every process and network socket by app and flags anything that is not yours.
 
@@ -11,11 +11,11 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo run --release -- sudo-log 20    # stored sudo/su launches
     cargo test
 
-State (baseline and history) lives in `~/.sys-monitor/`; a one-time migration copies `~/.ownwatch/` the first time it finds no new folder. Turning on the `metrics_history` setting adds downsampled CPU/memory history to that same `history.db` (1 minute resolution for 48 hours, 15 minutes for 30 days; never per-process) -- off by default. Measured by filling both tiers to their full retention (23,048 rows: 2880 one-minute buckets plus 2880 fifteen-minute buckets, 4 metric columns each) and checking the resulting file size directly: about 753 KB after `VACUUM` (812 KB before it). The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
+State (baseline and history) lives in `~/.monitor-lizard/`; a one-time migration copies `~/.ownwatch/` the first time it finds no new folder. Turning on the `metrics_history` setting adds downsampled CPU/memory history to that same `history.db` (1 minute resolution for 48 hours, 15 minutes for 30 days; never per-process) -- off by default. Measured by filling both tiers to their full retention (23,048 rows: 2880 one-minute buckets plus 2880 fifteen-minute buckets, 4 metric columns each) and checking the resulting file size directly: about 753 KB after `VACUUM` (812 KB before it). The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
 
 ## Commands
 
-`sys-monitor help [word]` lists every command and term, filtered by the word, with what each one changes and how to undo it. The dashboard serves the same table at `/api/guide`.
+`monitor-lizard help [word]` lists every command and term, filtered by the word, with what each one changes and how to undo it. The dashboard serves the same table at `/api/guide`.
 
 ## Working on this repo
 

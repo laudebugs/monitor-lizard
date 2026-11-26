@@ -67,7 +67,7 @@ Make the crate, binary, UI text, docs and data folder match the new product name
 
 ## Acceptance criteria
 
-- `grep -ril "sys.monitor\|sysmon" .` (case-insensitive, excluding `target/` and `.git/`) finds only: the migration code and its comments (`src/paths.rs`), the ADR 0002 amendment, migration notes in README/SECURITY.md/layout.md, this todo's own Context, and the historical Implementation Records of already-done todos (A1, A6, A11), never rewritten.
+- `grep -ril "sys.monitor\|sysmon" .` (case-insensitive, excluding `target/` and `.git/`) finds only: the migration code and its comments (`src/paths.rs`), the two dated ADR 0002 amendments (A11's and this one), migration notes in README/SECURITY.md/layout.md and the living plan docs' resolved-decision text, this todo's own Context, external design-canvas titles quoted verbatim (S2a, S2b), and the historical record of anything written to describe a past state rather than the current one and never rewritten: already-`done/` todos' own prose and Implementation Records, ADR 0004 and its linked Tauri research spike (both are dated measurements taken under the old name), and the forensic bug report that quotes the page's literal old `<title>` text.
 - Existing baseline and history are present after first run on a machine with only the old data folder.
 
 ## Tests

@@ -25,6 +25,8 @@ The project began as a TypeScript prototype and moved to Rust on the owner's req
 
 **Amended 2026-11-26 (todo A11):** the crate is `sys-monitor` and state lives in `~/.sys-monitor/`, migrated once from `~/.ownwatch/`. The product and repository are both named Sys Monitor / `sys-monitor`.
 
+**Amended 2026-11-26 (todo X1):** the crate is `monitor-lizard` and state lives in `~/.monitor-lizard/`, migrated once from whichever of `~/.sys-monitor/` or `~/.ownwatch/` is found (newest name tried first). The product and repository are both named Monitor Lizard / `monitor-lizard`.
+
 ## Alternatives considered
 
 - Keep the TypeScript prototype: faster to write, but a long-running security daemon is better as a single static binary, and the owner chose Rust.

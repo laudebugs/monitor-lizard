@@ -25,7 +25,7 @@ A command that downloads one pinned GGUF from Hugging Face, verifies its SHA-256
 
 **In scope:**
 
-- `sys-monitor model install [--model qwen3-4b|qwen3-1.7b]` and `sys-monitor model status`, storing under `~/.sys-monitor/models/`.
+- `monitor-lizard model install [--model qwen3-4b|qwen3-1.7b]` and `monitor-lizard model status`, storing under `~/.monitor-lizard/models/`.
 - A manifest in the binary: repo, commit SHA, file name, size, SHA-256, licence.
 - Resume of interrupted downloads; a disk-space check (3 GB cap).
 

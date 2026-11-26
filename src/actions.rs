@@ -30,7 +30,7 @@ fn out(cmd: &str, args: &[&str]) -> String {
 /// pid can be signalled: a live `ps` lookup, not a cached snapshot field, so it can never go stale.
 pub(crate) fn check(pid: u32, my_uid: &str) -> Result<(), &'static str> {
     if pid <= 1 { return Err("refusing to signal launchd"); }
-    if pid == std::process::id() { return Err("refusing to signal sys-monitor itself"); }
+    if pid == std::process::id() { return Err("refusing to signal monitor-lizard itself"); }
     let uid = out("ps", &["-o", "uid=", "-p", &pid.to_string()]);
     if uid.is_empty() { Err("no such process") } else if uid != my_uid { Err("not your process") } else { Ok(()) }
 }
