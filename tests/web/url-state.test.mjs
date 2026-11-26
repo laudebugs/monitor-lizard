@@ -421,3 +421,12 @@ test('storage: S travels to the address and back, and a tile or folder change is
   assert.equal(L.historyMode('#storage', '#storage?filter=safe'), 'replace');
   assert.equal(L.historyMode('#storage', '#storage?sort=store.size.asc'), 'replace');
 });
+
+test('storage: a not-yet-scanned location id survives the address, a hostile one does not', () => {
+  const id = 'nr-/Users/me/My Downloads';
+  const h = L.writeHash({ ...stBase, ex: { stTile: 'all', stItem: id } });
+  assert.equal(L.parseHash(h).ex.stItem, id);
+  for (const bad of ['nr-\u0000x', 'nr-a\nb', 'nr-' + 'x'.repeat(400)]) assert.equal(L.parseHash('#storage?item=' + encodeURIComponent(bad)).ex.stItem, null, JSON.stringify(bad).slice(0, 30));
+  assert.equal(L.parseHash('#storage?q=deriveddata').q, 'deriveddata', 'the folder search is in the address');
+  assert.equal(L.writeHash({ ...stBase, q: 'cache' }), '#storage?q=cache');
+});

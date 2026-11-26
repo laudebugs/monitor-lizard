@@ -10,7 +10,7 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in web/index.html');
   return m[1];
 };
-const names = 'storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts safeTotal nextTile verdictTitle ST_CATEGORIES ST_TILES'.split(' ');
+const names = 'retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES'.split(' ');
 const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const GB = 1e9;
@@ -43,11 +43,8 @@ test('state: complete only when the server says complete is true; anything else 
 
 test('partial scan: no safe-to-remove total, only the reason; complete scan: the total', () => {
   const rows = P.storageRows(scan({ complete: false }));
-  assert.deepEqual(P.safeTotal(scan({ complete: false }), rows), { shown: false, text: 'Not shown until the scan is complete.' });
-  const done = P.safeTotal(scan(), P.storageRows(scan()));
-  assert.equal(done.shown, true);
-  assert.equal(done.bytes, 40 * GB);
-  assert.equal(done.text, '40.0 GB');
+  assert.equal(P.safeTotalText(scan({ complete: false }), rows), 'Not shown until the scan is complete.');
+  assert.equal(P.safeTotalText(scan(), P.storageRows(scan())), '40.0 GB');
 });
 
 test('lower_bound totals read "at least"; a total that is not a bound does not', () => {
@@ -166,7 +163,7 @@ test('a user-content folder is never shown as safe, whatever label the server se
   assert.equal(P.shownLabel({ path: '/Users/me/Documents', label: 'yours' }), 'yours');
   const rows = P.storageRows(scan({ items: [item('/Users/me/Documents/Proj/node_modules', 'developer', GB, { label: 'safe', rule: 'idle-node-modules' })] }));
   assert.equal(rows[0].label, 'review');
-  assert.equal(P.safeTotal(scan(), rows).bytes, 0, 'it adds nothing to the safe total');
+  assert.equal(P.safeTotalText(scan(), rows), '0 B', 'it adds nothing to the safe total');
 });
 
 test('label counts and the default order: biggest first, unavailable last', () => {
@@ -203,10 +200,13 @@ test('scanning text counts from the scan start the server implies; stale and mea
 
 test('title: a verdict from counts, never a total, and the page name before data', () => {
   assert.equal(P.verdictTitle('storage', null), 'Storage');
-  assert.equal(P.storageFacts({ scanning: true }), null);
-  assert.equal(P.verdictTitle('storage', P.storageFacts(scan({ complete: false, coverage: { locations_total: 305, locations_measured: 270, bytes_measured: 1 } }))), 'Scan partial: 270 of 305 locations measured');
-  assert.equal(P.verdictTitle('storage', P.storageFacts(scan())), 'Scan complete: 3 locations measured');
-  assert.equal(P.verdictTitle('storage', { measured: 3, complete: true }), 'Scan complete: 3 locations measured');
+  assert.equal(P.storageFacts({ scanning: true }, 1100), null);
+  const part = scan({ complete: false, coverage: { locations_total: 305, locations_measured: 270, bytes_measured: 1 } });
+  assert.equal(P.verdictTitle('storage', P.storageFacts(part, 1300)), 'Scan partial, 5 minutes ago: 270 of 305 locations measured');
+  assert.equal(P.verdictTitle('storage', P.storageFacts(scan(), 1010)), 'Scan complete, just now: 3 locations measured');
+  assert.equal(P.verdictTitle('storage', P.storageFacts(scan(), 1000 + 3 * 3600)), 'Scan from 3 hours ago: 3 locations measured', 'a stale scan is not called complete');
+  assert.equal(P.verdictTitle('storage', P.storageFacts(part, 1000 + 3 * 3600)), 'Scan from 3 hours ago: 270 of 305 locations measured');
+  assert.doesNotMatch(P.verdictTitle('storage', P.storageFacts(scan(), 1300)), /^Scan complete:/);
 });
 
 test('arrow keys walk the tiles in reading order and stop at the ends', () => {
@@ -227,12 +227,152 @@ test('the tile ids the address accepts are the scanner sections plus all, other 
 });
 
 test('page wiring: removal is disabled with its reason, and the page never writes the address itself', () => {
-  const view = html.slice(html.indexOf('function stInspector('), html.indexOf('const SAFETY_TAG'));
-  assert.match(view, /disabled: true, title: 'Available after the removal route ships'/);
-  assert.match(view, /aria-label': 'Move to Trash, disabled: available after the removal route ships'/);
+  const view = html.slice(html.indexOf('const ST_TRASH_WHY'), html.indexOf('const SAFETY_TAG'));
+  assert.match(view, /ST_TRASH_WHY = 'Available after the removal route ships'/);
+  assert.match(view, /'aria-disabled': 'true',\s*'aria-describedby': 'st-trash-why'/, 'focusable, with its reason wired in');
+  assert.doesNotMatch(view, /disabled: true/);
+  assert.match(view, /id: 'st-trash-why' \}, ST_TRASH_WHY/);
   assert.doesNotMatch(view, /location\.hash|pushState|replaceState/);
   assert.match(view, /writeHash\(\{ view: 'performance'/);
   const loader = html.slice(html.indexOf('async function loadStorage('), html.indexOf('function rescanNow'));
-  assert.match(loader, /r\.status === 429/);
-  assert.match(loader, /Retry-After/);
+  assert.doesNotMatch(loader, /429|Retry-After/, 'the server never sends 429; it answers 200 with scanning and next_scan_allowed_at');
+  assert.match(loader, /staleReply\(mine, stSeq\)/);
+  assert.match(loader, /empty reply/);
+  assert.match(loader, /announce\(say\)/);
+  assert.doesNotMatch(view, /role: 'status'/, 'announcements go to the one persistent live region');
+  assert.match(html, /function stTileButton/);
+  assert.doesNotMatch(html, /function stTile\(/, 'the function and S.stTile have different names');
+});
+
+// ---- fail closed: SAFE needs the server's safe label, a safe rule, a sane absolute path under /Users/<name>/
+test('SAFE needs the server label, a safe rule and a clean absolute path; anything else shows REVIEW', () => {
+  const ok = { label: 'safe', rule: 'homebrew-cache', category: 'caches', path: '/Users/me/Library/Caches/Homebrew' };
+  assert.equal(P.shownLabel(ok), 'safe');
+  const bad = {
+    'unknown rule': { rule: 'something-new' }, 'missing rule': { rule: undefined }, 'null rule': { rule: null }, symlink: { rule: 'symlink' },
+    unresolvable: { rule: 'unresolvable' }, unclassified: { rule: 'unclassified' }, 'review rule': { rule: 'app-cache' },
+    'relative path': { path: 'Library/Caches/Homebrew' }, 'outside home': { path: '/opt/x/Library/Caches/Homebrew' }, 'system library': { path: '/Library/Caches/Homebrew' },
+    'missing path': { path: undefined }, 'empty path': { path: '' }, 'path not a string': { path: 42 }, 'just the home': { path: '/Users/me' }, 'home with slash': { path: '/Users/me/' },
+    'dot dot': { path: '/Users/me/Library/Caches/../Documents/x' }, 'dot': { path: '/Users/me/./Library/Caches/Homebrew' }, 'double slash': { path: '/Users/me//Library/Caches/Homebrew' },
+    'mixed-case DOCUMENTS': { path: '/Users/me/DOCUMENTS/proj/node_modules', rule: 'idle-node-modules' }, 'Desktop': { path: '/Users/me/Desktop/node_modules', rule: 'idle-node-modules' },
+    'Downloads category': { category: 'downloads' }, 'mail rule': { rule: 'mail' }, 'user-content rule': { rule: 'user-content' },
+  };
+  for (const [name, patch] of Object.entries(bad)) assert.equal(P.shownLabel({ ...ok, ...patch }), 'review', name);
+  for (const l of ['Safe', 'SAFE', ' safe', 'safe ', 'yes', true, 1, {}, [], undefined]) assert.equal(P.shownLabel({ ...ok, label: l }), 'review', String(l));
+  assert.equal(P.shownLabel(null), 'review');
+  assert.equal(P.shownLabel(undefined), 'review');
+  assert.equal(P.shownLabel({ ...ok, label: 'yours', rule: 'user-content' }), 'yours');
+});
+
+test('the safe rules the page knows are exactly the ones rules.rs can mark safe', () => {
+  const rs = readFileSync(new URL('../../src/storage/rules.rs', import.meta.url), 'utf8').split('#[cfg(test)]')[0];
+  const kebab = (name) => name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+  const table = rs.match(/REBUILDABLE_CACHES[^=]*=\s*&\[([\s\S]*?)\n\];/);
+  assert.ok(table, 'REBUILDABLE_CACHES not found');
+  const fromTable = [...table[1].matchAll(/Rule::(\w+)/g)].map((m) => kebab(m[1]));
+  const direct = [...rs.matchAll(/verdict\(Label::Safe, Rule::(\w+)\)/g)].map((m) => kebab(m[1]));
+  const marked = new Set([...fromTable, ...direct]);
+  assert.ok(marked.size >= 4, [...marked].join());
+  for (const id of marked) assert.ok(P.ST_SAFE_RULES.includes(id), 'rules.rs can mark ' + id + ' safe but the page does not list it');
+  for (const id of P.ST_SAFE_RULES) assert.ok(marked.has(id), 'the page lists ' + id + ' but rules.rs never marks it safe');
+});
+
+test('the label strings are one frozen object', () => {
+  assert.ok(Object.isFrozen(P.ST_LABEL));
+  assert.deepEqual(Object.values(P.ST_LABEL), ['safe', 'review', 'yours']);
+});
+
+// ---- the unmeasured rest is an estimate when sections are unavailable, bounded or unfinished
+test('the rest strip says "about" and why, never reads as free space, and never says System Data', () => {
+  const exact = P.storageTiles(scan()).find((t) => t.id === 'rest');
+  assert.equal(exact.approx, false);
+  assert.match(P.tileSizeText(exact), /^340 GB$/);
+  const vague = P.storageTiles(scan({ categories: [cat('developer', 40 * GB, { lower_bound: true }), cat('mail', 0, { items: 1 })], items: [item('/Users/me/Library/Mail', 'mail', 0, { size: gone('permission denied') })], complete: false })).find((t) => t.id === 'rest');
+  assert.equal(vague.approx, true);
+  assert.match(P.tileSizeText(vague), /^about /);
+  assert.match(vague.why, /unavailable/);
+  assert.match(vague.why, /lower bound/);
+  assert.match(vague.why, /not complete/);
+  assert.match(html, /const REST_NOT_FREE = 'This is not free space\.'/);
+  assert.doesNotMatch(html.slice(html.indexOf('/* storage-page:begin */'), html.indexOf('const SAFETY_TAG')), /System Data/i);
+});
+
+test('a section with unmeasured locations, no items and zero bytes shows a reason, not "at least 0 B"', () => {
+  const d = scan({ categories: [cat('developer', 40 * GB), cat('mail', 0, { items: 0, unmeasured: 1, lower_bound: true })], items: [] });
+  const mail = P.storageTiles(d).find((t) => t.id === 'mail');
+  assert.equal(mail.bytes, null);
+  assert.equal(mail.reason, 'not yet scanned');
+  assert.equal(P.tileSizeText(mail), 'unavailable');
+  const real = P.storageTiles(scan({ categories: [cat('developer', 40 * GB), cat('mail', 0, { items: 1, unmeasured: 0 })], items: [] })).find((t) => t.id === 'mail' || t.id === 'other');
+  assert.ok(real, 'a measured zero stays a zero');
+});
+
+// ---- search
+test('the folder search matches name, path and label, every word', () => {
+  const rows = P.storageRows(scan());
+  assert.equal(P.searchRows(rows, 'deriveddata').length, 1);
+  assert.equal(P.searchRows(rows, 'LIBRARY caches').length, 1);
+  assert.equal(P.searchRows(rows, 'safe').length, 1, 'by label');
+  assert.equal(P.searchRows(rows, 'nothing here').length, 0);
+  assert.equal(P.searchRows(rows, '   ').length, 2);
+  assert.equal(P.searchRows(rows, undefined).length, 2);
+  assert.equal(P.searchRows(P.storageRows(scan({ not_reached: ['/Applications'] })), 'applications').length, 1, 'a location not reached is searchable');
+});
+
+test('Storage is searchable, so typing in the box stays on the page', () => {
+  const m = html.match(/const FILTERABLE = \[([^\]]*)\]/);
+  assert.match(m[1], /'storage'/);
+  assert.match(html, /S\.view === 'storage' \? 'Search folders'/);
+});
+
+// ---- refresh failures and replies
+test('retry waits 2, 4, 8, 16 then 30 seconds at most', () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 50, 1e9].map(P.retryDelay), [2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000]);
+  assert.equal(P.retryDelay(0), 2000);
+  assert.equal(P.retryDelay(-3), 2000);
+});
+
+test('a reply from an older request is dropped', () => {
+  assert.equal(P.staleReply(3, 3), false);
+  assert.equal(P.staleReply(2, 3), true);
+});
+
+test('a failed refresh with a result held says how old it is; with none held it says it is trying again', () => {
+  assert.equal(P.refreshFailure(scan(), 1300), 'Could not refresh. Showing the scan from 5 minutes ago.');
+  assert.equal(P.refreshFailure(null, 1300), 'Could not read the storage scan. Trying again.');
+  assert.equal(P.refreshFailure({ scanning: true }, 1300), 'Could not read the storage scan. Trying again.');
+});
+
+test('announcements: scan start, finish and the first failure only; a quiet poll says nothing', () => {
+  const idle = { data: scan(), failed: false }, running = { data: scan({ scanning: true }), failed: false }, bad = { data: scan(), failed: true };
+  assert.equal(P.storageAnnouncement(idle, running, 1100), 'Scan started.');
+  assert.equal(P.storageAnnouncement({ data: null, failed: false }, { data: { scanning: true } }, 1100), 'Scan started.');
+  assert.equal(P.storageAnnouncement(running, idle, 1100), 'Scan finished: 3 of 3 locations measured.');
+  assert.match(P.storageAnnouncement(running, { data: scan({ complete: false }), failed: false }, 1100), /The result is partial\.$/);
+  assert.match(P.storageAnnouncement(idle, bad, 1300), /^Could not refresh\. Showing the scan from 5 minutes ago/);
+  assert.equal(P.storageAnnouncement(bad, bad, 1300), null, 'a repeated failure is not read out again');
+  assert.equal(P.storageAnnouncement(idle, idle, 1100), null);
+  assert.equal(P.storageAnnouncement(running, running, 1100), null, 'a poll of a running scan is silent');
+});
+
+// ---- ids
+test('a folder id is unique and stable: missing, duplicate or bad ids from the server get a path-derived one', () => {
+  const d = scan({ items: [
+    item('/Users/me/a', 'caches', 1, { id: 'dup' }), item('/Users/me/b', 'caches', 1, { id: 'dup' }), item('/Users/me/c', 'caches', 1, { id: undefined }),
+    item('/Users/me/c', 'caches', 1, { id: undefined }), item('/Users/me/d', 'caches', 1, { id: '' }), item('/Users/me/e', 'caches', 1, { id: '../x y' }),
+  ] });
+  const ids = P.storageRows(d).map((r) => r.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(ids.slice(0, 2).includes('dup'), true);
+  for (const id of ids) assert.match(id, /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, id);
+  assert.deepEqual(P.storageRows(d).map((r) => r.id), ids, 'stable across calls');
+  assert.equal(P.pathId('/Users/me/c'), P.pathId('/Users/me/c'));
+  assert.notEqual(P.pathId('/Users/me/c'), P.pathId('/Users/me/d'));
+});
+
+test('an id for a location not reached is accepted from the address; hostile ones are not', () => {
+  const rows = P.storageRows(scan({ not_reached: ['/Users/me/My Downloads', '/Applications'] }));
+  for (const r of rows.filter((x) => x.kind === 'pending')) assert.ok(P.isItemId(r.id), r.id);
+  for (const bad of ['nr-' + 'x'.repeat(300), 'nr-/a\nb', 'nr-/a\u0000b', 'nr-/a\u007f', '__proto__', 'nr/x', '', null, undefined, 5, {}]) assert.ok(!P.isItemId(bad), String(bad));
+  assert.ok(P.isItemId('nr-' + 'x'.repeat(296)));
 });
