@@ -95,6 +95,7 @@ pub fn serve(port: u16) {
                 Err(e) => Response::from_string(format!("history unavailable: {e}")).with_status_code(500).boxed(),
             }
             (Method::Get, "/api/sudo") => json_resp(History::open().and_then(|h| h.recent_sudo(50)).map(|v| serde_json::to_string(&v).unwrap_or_default()).unwrap_or_else(|_| "[]".into())),
+            (Method::Get, "/api/guide") => json_resp(crate::guide::to_json()),
             (Method::Get, "/api/settings") => json_resp(serde_json::to_string(&settings::load()).unwrap_or_default()),
             (Method::Post, "/api/settings") if write_ok => {
                 match settings::update(query_param(query, "notifications").as_deref(), query_param(query, "generic_text").as_deref(), query_param(query, "quiet_start").as_deref(), query_param(query, "quiet_end").as_deref(), query_param(query, "metrics_history").as_deref()) {

@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `G1` |
-| Status | `ready` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D8 |
 | Depends on | None |
 | ADRs | None |
 | Branch | `feat/g1-guide-table-help-and-api` |
 | PR title | `feat(guide): one command table behind help and /api/guide` |
 | Size | M (200-400) |
-| PR | — |
+| PR | pending |
 
 ## Goal
 
@@ -46,9 +46,9 @@ Put every command and term the user may need in one Rust table, and use it for `
 
 ## Steps
 
-- [ ] On a real Mac, run each read-only command and copy real output into the example (trim, mark with a date). Read the manual page of each command that changes data and check the flags and the confirmation text.
-- [ ] Write the table-completeness test first.
-- [ ] Generate the usage line from the table.
+- [x] On a real Mac, run each read-only command and copy real output into the example (trim, mark with a date). Read the manual page of each command that changes data and check the flags and the confirmation text.
+- [x] Write the table-completeness test first.
+- [x] Generate the usage line from the table.
 
 ## Edge cases (must be covered)
 
@@ -86,9 +86,25 @@ cargo run --release -- help snapshot
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+**2026-11-26.** Built `src/guide.rs` with `COMMANDS` (12 `sys-monitor` entries, 9 macOS and developer entries), `TERMS` (9), a `Safety` enum and a search helper. `sys-monitor help [word]` prints matches, or "No command matches" and the topic list. An unknown subcommand prints a usage line generated from the table, with the exit code unchanged (0). `GET /api/guide` returns both tables as JSON through one route line in `src/server.rs`.
+
+Ten Rust tests cover completeness in both directions, unsupported arm shapes, unique ids, search, no-match text, usage, placeholders and absence of home paths. Docs changed: `docs/agents/commands.md`, README, plan.
+
+**Deviations and open items:**
+
+- `docker system df` has no example, because the Docker daemon was not running. Capture one when Docker is up.
+- `xcrun simctl delete unavailable`, `docker system prune` and `tmutil deletelocalsnapshots` delete data, so they were not run. Their entries come from `simctl help`, `docker system prune --help` and `man tmutil`.
+- The man page does not say `deletelocalsnapshots` needs root. The label `needs sudo` is the safe assumption; confirm it against a real snapshot.
+- `tmutil listlocalsnapshots /` listed no snapshots on the capture Mac, so its example is the header line.
+- Examples were captured on macOS 27.0.1. The `diskutil apfs list` example is trimmed and shows `<uuid>`; the `du` example shortens the home folder to `~`.
+- The `sys-monitor` entries have no examples yet.
+- The completeness test reads the dispatch `match` in `src/main.rs` and rejects any arm that is not `Some("name")`.

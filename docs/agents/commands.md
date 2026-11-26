@@ -23,3 +23,12 @@ Pin runtimes in a file CI also reads. Not done yet: CI uses `dtolnay/rust-toolch
 cargo run --release -- serve   # dashboard at http://127.0.0.1:4747
 cargo run --release            # grouped snapshot in the terminal
 ```
+
+## Look up a command
+
+```sh
+cargo run --release -- help [word]   # commands and terms whose title, command or tags contain the word
+curl http://127.0.0.1:4747/api/guide # the same table as JSON
+```
+
+The table is `COMMANDS` and `TERMS` in `src/guide.rs`. A new `sys-monitor` subcommand needs an entry there (topic `sys-monitor`); `make test` fails without one. Examples carry the macOS version they were captured on, and show placeholders such as `<date>` instead of real paths.

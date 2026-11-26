@@ -1,4 +1,4 @@
-mod actions; mod baseline; mod classify; mod collect; mod group; mod history; mod iokit; mod llm; mod model; mod notify; mod paths; mod persistence; mod privilege; mod procusage; mod rules; mod sampler; mod server; mod settings; mod snapshot; mod watcher;
+mod actions; mod baseline; mod classify; mod collect; mod group; mod guide; mod history; mod iokit; mod llm; mod model; mod notify; mod paths; mod persistence; mod privilege; mod procusage; mod rules; mod sampler; mod server; mod settings; mod snapshot; mod watcher;
 use std::collections::BTreeMap;
 
 fn main() {
@@ -58,8 +58,9 @@ fn main() {
         },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
+        Some("help") => println!("{}", guide::render_help(&args.collect::<Vec<_>>().join(" "))),
         Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
-        _ => eprintln!("usage: sys-monitor [snapshot | persistence | metrics | classify <group-key> | llm-classify <group-key> [port] | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
+        _ => eprintln!("{}", guide::usage()),
     }
 }
 
