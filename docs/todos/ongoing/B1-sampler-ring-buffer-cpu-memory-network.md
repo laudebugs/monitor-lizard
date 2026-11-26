@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `B1` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [resource-monitoring](../../plans/resource-monitoring.md) |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
