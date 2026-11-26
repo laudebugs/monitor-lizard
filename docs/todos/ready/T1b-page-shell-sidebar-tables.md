@@ -79,6 +79,7 @@ cargo run --release -- serve   # visit every page in both themes
 
 ## Risks and open questions
 
+- Every table carries a three-line export note, which looks heavy (seen at 1352 px in the T1a sweep). Consider a one-line note or a tooltip here and in the redesigns that follow (R1, R2, R3b). A design note, not a bug.
 - Converting ten renderers is mechanical but touches most of the file; keep the diff to the call sites.
 
 ## Definition of done

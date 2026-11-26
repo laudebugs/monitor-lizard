@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1a` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
@@ -60,9 +60,12 @@ Move the dashboard's shared styles to the Console look from the design canvas: v
 
 ## Acceptance criteria
 
-- No page shows the old rounded or flat buttons.
-- A contrast check of tokens passes; the result is recorded in the todo.
-- Every page is checked in a real browser in both themes at 1360 px and 400 px.
+- [x] No page shows the old rounded or flat buttons. Checked by eye on all nine pages in both themes (see Browser sweep).
+- [x] A contrast check of tokens passes; the result is recorded in the Implementation Record.
+- [x] Every page is checked in a real browser in both themes at 795 px (the extension's window, which cannot be resized) and at 400 px (a 400 px same-origin frame), with the horizontal-scroll width measured.
+- [x] Verified for these widths and pages, in a real browser: dark at 1352 px on eight pages (Overview, Apps with the inspector open, Performance overview tab, Network, Listeners, Privilege, Persistence, History); light at 1352 px on four pages (Overview, Apps with the inspector open, Persistence, Guide); both themes at 795 px on nine pages; both themes at 400 px on all pages, with the scroll width measured. The 1352 px looks were done by the owner's session, not by this agent.
+- Not covered, and moved to T1c: light at 1352 px on Network, Listeners, Privilege, History and Performance; the CPU and GPU tab at 1352 px; Guide in dark at 1352 px; keyboard focus and hover at 1352 px. No page is claimed verified at 1360 px.
+- Scoped out: forced-colors mode and `prefers-reduced-motion`, because the browser extension cannot switch either on and DevTools emulation was not used. Read in the CSS only. Moved to T1c.
 
 ## Tests
 
@@ -88,14 +91,14 @@ cargo run --release -- serve   # visit every page in both themes
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages (in the earlier rounds, not on the sweep commits)
+- [ ] `/writing-review` run on any prose (not run; the prose in this todo and in T1c is unreviewed)
 - [x] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
-2026-11-26. Not finished: the browser checks below are open, so this todo stays in `ongoing/`.
+2026-11-26. Built and merged. The browser sweep below closes the todo; forced-colors and reduced-motion moved to T1c.
 
 **Built** (all in `web/index.html`):
 
@@ -139,12 +142,35 @@ cargo run --release -- serve   # visit every page in both themes
 - Measured on every page's chips afterwards: none is wider than its cell; only the 23 Persistence trust chips truncate, each with its full text in `title`.
 - Team IDs are still cut to about "SIGNED JQ5...", because that column is 100 px wide. Widening it belongs to the table-style todo.
 
-**Not looked at (open):**
+**Browser sweep** (2026-11-26, Chrome extension, the merged `main` built from this worktree and served on port 4961 with a scratch `HOME`):
 
-- The other pages in both themes at 1352 px and 400 px
-- Forced-colors mode
-- A focused chamfered button inside a real page, as opposed to a probe row
-- `prefers-reduced-motion`
+- The window was 795 px wide and cannot be resized. I looked at screenshots of Overview, Apps with an app selected, Performance, Performance CPU and GPU, Network, Listeners, Privilege, Persistence, History and Guide, in dark and in light.
+- I also loaded each page, in both themes, in a 400 px wide same-origin frame. The document scroll width was 400 on all 18 loads, so no page scrolls sideways. Tables scroll inside their card.
+- Keyboard focus showed a thick edge, with the chamfer intact, on the Approve button in a real Overview row (light and dark), on the All chip on Network (light and dark) and on the Listeners sidebar item (light and dark).
+- Hover showed an edge on the accent button in both themes. The quiet danger button filled on hover in both themes.
+- Two defects were found and fixed. The severity chip on each Overview item shrank to "HI..." in the flex row; it now keeps its width. On Privilege, the Right text ran over the Requester text; both cells now wrap.
+- After each fix I reloaded and looked again. No Overview tag is cut. No Privilege cell overflows.
+- One defect is recorded, not fixed: the Network table's first columns shrink to about one character at 400 px, and the Apps and Listeners columns clip at 795 px. See the bug folder `network-table-columns-collapse-at-narrow-width`. It comes from the table grid, not the chips or buttons.
+- The owner's session looked at the build with both fixes in a window 1352 px wide (not this agent). Dark: Overview, Apps with the inspector open beside the table, Performance overview tab, Network, Listeners, Privilege, Persistence and History looked right. Severity chips were whole and Privilege cells did not overlap.
+- Light at 1352 px: Overview, Apps with the inspector open, Persistence and Guide (searched for "docker") looked right. Persistence trust chips truncate with an ellipsis as designed.
+- Not looked at at 1352 px: the CPU and GPU tab; Network, Listeners, Privilege, History and Performance in light; keyboard focus and hover.
+- With the Apps inspector open at 1352 px the table is squeezed. App names are cut ("Google Ch...", "Claude Co...", "identityse...") and the Listening and Signing columns clip. Added to the table bug record as an affected case.
+- Every table carries a three-line export note, which is visually heavy. This is a design note for the page-shell and redesign todos, not a bug.
+- Persistence still cuts team IDs in its Trust chip, as noted above; the full text is in `title`.
+
+**Forced-colors and reduced-motion** (read in the CSS, not run):
+
+- The browser extension cannot switch on forced colors or reduced motion, and DevTools emulation was not used, so neither was run.
+- No `transition`, `animation` or `@keyframes` is declared anywhere in `web/index.html`; the words appear only in a comment and in the reduced-motion rule. No `scroll-behavior: smooth` is set.
+- The forced-colors block names an edge and a fill for `.btn` and its `btn-acc`, `btn-danger` and quiet danger variants, and their disabled forms. It names only an edge, `border-color`, for `.chip`, `.tag`, `.badge` and `.sel-btn`; their fills are left to the browser. `.chip.on` also gets a Highlight outline.
+- The tag and badge color variants (`ok`, `warn`, `bad`) share that border rule. Their meaning is in their text. No variant in the CSS is missed by name.
+- Whether system colors in custom properties keep the button edge visible is unproven until T1c runs it.
+
+**Not checked:**
+
+- The 1352 px pages and states listed under the acceptance criteria, forced colors and reduced motion (T1c).
+- A focused chip that is not selected, and a focused sidebar item on other pages.
+- Hover on a filled danger button; only the quiet form was hovered.
 
 **Deviations:**
 
