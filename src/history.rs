@@ -1,0 +1,77 @@
+use crate::model::*;
+use rusqlite::{params, Connection};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+
+/// Seconds after a group's first sighting during which new hosts count as "learning", not "new".
+const LEARNING_SECS: u64 = 60;
+/// How long a first-seen host stays flagged.
+pub const FLAG_WINDOW_SECS: u64 = 3600;
+
+pub struct History(Connection);
+
+fn path() -> PathBuf { PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".ownwatch/history.db") }
+
+impl History {
+    pub fn open() -> rusqlite::Result<Self> { Self::at(&path()) }
+    pub fn at(p: &std::path::Path) -> rusqlite::Result<Self> {
+        if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+        let c = Connection::open(p)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS seen(
+            group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));")?;
+        Ok(Self(c))
+    }
+
+    /// Upsert every outbound remote host seen per group.
+    pub fn record(&mut self, groups: &[Group], now: u64) -> rusqlite::Result<()> {
+        let tx = self.0.transaction()?;
+        for g in groups {
+            let hosts: BTreeSet<&str> = g.conns.iter().filter(|c| c.direction == Direction::Outbound).filter_map(|c| c.remote_addr.as_deref()).collect();
+            for h in hosts {
+                tx.execute(
+                    "INSERT INTO seen(group_key,remote,first_seen,last_seen) VALUES(?1,?2,?3,?3)
+                     ON CONFLICT(group_key,remote) DO UPDATE SET last_seen=?3, hits=hits+1",
+                    params![g.key, h, now as i64],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// group_key -> hosts first seen within the flag window, excluding the group's initial learning period.
+    pub fn recent_new(&self, now: u64) -> rusqlite::Result<BTreeMap<String, Vec<String>>> {
+        let mut st = self.0.prepare(
+            "SELECT s.group_key, s.remote FROM seen s
+             JOIN (SELECT group_key, MIN(first_seen) m FROM seen GROUP BY group_key) g USING(group_key)
+             WHERE s.first_seen > ?1 AND s.first_seen > g.m + ?2 ORDER BY s.first_seen DESC")?;
+        let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for r in st.query_map(params![now.saturating_sub(FLAG_WINDOW_SECS) as i64, LEARNING_SECS as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (k, h) = r?;
+            out.entry(k).or_default().push(h);
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn group(key: &str, remote: &str) -> Group {
+        Group { key: key.into(), label: key.into(), category: "Apps".into(), procs: vec![], signing: None, approved: true,
+            conns: vec![Conn { pid: 1, name: "x".into(), proto: "TCP".into(), state: "ESTABLISHED".into(), local_addr: "10.0.0.2".into(), local_port: 1,
+                remote_addr: Some(remote.into()), remote_port: Some(443), direction: Direction::Outbound, scope: Scope::Public, exposed: false }] }
+    }
+    #[test]
+    fn flags_new_host_only_after_learning_period() {
+        let dir = std::env::temp_dir().join(format!("ow-test-{}", std::process::id()));
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        h.record(&[group("app", "1.1.1.1")], 1000).unwrap();
+        h.record(&[group("app", "2.2.2.2")], 1010).unwrap(); // within learning window
+        h.record(&[group("app", "3.3.3.3")], 2000).unwrap(); // genuinely new
+        let n = h.recent_new(2100).unwrap();
+        assert_eq!(n["app"], vec!["3.3.3.3".to_string()]);
+        assert!(h.recent_new(2000 + FLAG_WINDOW_SECS + 1).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

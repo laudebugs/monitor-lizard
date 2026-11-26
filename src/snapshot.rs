@@ -1,4 +1,4 @@
-use crate::{baseline, collect, group, model::*, rules};
+use crate::{baseline, collect, group, history::History, model::*, rules};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn take() -> Snapshot {
@@ -22,9 +22,22 @@ pub fn take() -> Snapshot {
             });
         }
     });
-    let findings = rules::evaluate(&groups);
+    let mut findings = rules::evaluate(&groups);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if let Ok(mut h) = History::open() {
+        let _ = h.record(&groups, now);
+        // Only approved apps: for unapproved ones every host is new and "unreviewed" already covers it.
+        for (key, hosts) in h.recent_new(now).unwrap_or_default() {
+            if let Some(g) = groups.iter().find(|g| g.key == key && g.approved) {
+                let shown = hosts.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
+                findings.push(Finding { severity: Severity::Medium, group: g.label.clone(), rule: "new-remote",
+                    detail: format!("{} host(s) first seen in the last hour: {shown}{}", hosts.len(), if hosts.len() > 4 { ", ..." } else { "" }) });
+            }
+        }
+        findings.sort_by_key(|f| f.severity);
+    }
     Snapshot {
-        at: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        at: now,
         totals: Totals { processes: np, connections: nc, groups: groups.len(), listening, outbound, findings: findings.len() },
         groups, findings,
     }

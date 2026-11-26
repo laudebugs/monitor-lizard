@@ -28,11 +28,11 @@ Unverified: Lynis, Fleet/Kolide, Vallum, Radio Silence, Murus, commercial EDRs.
 
 ## Phases
 1. **Inventory (done)**: ps + proc_pidpath + lsof + codesign, grouping, rules, CLI, dashboard with approve.
-2. **History**: SQLite snapshots every 5s; short-lived connection capture; "new since yesterday".
+2. **History (done)**: SQLite first-seen remote host per app, flagged for approved apps (60s learning window, 1h flag window); background recorder every 10s.
 3. **Baselines**: first-seen remote host per app; learning period; Trust / Ignore / Investigate inbox.
 4. **Enrichment**: reverse DNS, ASN/owner.
 5. **Persistence**: LaunchAgents/Daemons, login items, cron, profiles; diff vs baseline.
-6. **Privilege events**: tail unified log for sudo and Authorization, resolve parent process.
+6. **Privilege events (done, v1)**: authd log parsed into sudo/admin requests with requester and parent (parent only if still alive). Next: capture parent chain in real time.
 7. **Real-time (optional)**: Endpoint Security helper. Apply for the entitlement early.
 8. **Menu-bar app** (Tauri v2) and notifications for high findings only.
 

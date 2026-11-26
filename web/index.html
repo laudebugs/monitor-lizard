@@ -20,7 +20,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)
 .sev{font-weight:600;font-size:11px;text-transform:uppercase;margin-right:6px}.high{color:var(--hi)}.medium{color:var(--med)}.low{color:var(--low)}
 </style></head><body>
 <header><h1>ownwatch</h1><div id="totals"></div><span id="at" style="color:var(--mut);margin-left:auto"></span></header>
-<main><section id="groups"></section><aside><h2>Findings</h2><div id="findings"></div></aside></main>
+<main><section id="groups"></section><aside><h2>Findings</h2><div id="findings"></div><h2>Privilege requests (last 2h)</h2><div id="privs"></div></aside></main>
 <script>
 const $=id=>document.getElementById(id),open=new Set();
 const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a))x==='class'?e.className=v:x.startsWith('on')?e.addEventListener(x.slice(2),v):e.setAttribute(x,v);e.append(...k.flat().filter(c=>c!=null));return e};
@@ -48,5 +48,9 @@ function render(s){
  $('findings').replaceChildren(...s.findings.map(f=>h('div',{class:'f'},h('span',{class:'sev '+f.severity},f.severity),h('b',{},f.group),h('small',{},f.detail))));
 }
 async function load(){try{render(await (await fetch('/api/snapshot')).json())}catch(e){$('at').textContent='error: '+e}}
-load();setInterval(load,10000);
+async function loadPriv(){try{const p=await (await fetch('/api/privilege')).json();
+ $('privs').replaceChildren(...(p||[]).slice(0,30).map(e=>h('div',{class:'f'},h('span',{class:'sev '+(e.ok?'low':'medium')},e.ok?'ok':'failed'),h('b',{},e.client.split('/').pop()),
+  h('small',{},e.right+(e.error?' ('+e.error+')':'')+' · '+e.time.slice(11,19)),h('small',{},'parent: '+(e.parent||'(exited)')))));
+ if(!(p&&p.length))$('privs').replaceChildren(h('small',{},'none yet'))}catch(e){}}
+load();loadPriv();setInterval(load,10000);setInterval(loadPriv,30000);
 </script></body></html>

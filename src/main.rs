@@ -1,14 +1,17 @@
-mod baseline; mod collect; mod group; mod model; mod rules; mod server; mod snapshot;
+mod baseline; mod collect; mod group; mod history; mod model; mod privilege; mod rules; mod server; mod snapshot;
 use std::collections::BTreeMap;
 
 fn main() {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
         Some("serve") => server::serve(args.next().and_then(|p| p.parse().ok()).unwrap_or(4747)),
+        Some("privilege") => for e in privilege::recent(args.next().and_then(|m| m.parse().ok()).unwrap_or(60)) {
+            println!("{} {} {} right={} {} parent={}", e.time, if e.ok { "OK  " } else { "FAIL" }, e.client, e.right, e.error.unwrap_or_default(), e.parent.unwrap_or("(exited)".into()));
+        },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
-        _ => eprintln!("usage: ownwatch [snapshot | json | serve [port] | approve <group-key>...]"),
+        _ => eprintln!("usage: ownwatch [snapshot | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
     }
 }
 

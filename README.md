@@ -6,6 +6,7 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo run --release -- serve     # dashboard at http://127.0.0.1:4747
     cargo run --release -- approve "/Applications/Notion.app"
     cargo run --release -- json      # full snapshot as JSON
+    cargo run --release -- privilege 60   # sudo/admin authorization requests, last 60 min
     cargo test
 
 Baseline lives in `~/.ownwatch/baseline.json`. See docs/PLAN.md.

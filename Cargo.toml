@@ -6,6 +6,7 @@ description = "Local-first macOS security monitor: is everything on this machine
 
 [dependencies]
 libproc = "0.15.0"
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tiny_http = "0.12"
