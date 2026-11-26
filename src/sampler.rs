@@ -52,10 +52,21 @@ pub struct MemorySample {
 pub struct NetworkSample { pub down_bytes_per_sec: Option<Reading<f64>>, pub up_bytes_per_sec: Option<Reading<f64>> }
 
 #[derive(Clone, Serialize, Debug)]
+pub struct GpuSample { pub device_pct: Reading<u8>, pub renderer_pct: Reading<u8>, pub tiler_pct: Reading<u8> }
+
+#[derive(Clone, Serialize, Debug)]
+pub struct DiskSample {
+    pub read_bytes_per_sec: Option<Reading<f64>>, pub write_bytes_per_sec: Option<Reading<f64>>,
+    pub read_ops_per_sec: Option<Reading<f64>>, pub write_ops_per_sec: Option<Reading<f64>>,
+    pub capacity_bytes: Reading<u64>, pub capacity_used_bytes: Reading<u64>,
+}
+
+#[derive(Clone, Serialize, Debug)]
 pub struct Sample {
     pub ts: u64,
     pub load1: Reading<f64>, pub load5: Reading<f64>, pub load15: Reading<f64>,
     pub cpu: CpuSample, pub memory: MemorySample, pub network: NetworkSample,
+    pub gpu: GpuSample, pub disk: DiskSample,
     /// The monitor's own CPU use, so it can be shown it is not the top consumer.
     pub self_cpu_pct: Option<Reading<f32>>,
 }
@@ -185,10 +196,12 @@ fn self_cpu_ticks() -> Result<(i64, i64), &'static str> {
 
 // ---------- the sampler: holds the previous tick so rates can be computed ----------
 
-struct Prev { at: Instant, cpu_ticks: Vec<[u32; 4]>, net: (u64, u64), self_micros: i64 }
+struct Prev { at: Instant, cpu_ticks: Vec<[u32; 4]>, net: (u64, u64), self_micros: i64, disk: Option<(u64, u64, u64, u64)> }
 
-pub struct Sampler { prev: Option<Prev> }
-impl Default for Sampler { fn default() -> Self { Self { prev: None } } }
+pub struct Sampler { prev: Option<Prev>, gpu: Option<crate::iokit::Gpu>, disks: crate::iokit::Disks }
+impl Default for Sampler {
+    fn default() -> Self { Self { prev: None, gpu: crate::iokit::Gpu::open(), disks: crate::iokit::Disks::open() } }
+}
 
 impl Sampler {
     /// One reading. The first call after startup (or after a counter goes backwards) has no rates,
@@ -205,6 +218,10 @@ impl Sampler {
         let cpu = build_cpu(&ticks_now, self.prev.as_ref().map(|p| &p.cpu_ticks), elapsed);
         let network = build_network(&net_now, self.prev.as_ref().map(|p| p.net), elapsed);
         let self_cpu_pct = self_cpu_pct(&self_now, self.prev.as_ref(), elapsed);
+
+        let gpu = build_gpu(self.gpu.as_ref().and_then(|g| g.utilization()));
+        let disk_now = self.disks.boot_volume_stats();
+        let disk = build_disk(disk_now.clone(), self.prev.as_ref().and_then(|p| p.disk), elapsed, crate::iokit::boot_volume_capacity());
 
         let load = load_average();
         let vm = vm_stats();
@@ -236,14 +253,82 @@ impl Sampler {
             cpu_ticks: ticks_now.unwrap_or_default(),
             net: net_now.unwrap_or((0, 0)),
             self_micros: self_now.map(|(u, s)| u + s).unwrap_or(0),
+            disk: disk_now.ok(),
         });
 
         Sample {
             ts,
             load1: Reading::or(load.map(|l| l[0])), load5: Reading::or(load.map(|l| l[1])), load15: Reading::or(load.map(|l| l[2])),
             cpu: CpuSample { perf_cores: Reading::or(perf_cores), eff_cores: Reading::or(eff_cores), ..cpu },
-            memory, network, self_cpu_pct,
+            memory, network, gpu, disk, self_cpu_pct,
         }
+    }
+}
+
+/// `util` is `None` if there is no `IOAccelerator` entry at all (a VM, or an unsupported chip);
+/// each inner `None` is one missing key within an entry that does exist.
+fn build_gpu(util: Option<(Option<u8>, Option<u8>, Option<u8>)>) -> GpuSample {
+    let reading = |v: Option<u8>, missing: &'static str| v.map(Reading::Value).unwrap_or(Reading::Unavailable(missing));
+    match util {
+        None => GpuSample {
+            device_pct: Reading::Unavailable("no GPU registry entry"),
+            renderer_pct: Reading::Unavailable("no GPU registry entry"),
+            tiler_pct: Reading::Unavailable("no GPU registry entry"),
+        },
+        Some((d, r, t)) => GpuSample {
+            device_pct: reading(d, "Device Utilization % missing from PerformanceStatistics"),
+            renderer_pct: reading(r, "Renderer Utilization % missing from PerformanceStatistics"),
+            tiler_pct: reading(t, "Tiler Utilization % missing from PerformanceStatistics"),
+        },
+    }
+}
+
+/// Diffs this tick's cumulative (read_bytes, write_bytes, read_ops, write_ops) against the last
+/// tick's, the same wraparound-vs-reset reasoning `build_network` uses: `wrapping_sub` repairs a
+/// real counter wrap, and an implausibly large delta for the elapsed time is treated as a reset
+/// (the edge case "Counter reset -> Sample dropped") rather than a huge or negative rate. `now`
+/// being `Err` (a `Statistics` key missing from every disk entry) reports the edge case "Disk
+/// statistics key absent -> Unavailable, capacity still reported" directly, distinct from "no
+/// previous tick yet", which reports `None` (no rate claimed either way) instead.
+fn build_disk(now: Result<(u64, u64, u64, u64), &'static str>, prev: Option<(u64, u64, u64, u64)>, elapsed: Option<f64>, capacity: Option<(u64, u64)>) -> DiskSample {
+    let capacity_bytes = Reading::or(capacity.map(|c| c.0).ok_or("statfs(\"/\") failed"));
+    let capacity_used_bytes = Reading::or(capacity.map(|c| c.1).ok_or("statfs(\"/\") failed"));
+    let now = match now {
+        Ok(v) => v,
+        Err(reason) => {
+            return DiskSample {
+                read_bytes_per_sec: Some(Reading::Unavailable(reason)), write_bytes_per_sec: Some(Reading::Unavailable(reason)),
+                read_ops_per_sec: Some(Reading::Unavailable(reason)), write_ops_per_sec: Some(Reading::Unavailable(reason)),
+                capacity_bytes, capacity_used_bytes,
+            };
+        }
+    };
+    let (rb, wb, ro, wo) = now;
+    let (Some((prb, pwb, pro, pwo)), Some(e)) = (prev, elapsed) else {
+        return DiskSample { read_bytes_per_sec: None, write_bytes_per_sec: None, read_ops_per_sec: None, write_ops_per_sec: None, capacity_bytes, capacity_used_bytes };
+    };
+    // Apple Silicon's internal NVMe can sustain multiple GB/s, so the bound is set far above any
+    // real consumer SSD's throughput (tens of GB/s), not just above today's hardware: wide enough
+    // to never misclassify genuine heavy I/O as a reset, while a real reset's wrapped delta would
+    // still be many orders of magnitude past it.
+    let plausible_max_bytes = (e * 50_000_000_000.0).max(50_000_000_000.0);
+    let plausible_max_ops = (e * 10_000_000.0).max(10_000_000.0);
+    let d_rb = rb.wrapping_sub(prb);
+    let d_wb = wb.wrapping_sub(pwb);
+    let d_ro = ro.wrapping_sub(pro);
+    let d_wo = wo.wrapping_sub(pwo);
+    if d_rb as f64 > plausible_max_bytes || d_wb as f64 > plausible_max_bytes || d_ro as f64 > plausible_max_ops || d_wo as f64 > plausible_max_ops {
+        let reason = "disk counters went backwards";
+        return DiskSample {
+            read_bytes_per_sec: Some(Reading::Unavailable(reason)), write_bytes_per_sec: Some(Reading::Unavailable(reason)),
+            read_ops_per_sec: Some(Reading::Unavailable(reason)), write_ops_per_sec: Some(Reading::Unavailable(reason)),
+            capacity_bytes, capacity_used_bytes,
+        };
+    }
+    DiskSample {
+        read_bytes_per_sec: Some(Reading::ok(d_rb as f64 / e)), write_bytes_per_sec: Some(Reading::ok(d_wb as f64 / e)),
+        read_ops_per_sec: Some(Reading::ok(d_ro as f64 / e)), write_ops_per_sec: Some(Reading::ok(d_wo as f64 / e)),
+        capacity_bytes, capacity_used_bytes,
     }
 }
 
@@ -402,12 +487,80 @@ mod tests {
     }
 
     #[test]
+    fn gpu_with_no_registry_entry_is_unavailable_with_the_edge_case_reason() {
+        let gpu = build_gpu(None);
+        assert_eq!(gpu.device_pct, Reading::Unavailable("no GPU registry entry"));
+        assert_eq!(gpu.renderer_pct, Reading::Unavailable("no GPU registry entry"));
+        assert_eq!(gpu.tiler_pct, Reading::Unavailable("no GPU registry entry"));
+    }
+
+    #[test]
+    fn gpu_with_a_missing_key_is_unavailable_for_just_that_key() {
+        // The entry exists (Some(..)) but one key -- Tiler Utilization % -- wasn't in the dictionary,
+        // which some chips and driver versions genuinely omit even when the entry itself is present.
+        let gpu = build_gpu(Some((Some(12), Some(8), None)));
+        assert_eq!(gpu.device_pct, Reading::Value(12));
+        assert_eq!(gpu.renderer_pct, Reading::Value(8));
+        assert!(matches!(gpu.tiler_pct, Reading::Unavailable(_)));
+    }
+
+    #[test]
+    fn disk_statistics_key_absent_is_unavailable_not_a_silent_zero_and_capacity_is_still_reported() {
+        // The exact edge case: "Disk statistics key absent -> Unavailable, capacity still reported."
+        let disk = build_disk(Err("no IOBlockStorageDriver entry has a complete Statistics dictionary"), None, None, Some((1_000_000, 400_000)));
+        assert_eq!(disk.read_bytes_per_sec, Some(Reading::Unavailable("no IOBlockStorageDriver entry has a complete Statistics dictionary")));
+        assert_eq!(disk.write_ops_per_sec, Some(Reading::Unavailable("no IOBlockStorageDriver entry has a complete Statistics dictionary")));
+        assert_eq!(disk.capacity_bytes, Reading::Value(1_000_000), "capacity is independent of whether disk rate stats are available");
+    }
+
+    #[test]
+    fn disk_first_tick_has_no_rates_but_still_reports_capacity() {
+        let disk = build_disk(Ok((100, 50, 10, 5)), None, None, Some((1_000_000, 400_000)));
+        assert!(disk.read_bytes_per_sec.is_none() && disk.write_ops_per_sec.is_none());
+        assert_eq!(disk.capacity_bytes, Reading::Value(1_000_000));
+        assert_eq!(disk.capacity_used_bytes, Reading::Value(400_000));
+    }
+
+    #[test]
+    fn disk_rate_from_two_ticks() {
+        let disk = build_disk(Ok((1100, 600, 20, 15)), Some((100, 50, 10, 5)), Some(1.0), None);
+        assert_eq!(disk.read_bytes_per_sec, Some(Reading::Value(1000.0)));
+        assert_eq!(disk.write_bytes_per_sec, Some(Reading::Value(550.0)));
+        assert_eq!(disk.read_ops_per_sec, Some(Reading::Value(10.0)));
+        assert_eq!(disk.write_ops_per_sec, Some(Reading::Value(10.0)));
+        assert!(matches!(disk.capacity_bytes, Reading::Unavailable(_)), "statfs failing is independent of the rate calculation");
+    }
+
+    #[test]
+    fn disk_counter_reset_is_unavailable_not_a_huge_number() {
+        // Lifetime counters go backwards: a real reset, not a wrap (far beyond any plausible
+        // multi-GB/s sustained rate for the 1 s elapsed).
+        let disk = build_disk(Ok((10, 10, 1, 1)), Some((5_000_000_000_000, 0, 0, 0)), Some(1.0), None);
+        assert_eq!(disk.read_bytes_per_sec, Some(Reading::Unavailable("disk counters went backwards")));
+        assert_eq!(disk.write_ops_per_sec, Some(Reading::Unavailable("disk counters went backwards")));
+    }
+
+    /// A minimal Sample for ring-buffer tests that only care about `ts`; every reading is
+    /// Unavailable/None, which is fine since nothing here inspects them.
+    fn sample(ts: u64) -> Sample {
+        Sample {
+            ts, load1: Reading::Unavailable("x"), load5: Reading::Unavailable("x"), load15: Reading::Unavailable("x"),
+            cpu: CpuSample::default(),
+            memory: MemorySample { app_bytes: Reading::Unavailable("x"), wired_bytes: Reading::Unavailable("x"), compressed_bytes: Reading::Unavailable("x"), cached_bytes: Reading::Unavailable("x"), total_bytes: Reading::Unavailable("x"), swap_used_bytes: Reading::Unavailable("x"), swap_total_bytes: Reading::Unavailable("x"), pressure_level: Reading::Unavailable("x"), pressure_pct_available: Reading::Unavailable("x") },
+            network: NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None },
+            gpu: GpuSample { device_pct: Reading::Unavailable("x"), renderer_pct: Reading::Unavailable("x"), tiler_pct: Reading::Unavailable("x") },
+            disk: DiskSample { read_bytes_per_sec: None, write_bytes_per_sec: None, read_ops_per_sec: None, write_ops_per_sec: None, capacity_bytes: Reading::Unavailable("x"), capacity_used_bytes: Reading::Unavailable("x") },
+            self_cpu_pct: None,
+        }
+    }
+
+    #[test]
     fn ring_buffer_drops_the_oldest_when_full() {
         let ring: Ring = Arc::new(RwLock::new(VecDeque::with_capacity(3)));
         for ts in 1..=4u64 {
             let mut buf = ring.write().unwrap();
             if buf.len() >= 3 { buf.pop_front(); }
-            buf.push_back(Sample { ts, load1: Reading::Unavailable("x"), load5: Reading::Unavailable("x"), load15: Reading::Unavailable("x"), cpu: CpuSample::default(), memory: MemorySample { app_bytes: Reading::Unavailable("x"), wired_bytes: Reading::Unavailable("x"), compressed_bytes: Reading::Unavailable("x"), cached_bytes: Reading::Unavailable("x"), total_bytes: Reading::Unavailable("x"), swap_used_bytes: Reading::Unavailable("x"), swap_total_bytes: Reading::Unavailable("x"), pressure_level: Reading::Unavailable("x"), pressure_pct_available: Reading::Unavailable("x") }, network: NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None }, self_cpu_pct: None });
+            buf.push_back(sample(ts));
         }
         let buf = ring.read().unwrap();
         assert_eq!(buf.len(), 3);
@@ -418,7 +571,7 @@ mod tests {
     fn since_returns_only_newer_samples() {
         let ring: Ring = Arc::new(RwLock::new(VecDeque::new()));
         for ts in [10u64, 20, 30] {
-            ring.write().unwrap().push_back(Sample { ts, load1: Reading::Unavailable("x"), load5: Reading::Unavailable("x"), load15: Reading::Unavailable("x"), cpu: CpuSample::default(), memory: MemorySample { app_bytes: Reading::Unavailable("x"), wired_bytes: Reading::Unavailable("x"), compressed_bytes: Reading::Unavailable("x"), cached_bytes: Reading::Unavailable("x"), total_bytes: Reading::Unavailable("x"), swap_used_bytes: Reading::Unavailable("x"), swap_total_bytes: Reading::Unavailable("x"), pressure_level: Reading::Unavailable("x"), pressure_pct_available: Reading::Unavailable("x") }, network: NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None }, self_cpu_pct: None });
+            ring.write().unwrap().push_back(sample(ts));
         }
         assert_eq!(since(&ring, 20).iter().map(|s| s.ts).collect::<Vec<_>>(), vec![30]);
         assert!(since(&ring, 1000).is_empty(), "since newer than every sample is empty");
