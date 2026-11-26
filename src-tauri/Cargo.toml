@@ -1,0 +1,15 @@
+[package]
+name = "monitor-lizard-shell"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Tauri menu-bar shell around the Monitor Lizard server"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.6", features = [] }
+
+[dependencies]
+monitor-lizard = { path = ".." }
+tauri = { version = "=2.12.7", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-single-instance = "=2.5.5"
+libc = "=0.2.191"

@@ -41,11 +41,31 @@ fn query_param(query: &str, name: &str) -> Option<String> {
     query.split('&').find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == name).map(|(_, v)| urldecode(v)))
 }
 
+/// Binds a free loopback port without serving yet, so a caller that cannot panic at startup (a Tauri
+/// shell with a tray to show an error in) can bind, check the `Result`, and decide what to do before
+/// any request loop starts; `serve` below is just this plus its own fixed port and the `expect`.
+pub fn bind_free() -> Result<(Arc<Server>, u16), String> {
+    // Bind loopback only, same as `serve`: this tool exposes everything about the machine.
+    let server = Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = server.server_addr().to_ip().ok_or_else(|| "not an IP listener".to_string())?.port();
+    Ok((Arc::new(server), port))
+}
+
 pub fn serve(port: u16) {
     // Bind loopback only: this tool exposes everything about the machine.
     let addr = format!("127.0.0.1:{port}");
-    let server = Server::http(&addr).expect("bind failed");
+    let server = Arc::new(Server::http(&addr).expect("bind failed"));
     println!("monitor-lizard -> http://{addr}");
+    serve_on(server);
+}
+
+/// The request loop on an already-bound server, shared by `serve` (a fixed port) and a shell that
+/// bound its own free port with `bind_free`: every guard, cache and background thread below is the
+/// same either way, so there is exactly one place that wires them up.
+pub fn serve_on(server: Arc<Server>) {
+    let bound = server.server_addr().to_ip();
+    let addr = bound.map(|a| a.to_string()).unwrap_or_default();
+    let port = bound.map(|a| a.port()).unwrap_or(0);
     let secret = token();
     let page = PAGE.replace("__TOKEN__", &secret);
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
@@ -233,5 +253,30 @@ mod tests {
         assert!(!value.contains('<') && !value.contains('>'), "raw angle bracket in href: {value}");
         assert!(value.ends_with("%3C/svg%3E"), "href was cut short: {value}");
         assert!(after_href[value.len()..].starts_with("\">"), "attribute does not close the tag");
+    }
+
+    #[test]
+    fn bind_free_picks_a_real_port_and_a_second_call_picks_a_different_one() {
+        let (_s1, p1) = bind_free().expect("first bind");
+        let (_s2, p2) = bind_free().expect("second bind");
+        assert_ne!(p1, 0, "the OS must hand back the port it actually chose, not the ask-for-any-port 0");
+        assert_ne!(p2, 0);
+        assert_ne!(p1, p2, "two independent binds must not collide on the same free port");
+    }
+
+    /// `serve_on`'s own request loop is `server.incoming_requests()`; this exercises the same
+    /// `Arc<Server>::unblock` a Quit menu item calls, directly on a bound server, so the shutdown
+    /// path is covered without also starting every background thread `serve_on` spawns for it.
+    #[test]
+    fn unblock_ends_the_request_loop_instead_of_blocking_forever() {
+        let (server, _port) = bind_free().expect("bind");
+        let loop_server = Arc::clone(&server);
+        let handle = thread::spawn(move || {
+            for _ in loop_server.incoming_requests() {}
+        });
+        server.unblock();
+        // If unblock() did not do its job, this join() hangs rather than failing outright --
+        // tiny_http's own documented contract for unblock() is what makes that an acceptable risk here.
+        handle.join().expect("the request loop thread must exit once unblocked, not panic");
     }
 }

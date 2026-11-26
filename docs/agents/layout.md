@@ -6,7 +6,8 @@
 | `scripts/` | Repo tooling: todo board check, doc-index check, worktree helpers |
 | `.github/` | Workflows, dependabot, PR and issue templates |
 | `.agents/skills/` | Skills; `.claude/skills` symlinks here |
-| `Cargo.toml`, `Cargo.lock` | The Rust crate `monitor-lizard` ([ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)) |
+| `Cargo.toml`, `Cargo.lock` | The workspace root and the `monitor-lizard` crate's own manifest ([ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)); `[workspace] members = ["src-tauri"]` adds the shell below |
+| `src/lib.rs` | Every module below as `pub`, so `src-tauri/` links against one copy of the code instead of recompiling it ([ADR 0004](../decisions/0004-tauri-menu-bar-shell.md)) |
 | `src/main.rs` | CLI entry: `snapshot`, `json`, `serve`, `approve`, `privilege`, `watch`, `sudo-log`, `persistence`, `storage` |
 | `src/collect.rs`, `src/group.rs`, `src/rules.rs`, `src/snapshot.rs`, `src/model.rs` | Process and socket collection, grouping by app, findings and the rule-based trust label (`rules::classify`), the snapshot type |
 | `src/paths.rs` | Where state lives (`~/.monitor-lizard/`), with the one-time migration from whichever of `~/.sys-monitor/` or `~/.ownwatch/` is found, and the startup pass that makes the folder 0700 and its files 0600 |
@@ -28,6 +29,7 @@
 | `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token. Every page renderer returns `pageShell({ title, subtitle, filters, body, inspector })`; the breadcrumb and search sit in a fixed top bar so the search box keeps focus while a poll redraws the page |
 | `tests/web/` | Node logic tests for the dashboard (`node --test`); they extract the marked `url-state`, `export`, `guide-search`, `guide-copy`, `page-shell`, `view-items` and `disk-net` blocks from `web/index.html`. The `disk-net` block holds capacity bar sizing, rate formatting and the no-connection state. Keep `url-state`, `export`, `page-shell` and `guide-search` free of DOM and storage access. The folder `tests/fixtures/` holds the Guide table and the search results that `cargo test` and the web tests both check |
 | `web/fonts/` | IBM Plex Sans, bundled (three static weights, subsetted, WOFF2), embedded and served by `src/server.rs`; see `THIRD-PARTY-NOTICES.md` |
+| `src-tauri/` | The Tauri v2 menu-bar shell ([ADR 0004](../decisions/0004-tauri-menu-bar-shell.md)): `src/main.rs` starts the server (`monitor_lizard::server::bind_free`/`serve_on`), opens a window onto it (transparent, with macOS vibrancy), and adds a tray (Open dashboard, Rescan, Quit) via `tauri-plugin-single-instance` for second-launch focus. `tauri.conf.json`, `Info.plist`, `icons/` are its bundle config; `dist/` is an unused placeholder `frontendDist` since the window loads the loopback server, not a bundled frontend |
 
 ## One home per concept
 

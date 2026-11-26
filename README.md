@@ -19,6 +19,8 @@ Turning on the `metrics_history` setting adds downsampled CPU/memory history to 
 
 Marking an item as expected (the dashboard's "Mark expected" button, or `approve`) records it in `baseline.json` and in the history database, and stops it counting as new. A marked host or startup item keeps its row with an "expected" chip, and "Unmark" brings it back. The History page lists every mark and unmark.
 
+A Tauri menu-bar shell (`src-tauri/`) runs the same server and dashboard in a window with a tray item, instead of a terminal and a browser tab: `cd src-tauri && cargo tauri build --bundles app`. See [ADR 0004](docs/decisions/0004-tauri-menu-bar-shell.md).
+
 ## Commands
 
 `monitor-lizard help [word]` lists every command and term, filtered by the word, with what each one changes and how to undo it. The dashboard serves the same table at `/api/guide`.
