@@ -199,12 +199,30 @@ const clampDrawer = (w) => Math.min(DRAWER_MAX, Math.max(DRAWER_MIN, w));
 function setDrawerWidth(w) { S.drawerW = clampDrawer(w); localStorage.setItem('drawer-width', S.drawerW); render(); }
 // Drag the boundary between the table and the app detail panel; both resize together because the table has flex-grow
 // and the panel's width is fixed while dragging. Keyboard: ArrowLeft/ArrowRight on the focused handle.
+// A full render() per mousemove would replace the handle's DOM node and drop its focus, and is wasteful at mouse
+// rate; instead the live elements are nudged directly while dragging, and one render() settles everything on release.
+let endDrag = null; // the in-progress drag's cleanup, so a second mousedown or a missed mouseup can't leak listeners
 function startDrawerResize(e) {
   e.preventDefault();
+  if (endDrag) endDrag(); // a previous drag never got its mouseup (e.g. released outside the window): clean it up first
   const startX = e.clientX, startW = S.drawerW || document.querySelector('.drawer')?.offsetWidth || 380;
-  const onMove = (ev) => setDrawerWidth(startW + (startX - ev.clientX));
-  const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+  const handleEl = e.currentTarget, hadFocus = document.activeElement === handleEl;
+  let raf = 0, pending = startW;
+  const paint = () => {
+    raf = 0;
+    const el = document.querySelector('.drawer'); if (el) { el.classList.add('sized'); el.style.setProperty('--dw', pending + 'px'); }
+    handleEl.setAttribute('aria-valuenow', pending);
+  };
+  const onMove = (ev) => { pending = clampDrawer(startW + (startX - ev.clientX)); if (!raf) raf = requestAnimationFrame(paint); };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); window.removeEventListener('blur', onUp);
+    if (raf) cancelAnimationFrame(raf);
+    endDrag = null;
+    S.drawerW = pending; localStorage.setItem('drawer-width', S.drawerW); render();
+    if (hadFocus) document.querySelector('.handle')?.focus();
+  };
+  endDrag = onUp;
+  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); window.addEventListener('blur', onUp);
 }
 function drawerHandleKeys(e) {
   if (e.key === 'ArrowLeft') { e.preventDefault(); setDrawerWidth((S.drawerW || 380) + DRAWER_STEP); }
