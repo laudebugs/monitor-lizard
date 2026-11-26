@@ -26,7 +26,7 @@ Add a Guide nav item with a search box, topic filters, a Commands list with a de
 **In scope:**
 
 - Search matches title, command, description and tags; every word must match.
-- Topic filters (All, Sys Monitor, Storage, Developer tools) and a Commands/Glossary switch.
+- Topic filters (All, Monitor Lizard, Storage, Developer tools) and a Commands/Glossary switch.
 - Detail pane: command in a code block, a Copy button, description, example output, safety chip, where it appears in the dashboard, and how to undo.
 - Copy uses `navigator.clipboard.writeText` with a fallback that selects the text.
 - Press `/` to focus the search box when no field has focus.

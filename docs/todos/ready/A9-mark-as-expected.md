@@ -18,7 +18,7 @@ Let the user say "this is expected" for a remote host, a startup item or a singl
 
 ## Context
 
-- `baseline::approve(key)` writes `~/.sys-monitor/baseline.json`; `POST /api/approve?key=` exists.
+- `baseline::approve(key)` writes `~/.monitor-lizard/baseline.json`; `POST /api/approve?key=` exists.
 - `History` holds `seen` (first-seen hosts per app) and `persistence` (startup items by path).
 - Design boards F, G and H have "Mark expected" and "Mark host as expected" buttons.
 
@@ -29,7 +29,7 @@ Let the user say "this is expected" for a remote host, a startup item or a singl
 - Baseline entries become typed: `app:<key>`, `host:<app-key>|<addr>`, `startup:<plist path>`, `finding:<id>`. Existing entries load as `app:`.
 - `POST /api/approve?kind=host&key=...` with the same Origin and per-run token guards as other writes.
 - Marked hosts and startup items drop out of the New filters and the Overview list; they stay in their tables with an "expected" chip.
-- `sys-monitor approve` accepts the typed form and keeps the old form working.
+- `monitor-lizard approve` accepts the typed form and keeps the old form working.
 - Each marking is recorded in a new `baseline_changes` table (time, kind, key, mark or unmark), created with `CREATE TABLE IF NOT EXISTS`, because the `actions` table stores only pids. An "Unmark" action undoes it.
 
 **Out of scope** (name the todo that covers it):

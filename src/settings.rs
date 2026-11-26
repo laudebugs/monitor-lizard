@@ -1,4 +1,4 @@
-//! User-configurable notification preferences, persisted to `~/.sys-monitor/settings.json`.
+//! User-configurable notification preferences, persisted to `~/.monitor-lizard/settings.json`.
 //! Off by default: nothing is ever sent unless the owner turns it on.
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -170,7 +170,7 @@ mod tests {
     }
 
     fn tmp_settings_path(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("sysmon-settings-test-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("monlizard-settings-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         d.join("settings.json")
     }

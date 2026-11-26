@@ -90,7 +90,7 @@ pub fn take() -> Vec<Item> {
         },
         // Fail loudly: without history nothing can be called new, and silence would look like "all clear".
         Err(e) => {
-            eprintln!("sys-monitor: could not record startup items, so none can be marked new: {e}");
+            eprintln!("monitor-lizard: could not record startup items, so none can be marked new: {e}");
             for it in &mut items { it.first_seen = now; }
         }
     }

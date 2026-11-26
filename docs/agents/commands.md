@@ -31,4 +31,4 @@ cargo run --release -- help [word]   # commands and terms whose title, command o
 curl http://127.0.0.1:4747/api/guide # the same table as JSON
 ```
 
-The table is `COMMANDS` and `TERMS` in `src/guide.rs`. A new `sys-monitor` subcommand needs an entry there (topic `sys-monitor`); `make test` fails without one. Examples carry the macOS version they were captured on, and show placeholders such as `<date>` instead of real paths.
+The table is `COMMANDS` and `TERMS` in `src/guide.rs`. A new `monitor-lizard` subcommand needs an entry there (topic `monitor-lizard`); `make test` fails without one. Examples carry the macOS version they were captured on, and show placeholders such as `<date>` instead of real paths.
