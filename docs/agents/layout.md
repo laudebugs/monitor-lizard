@@ -14,6 +14,7 @@
 | `src/privilege.rs`, `src/watcher.rs` | Authorization-log parsing and the live sudo/su launch watcher |
 | `src/persistence.rs` | Read-only scan of launch agents, launch daemons and cron; `is_new` marks items first seen after the learning period |
 | `src/actions.rs`, `src/server.rs` | Guarded Stop/Quit and the loopback HTTP server |
+| `src/sampler.rs` | 2 s background sampler (CPU, memory, network, load), 1-hour ring buffer, served at `/api/metrics?since=` |
 | `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token |
 
 ## One home per concept

@@ -13,7 +13,9 @@ Show what the machine is doing right now and over the last 5 minutes or hour (CP
 
 ## 2. What the system does today
 
-As of 2026-11-26 the app collects processes and sockets by polling and shows Overview, Apps and Privilege pages. It has no resource metrics, no sampler thread and no charts. `src/actions.rs` signals own-user processes by pid only.
+As of 2026-11-26 the app collects processes and sockets by polling and shows Overview, Apps and Privilege pages. `src/actions.rs` signals own-user processes by pid only.
+
+`src/sampler.rs` adds a background thread that samples every 2 s: load average (`getloadavg`), CPU total/user/system/per-core (`host_processor_info`) and performance/efficiency core counts (`sysctl hw.perflevel*`), memory (`host_statistics64` plus `sysctl hw.memsize`/`vm.swapusage`/`kern.memorystatus_*`), and network throughput (`sysctl NET_RT_IFLIST2`, the same source `netstat -ib` uses). Samples go into a 1-hour ring buffer (`Arc<RwLock<VecDeque<Sample>>>`, capacity 1800), served from `GET /api/metrics?since=<ts>` and `sys-monitor metrics` ([B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md)). No chart reads it yet (B4).
 
 ## 3. What others do
 
