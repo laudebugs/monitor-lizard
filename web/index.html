@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<script>(function(){var t=localStorage.getItem('ow-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
-<title>ownwatch</title>
+<script>(function(){var t=localStorage.getItem('sysmon-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
+<title>Sys Monitor</title>
 <style>
 /* Fonts: IBM Plex Mono if installed, else the system monospace. No remote font loading (local-first). */
-:root{color-scheme:dark;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6);--font:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace}
+:root{color-scheme:dark;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6)}
 :root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35)}
 *{box-sizing:border-box;border-radius:0}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font)}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}
+.num,.code,.mono,.search{font-family:var(--font-mono)}
 button{font:inherit;color:inherit;cursor:pointer}
 button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .shell{display:flex;flex-wrap:wrap;min-height:100vh}
@@ -19,7 +20,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 @media(min-width:861px){.side{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}} /* nav stays put while the page scrolls */
 .main{flex:999 1 560px;min-width:0;padding:20px 28px 60px;display:flex;flex-direction:column;gap:20px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;padding:0 8px}
-.logo{width:18px;height:18px;border:2px solid var(--acc);position:relative}.logo:after{content:"";position:absolute;inset:3px;background:var(--acc)}
+.logo{width:18px;height:18px;color:var(--acc)}
+.logo svg{width:100%;height:100%;display:block}
 .nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
 .nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
 .grow{flex:1 1 auto;min-width:0}
@@ -91,7 +93,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 </head>
 <body>
 <div class="shell">
-<nav class="side" aria-label="Sections"><div class="brand"><span class="logo"></span><span>ownwatch</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
+<nav class="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 0 64 64"><g stroke="currentColor" stroke-width="6" fill="none" stroke-linecap="square"><path d="M32 10 L32 20 L18 20 L18 32 L10 32"/><path d="M32 20 L46 20 L46 32 L54 32"/><path d="M32 20 L32 34 L20 34 L20 46"/><path d="M32 34 L44 34 L44 46"/></g><g fill="currentColor"><rect x="29" y="7" width="6" height="6"/><rect x="15" y="29" width="6" height="6"/><rect x="43" y="29" width="6" height="6"/><rect x="17" y="43" width="6" height="6"/><rect x="41" y="43" width="6" height="6"/></g></svg></span><span>Sys Monitor</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
 <div id="theme" style="padding:0 8px"></div>
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
 <main class="main">
@@ -112,7 +114,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('ow-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
@@ -126,7 +128,7 @@ const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expa
 const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
 const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
-const setTheme = (t) => { localStorage.setItem('ow-theme', t); S.theme = t; applyTheme(); render(); };
+const setTheme = (t) => { localStorage.setItem('sysmon-theme', t); S.theme = t; applyTheme(); render(); };
 media.addEventListener('change', applyTheme);
 
 /* Custom select: button + listbox. Arrow keys move, Enter/Space picks, Escape closes and returns focus. */
@@ -230,7 +232,7 @@ function drawerHandleKeys(e) {
 }
 
 async function api(path, method = 'GET') {
-  const r = await fetch(path, { method, headers: { 'X-Ownwatch-Token': TOKEN } });
+  const r = await fetch(path, { method, headers: { 'X-SysMonitor-Token': TOKEN } });
   if (!r.ok) throw new Error(await r.text());
   return r;
 }
@@ -241,7 +243,7 @@ async function load(fresh) {
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const toast = (t) => rec({ toast: t });
-const mute = (id) => { S.muted.add(id); localStorage.setItem('ow-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
+const mute = (id) => { S.muted.add(id); localStorage.setItem('sysmon-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
 async function stop(sig) {
   const m = S.modal; rec({ modal: null });
@@ -344,7 +346,7 @@ function drawer(g, listen, sig) {
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),
       (S.expand.procs ? g.procs : g.procs.slice(0, 12)).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
         h('span', { class: 'num' }, p.cpu.toFixed(1) + '%'), h('span', { class: 'num' }, Math.round(p.rss_kb / 1024) + 'M'),
-        p.user === 'root' ? h('span', { class: 'tag', title: 'ownwatch never signals root processes' }, 'root') : h('button', { class: 'btn danger sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
+        p.user === 'root' ? h('span', { class: 'tag', title: 'Sys Monitor never signals root processes' }, 'root') : h('button', { class: 'btn danger sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
       g.procs.length > 12 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { procs: !S.expand.procs }) }) }, S.expand.procs ? 'Show fewer' : 'Show all ' + g.procs.length) : null),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Connections (' + g.conns.length + ')')),
       (S.expand.conns ? g.conns : g.conns.slice(0, 20)).map((c) => h('div', { class: 'pr', style: 'grid-template-columns:70px minmax(0,1fr) auto' }, h('span', { class: 'tag' }, c.direction), h('span', { class: 'small', style: 'word-break:break-all' }, c.proto + ' ' + c.local_addr + ':' + c.local_port + (c.remote_addr ? ' -> ' + c.remote_addr + ':' + c.remote_port : '')), h('span', { class: 'mut small' }, c.scope + (c.exposed ? ', EXPOSED' : '')))),
@@ -362,11 +364,7 @@ function priv() {
     failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. If the requester shows "(exited)", it was gone before it could be read. The live capture below records new ones with their parent chain.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
     h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'Requester chain' }], 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px'),
-      S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while ownwatch is serving shows up here.')), sp.pager),
-    h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
-      dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
-    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
-      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
+      S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Sys Monitor is serving shows up here.')), sp.pager),
   ];
 }
 

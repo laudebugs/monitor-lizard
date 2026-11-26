@@ -19,4 +19,4 @@ Loopback only, Host and Origin checks on every request, a random per-run token o
 
 ## Out of scope
 
-Findings that need local root, or that assume the attacker already runs code as you and can read `~/.ownwatch/`.
+Findings that need local root, or that assume the attacker already runs code as you and can read `~/.sys-monitor/` (or the old `~/.ownwatch/`, kept for migration).

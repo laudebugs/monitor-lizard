@@ -25,7 +25,7 @@ Rust starts and supervises `llama-server` with a cleared environment, loopback o
 
 **In scope:**
 
-- `src/llm_server.rs`: spawn with `env_clear()` and an allowlist, `--host 127.0.0.1`, health check, restart with backoff, memory-pressure check before loading, `ownwatch agent off`.
+- `src/llm_server.rs`: spawn with `env_clear()` and an allowlist, `--host 127.0.0.1`, health check, restart with backoff, memory-pressure check before loading, `sys-monitor agent off`.
 - `POST /api/classify?group_key=` (token-guarded) returning rule label, allowed actions and, when available, the validated verdict.
 
 **Out of scope** (name the todo that covers it):
