@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | ID | `A17` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D10 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md), [0004](../../decisions/0004-tauri-menu-bar-shell.md) |
