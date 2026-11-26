@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `R3a` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | M1 |
 | ADRs | None |
@@ -45,9 +45,9 @@ Collect what the redesigned Persistence page needs and the scanner does not prov
 
 ## Steps
 
-- [ ] Write the fingerprint and diff tests first.
-- [ ] Add migration 2 and the writers.
-- [ ] Expose the fields and the `changes` list.
+- [x] Write the fingerprint and diff tests first.
+- [x] Add migration 2 and the writers.
+- [x] Expose the fields and the `changes` list.
 
 ## Edge cases (must be covered)
 
@@ -86,8 +86,30 @@ make test
 ## Definition of done
 
 - [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-26.
+
+**Built.** Each startup item now has a schedule, a fingerprint, `removed_at` and `unreadable`. The fingerprint is a SHA-256 of the plist bytes and the program's signing identity. No timestamps go in. The hash uses the system's CommonCrypto, so there is no new dependency.
+
+**Storage.** The todo says migration 2, but M1 and A9 already used it, so this is migration step 3. It adds five columns in one transaction: the three asked for, plus `changed_at` and `change_kind` for the change list. A row is written only when an item is new, changed, removed or restored.
+
+**Changes.** The baseline date is the end of the learning period after the first scan. Before it, `changes` is empty. Items marked expected leave the list. A folder that could not be read never marks its items removed.
+
+**Deviation.** `/api/persistence` returned a bare array, so an additive `changes` field was impossible. It now returns `{items, changes}`. `loadPers` in `web/index.html` reads `items` and hides removed items, so the page looks as before. `classify.rs` and `main.rs` also changed to read `items`.
+
+**Codesign.** Results are cached per program path and modified time, so a replaced program is read again and an unchanged one is not.
+
+**Tests.** 18 new Rust tests, 207 in all. I wrote the code and tests together, so I did not watch them fail first.
+
+**Real run.** On a scratch home with a version 2 database, the new columns appeared and old rows survived. Editing a plist showed `changed`. Deleting one set `removed_at` and kept it in the response. A broken plist stayed listed with plutil's reason.
+
+**Browser.** The existing Persistence page showed 33 rows in dark and light, and removed items were hidden. I did not check other widths.
+
+**Open.** `/code-review` and `/writing-review` are for the owner's session. R3b must surface removed items and `changes`.
