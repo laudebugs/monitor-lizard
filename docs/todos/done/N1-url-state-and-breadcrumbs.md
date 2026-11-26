@@ -99,6 +99,8 @@ Plan status; `docs/agents/` page notes if present.
 
 **Tests.** `tests/web/url-state.test.mjs` (19 tests, `node --test`) covers every edge case in the table above except Back/Forward in a browser. The repo had no JavaScript test setup and no simulated-DOM harness (AGENTS.md mentions one, but none is in the tree), so this is the smallest fit: the test lifts the marked block out of the page and runs it with fake `location` and `history` objects, which keeps the page free of a build step and of exports. `make test` now runs it after `cargo test`; CI's macOS job gained a `setup-node` step for it.
 
+**Found in the browser.** The page defined a global `function history()` (the History view), which replaces `window.history`, so `pushState` was undefined and the first version never updated the address. The unit tests missed it because they pass a fake `history`. The view is now `historyView()` and a test fails if the page defines a global with that name again.
+
 **Deviations.**
 
 - Dropdown filters (`S.fil`, such as the Apps label and signing filters) are not in the hash, because the todo lists a fixed key set. Only the Privilege "failed" result filter is, as `failed=1`. A shared link therefore does not carry those dropdowns.
@@ -108,6 +110,8 @@ Plan status; `docs/agents/` page notes if present.
 
 **Open.**
 
-- Pending, not run (the browser extension is not connected): layout of the breadcrumb at desktop and phone width, light and dark; Back and Forward through pages and selections; opening a selected-app link in a new tab; reload on a filtered, sorted view; the vanished-selection toast. The todo asks for these by hand in a real browser.
+- Checked in a real browser (Chrome, desktop window about 1350 px wide, dark theme, a build of this branch served on a spare port, 2026-11-26): from Overview, Apps, the Needs review chip, a column sort and a selected app gave the hash for Apps with filter, sort and sel; history grew by one entry for the page change and one for the selection, none for the chip or sort. Back went to the Apps list (selection cleared), Back again to Overview, and Forward twice restored the filter, sort and selection. A reload on the filtered, sorted, selected URL restored the same page, rows, sort and open inspector. A second new tab opened on the same URL showed the same rows and selection. A URL naming an app that is not running opened Apps with no selection, the toast, and `#apps` in the address bar. The breadcrumb showed `Sys Monitor > Apps > Claude` as links.
+- Not checked: phone width, light theme, a Back/Forward run through the other pages, middle-click or cmd-click on a crumb, and the host, port, exposed and failed shortcuts in the browser (covered by unit tests only).
+- A vanished selection is only noticed when a snapshot loads; a pasted hash change on an already-open page shows the notice at the next 10 s poll.
 - The Counts and Related links that point at hashes belong to the page redesign todos; only the format exists now.
 - `/code-review` and `/writing-review` are for the owner's session.
