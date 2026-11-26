@@ -4,7 +4,7 @@
 |---|---|
 | ID | `A13` |
 | Status | `ready` |
-| Plan | [system-monitor](../../plans/system-monitor.md) |
+| Plan | [classifier-agent](../../plans/classifier-agent.md) |
 | Depends on | A10, A12 |
 | ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
 | Branch | `feat/a13-agent-supervisor-and-fallback` |

@@ -4,7 +4,7 @@
 |---|---|
 | ID | `A15` |
 | Status | `ready` |
-| Plan | [system-monitor](../../plans/system-monitor.md) |
+| Plan | [classifier-agent](../../plans/classifier-agent.md) |
 | Depends on | A13 |
 | ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
 | Branch | `feat/a15-agent-ui-shadow-mode` |
