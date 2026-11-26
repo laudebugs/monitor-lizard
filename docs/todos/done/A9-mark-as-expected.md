@@ -108,7 +108,7 @@ make test
 
 **Interface.** Buttons sit on the Overview cards, the Persistence page and the Network page. Marked rows keep an "expected" chip and an Unmark button. The History page lists every change.
 
-**Tests.** 19 new Rust tests. The suite passes with 156 run and 2 ignored, plus 31 Node tests. A real run on a scratch home checked 403, 400, repeated marks and the audit rows.
+**Tests.** 18 new Rust tests. The suite passes with 156 run and 2 ignored, plus 31 Node tests. A real run on a scratch home checked 403, 400, repeated marks and the audit rows.
 
 **Browser.** Looked at in Chrome: Persistence, Network and History in dark, Overview in light, marking and unmarking a startup item, a host and a finding. At 400 px only the sidebar fits, so the new columns were not assessed there.
 
