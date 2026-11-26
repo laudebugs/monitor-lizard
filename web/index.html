@@ -7,8 +7,8 @@
 <script>(function(){var t=localStorage.getItem('sysmon-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
 <title>Sys Monitor</title>
 <style>
-/* Fonts: IBM Plex Mono if installed, else the system monospace. No remote font loading (local-first). */
-:root{color-scheme:dark;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6)}
+/* Fonts: IBM Plex Sans for text, IBM Plex Mono for data, both only if installed; otherwise the system fonts. No remote font loading (local-first, ADR 0002). */
+:root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6)}
 :root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35)}
 *{box-sizing:border-box;border-radius:0}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}

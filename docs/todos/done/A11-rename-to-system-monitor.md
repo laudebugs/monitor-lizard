@@ -8,7 +8,7 @@
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `chore/a11-rename-to-system-monitor` |
-| PR title | `chore(rename): rename ownwatch to system-monitor with a data migration` |
+| PR title | `chore(rename): rename ownwatch to Sys Monitor with a data migration` |
 | Size | M (200-400) |
 | PR | [#14](https://github.com/laudebugs/sys-monitor/pull/14) |
 
@@ -58,7 +58,7 @@ Make the crate, binary, UI text, docs and data folder match the repository name,
 
 ## Acceptance criteria
 
-- `grep -ri ownwatch` finds only the ADR amendment and migration code.
+- `grep -ri ownwatch` finds only: the migration code and its comments (`src/paths.rs`), the ADR 0002 amendment, the README/SECURITY.md/layout.md migration notes, this todo's own Context and record (describing what was true before the rename), and the historical Implementation Records of already-done todos (A1, A6), which are never rewritten.
 - Existing baseline and history are present after first run.
 
 ## Tests
@@ -101,4 +101,4 @@ grep -rIl ownwatch . --exclude-dir=target --exclude-dir=.git
 - **Visual check:** a headless Chrome screenshot (dark theme, 1440x900) shows the new mark, brand, sans-serif prose and monospace numbers rendering correctly together. This is not the same as checking interactively in a real browser, which is still **pending**, including light mode and narrow widths.
 - **Deviation from the sketch:** the repository itself was renamed (`system-monitor` -> `sys-monitor`), which the todo's title didn't call for; the owner asked for it directly ("let's actually rename the repo & app name to Sys Monitor") after this todo was written.
 - **Caught and fixed mid-task:** a first pass at the UI edits was lost because one Python edit script aborted partway on a string-match miss (edits are applied in memory and only written at the end), which silently dropped the title, storage-key and theme-init renames; found by the real-run check (the page still said "ownwatch" in its `<title>`) and fixed before this record was written.
-- **Open:** `/code-review` and `/writing-review` have not yet been run on this change.
+- **Review (2026-11-26):** `/code-review high 14` ran a standards and a spec review, which both independently caught the same real bug: `--font-sans` and `--font-mono` were referenced by `.num`/`.code`/`body` but never defined in `:root`, so the page silently fell back to the browser default font everywhere, contradicting the owner's approved pairing and this record's own earlier (wrong) claim that it was wired up. This was the same root cause as the earlier dropped-edit mistake (a batch that aborted partway and was only partly recovered): fixed now, re-verified with a fresh headless-Chrome screenshot after the fix and confirmed in the page's served CSS. Also fixed: `copy_dir` now skips symlinks instead of following or erroring on them; added tests for a migration that fails outright (base folder made read-only; the old folder and its data are confirmed untouched, no half-migrated folder is left) and for a symlink in the old folder (skipped, not copied or followed); corrected the acceptance line that claimed `grep -ri ownwatch` turns up only the ADR amendment and migration code (it also, legitimately, finds a few migration notes and frozen historical records; reworded to say so); fixed the PR-title field's casing in this table. 29 tests now pass. Not changed, as judgement calls, and recorded here as known limitations: `data_dir_in` has no lock against two `sys-monitor` processes migrating at the same moment (rare for a single-user desktop tool); the migrated folder's permissions follow the process umask rather than copying the old folder's mode. `/writing-review` on this todo's prose has still not been run.
