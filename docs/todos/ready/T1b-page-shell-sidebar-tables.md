@@ -63,7 +63,7 @@ Give every page the same anatomy: breadcrumb and search on top, a verdict line a
 
 ## Tests
 
-Logic tests for titles and counts, 6 minimum. Visual checks by hand and recorded.
+Logic tests for titles and counts, 6 minimum. A test that every `NAV` entry has a group. Visual checks by hand and recorded.
 
 ## Verification
 

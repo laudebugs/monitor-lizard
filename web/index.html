@@ -20,8 +20,8 @@
 @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/IBMPlexMono-Medium.woff2') format('woff2')}
 @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('/fonts/IBMPlexMono-SemiBold.woff2') format('woff2')}
 /* Fonts: IBM Plex Sans for text, IBM Plex Mono for data, both only if installed; otherwise the system fonts. No remote font loading (local-first, ADR 0002). */
-:root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6)}
-:root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35)}
+:root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#120d1d;--panel:#170f26;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#120d1d;--ok:#7ee2b8;--warn:#f6c565;--bad:#ff8f7e;--badfg:#2a0a05;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6);--cut:8px;--chip-ok-bg:#14382b;--chip-ok-fg:#7ee2b8;--chip-warn-bg:#3f2e0b;--chip-warn-fg:#f6c565;--chip-bad-bg:#40150e;--chip-bad-fg:#ff8f7e;--chip-n-bg:#2b2442;--chip-n-fg:#d3c9f0}
+:root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35);--chip-ok-bg:#d4f1e4;--chip-ok-fg:#0b5a3e;--chip-warn-bg:#f9e7bd;--chip-warn-fg:#6b4500;--chip-bad-bg:#fbdcd5;--chip-bad-fg:#8f1d0e;--chip-n-bg:#e6dff4;--chip-n-fg:#3d3160}
 *{box-sizing:border-box;border-radius:0}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}
 .num,.code,.mono,.search{font-family:var(--font-mono)}
@@ -37,8 +37,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
 .nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
 .grow{flex:1 1 auto;min-width:0}
-.badge{font-size:11px;min-width:22px;text-align:center;padding:2px 6px;background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
-.badge.warn{color:var(--warn);border-color:var(--warn)}.badge.bad{color:var(--bad);border-color:var(--bad)}
+.badge{min-width:22px;text-align:center;padding:2px 6px}
 .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
 .crumb{font-size:12px;color:var(--mut);margin:12px 0 4px}.crumb a{color:inherit}.crumb span[aria-hidden]{margin:0 6px}
 .top h1{margin:0;font-size:20px;font-weight:600}
@@ -54,24 +53,37 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 /* Nothing on this page animates today, but this page polls and redraws every 2s indefinitely, so
    any transition added here later is exactly the kind of persistent motion this media query exists
    for; stated up front rather than left to be remembered when that first transition is added. */
-@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *{transition:none!important;animation:none!important}}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:13px;font-weight:500;white-space:nowrap}
-.btn:hover{border-color:var(--acc)}.btn.pri{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
-.btn.danger{background:transparent;color:var(--bad);border-color:var(--bad)}.btn.danger:hover{background:var(--bad);color:var(--badfg)}
-.btn.solid{background:var(--bad);color:var(--badfg);border-color:var(--bad)}.btn.sm{height:28px;padding:0 10px;font-size:12px}
-.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{border-color:var(--line)}
+@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *,.btn,.btn::before,.chip,.tag,.sel-btn{transition:none!important;animation:none!important}}
+/* The chamfer is a clip-path, which also clips borders and outlines. So the edge is the button's own
+   background and ::before paints the fill inset by --bw. Variants change only the rest-state --edge-rest;
+   hover and focus set --edge from a rule no variant overrides, so every variant shows them. */
+.btn{--edge-rest:var(--line);--edge:var(--edge-rest);--hover-edge:var(--acc);--focus-edge:var(--fg);--fill:var(--panel2);--ink:var(--fg);--bw:1px;--inner-trim:calc(var(--bw)*.586);position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 18px;border:0;background:var(--edge);color:var(--ink);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;text-align:center;clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+.btn::before{content:"";position:absolute;inset:var(--bw);z-index:-1;background:var(--fill);clip-path:polygon(calc(var(--cut) - var(--inner-trim)) 0,100% 0,100% calc(100% - var(--cut) + var(--inner-trim)),calc(100% - var(--cut) + var(--inner-trim)) 100%,0 100%,0 calc(var(--cut) - var(--inner-trim)))}
+.btn.btn-acc{--fill:var(--acc);--edge-rest:var(--acc);--hover-edge:var(--fg);--ink:var(--accfg)}
+.btn.btn-danger{--fill:var(--bad);--edge-rest:var(--bad);--hover-edge:var(--fg);--ink:var(--badfg)}
+.btn.btn-danger.quiet{--fill:var(--panel);--edge-rest:var(--bad);--hover-edge:var(--bad);--ink:var(--bad)}
+.btn.btn-danger.quiet:hover{--fill:var(--bad);--ink:var(--badfg)}
+.btn:hover{--edge:var(--hover-edge)}
+.btn:focus-visible{outline:none;--edge:var(--focus-edge);--bw:3px}
+.btn.sm{min-height:28px;padding:4px 12px;font-size:11px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{--edge:var(--edge-rest)}
+/* Windows High Contrast and other forced-colors modes recolor backgrounds, so name the edge and fill explicitly. */
+@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge-rest:ButtonText;--hover-edge:Highlight;--focus-edge:Highlight;--fill:ButtonFace;--ink:ButtonText}.btn.btn-danger.quiet:hover{--fill:ButtonFace;--ink:ButtonText}.btn[disabled],.btn.btn-acc[disabled],.btn.btn-danger[disabled],.btn.btn-danger.quiet[disabled]{--edge-rest:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
 .sec{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 8px;font-weight:500}
 .sev{width:9px;height:9px;flex:none;margin-top:5px}.sev.high{background:var(--bad)}.sev.medium{background:var(--warn)}.sev.low{background:var(--mut)}
 .item{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
 .item h3{margin:0 0 2px;font-size:14px;font-weight:600}.item p{margin:0;font-size:13px;color:var(--mut);line-height:1.45}
-.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;font-size:12px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
-.tag.ok{color:var(--ok);border-color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
-.tag.warn{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
-.tag.bad{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+/* Chips carry their meaning in the text as well as the color. One variant sets only --c-bg and --c-fg. */
+.tag,.badge{--c-bg:var(--chip-n-bg);--c-fg:var(--chip-n-fg);background:var(--c-bg);color:var(--c-fg);border:1px solid color-mix(in srgb,var(--c-fg) 35%,var(--c-bg));font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
+/* A chip never outgrows its cell: long text (a team ID) ends in an ellipsis and the full text is in the title. */
+.tag{display:inline-block;max-width:100%;min-height:22px;padding:2px 8px;line-height:16px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag.ok{--c-bg:var(--chip-ok-bg);--c-fg:var(--chip-ok-fg)}
+.tag.warn,.badge.warn{--c-bg:var(--chip-warn-bg);--c-fg:var(--chip-warn-fg)}
+.tag.bad,.badge.bad{--c-bg:var(--chip-bad-bg);--c-fg:var(--chip-bad-fg)}
 .tbl{overflow-x:auto}
 .pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
 .sel{position:relative;display:inline-block}
-.sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;height:28px;padding:0 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:12px}
+.sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;min-height:28px;padding:3px 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
 .sel-btn:hover,.sel-btn[aria-expanded=true]{border-color:var(--acc)}
 .sel-btn .caret{color:var(--mut);font-size:10px}
 .sel-menu{position:absolute;bottom:calc(100% + 4px);left:0;min-width:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--acc);box-shadow:0 12px 30px rgba(0,0,0,.35)}
@@ -91,7 +103,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .tr.ell{min-width:0}.tr.ell>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip{height:30px;padding:0 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:13px}.chip:hover{color:var(--fg)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
+.chip{min-height:30px;padding:4px 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.chip:hover{color:var(--fg);border-color:var(--mut)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
 .drawer{flex:1 1 380px;max-width:460px;min-width:320px;position:relative;z-index:3}
 .drawer.sized{flex:0 0 var(--dw);max-width:none;width:var(--dw)}
 .handle{display:none;width:10px;margin:0 -4px;cursor:col-resize;position:relative;z-index:3;touch-action:none}
@@ -459,18 +471,18 @@ function cards() {
   const add = (c) => { if (!S.muted.has(c.id)) out.push(c); };
   for (const x of f) {
     const G = grp(x.group);
-    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'pri', () => approve(G)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'debug-port' && G) add({ id: 'dbg:' + G.key, sev: 'high', title: G.label + ' has its debug port open', sub: x.detail, acts: [['Quit ' + G.label + '...', 'danger', () => askStop(G.label, G.procs.filter((p) => p.user !== 'root'))], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'unsigned-network' && G) add({ id: 'uns:' + G.key, sev: 'high', title: G.label + ' is unsigned and uses the network', sub: x.detail, acts: [['Details', 'pri', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'pri', () => rec({ view: 'apps', sel: G.key })], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
+    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'btn-acc', () => approve(G)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'debug-port' && G) add({ id: 'dbg:' + G.key, sev: 'high', title: G.label + ' has its debug port open', sub: x.detail, acts: [['Quit ' + G.label + '...', 'btn-danger quiet', () => askStop(G.label, G.procs.filter((p) => p.user !== 'root'))], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'unsigned-network' && G) add({ id: 'uns:' + G.key, sev: 'high', title: G.label + ' is unsigned and uses the network', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
   }
   const pending = g.filter((x) => status(x) === 'review');
-  if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'pri', () => rec({ view: 'apps', filter: 'review' })]] });
+  if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'btn-acc', () => rec({ view: 'apps', filter: 'review' })]] });
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
-  if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'pri', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
+  if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'btn-acc', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
-  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'pri', () => rec({ view: 'persist', q: '', pfilter: 'new' })]] });
+  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })]] });
   return out;
 }
 
@@ -536,8 +548,8 @@ function drawer(g, listen, sig) {
     h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, unprefixed(g.key))),
       h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
-      !g.approved && !apple(g) ? h('button', { class: 'btn pri sm', onClick: () => approve(g) }, 'Approve app') : null,
-      mine.length ? h('button', { class: 'btn danger sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
+      !g.approved && !apple(g) ? h('button', { class: 'btn btn-acc sm', onClick: () => approve(g) }, 'Approve app') : null,
+      mine.length ? h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
       h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
     (g.rules_fired || []).length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Label: ' + g.trust + ' (decided by rules)'), g.rules_fired.map((r) => h('p', { style: 'margin:0 0 4px;font-size:13px' }, h('span', { class: 'mut' }, r + ': '), RULE_TEXT[r] || r))) : null,
     flags.length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
@@ -545,7 +557,7 @@ function drawer(g, listen, sig) {
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),
       (S.expand.procs ? g.procs : g.procs.slice(0, 12)).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
         h('span', { class: 'num' }, p.cpu.toFixed(1) + '%'), h('span', { class: 'num' }, Math.round(p.rss_kb / 1024) + 'M'),
-        p.user === 'root' ? h('span', { class: 'tag', title: 'Sys Monitor never signals root processes' }, 'root') : h('button', { class: 'btn danger sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
+        p.user === 'root' ? h('span', { class: 'tag', title: 'Sys Monitor never signals root processes' }, 'root') : h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
       g.procs.length > 12 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { procs: !S.expand.procs }) }) }, S.expand.procs ? 'Show fewer' : 'Show all ' + g.procs.length) : null),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Connections (' + g.conns.length + ')')),
       (S.expand.conns ? g.conns : g.conns.slice(0, 20)).map((c) => h('div', { class: 'pr', style: 'grid-template-columns:70px minmax(0,1fr) auto' }, h('span', { class: 'tag' }, c.direction), h('span', { class: 'small', style: 'word-break:break-all' }, c.proto + ' ' + c.local_addr + ':' + c.local_port + (c.remote_addr ? ' -> ' + c.remote_addr + ':' + c.remote_port : '')), h('span', { class: 'mut small' }, c.scope + (c.exposed ? ', EXPOSED' : '')))),
@@ -604,7 +616,7 @@ function listeners() {
 // leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
 // it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
 const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
-const trustTag = (i) => { const t = psig(i); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok' }, t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : '')); };
+const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : ''); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter;
   const all = S.pers;
@@ -694,7 +706,7 @@ function historyView() {
   const actsTable = h('section', { class: 'card tbl' },
     sortHeader('act', [{ label: 'When', sort: 'when' }, { label: 'Signal', sort: 'signal' }, { label: 'Sent', sort: 'sent', cls: 'num' }, { label: 'Refused', sort: 'refused' }], actCols),
     ap.slice.length ? ap.slice.map((a) => { const sent = jsonOr(a.sent, []); return h('div', { class: 'tr', style: actCols + ';cursor:default' },
-      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag' }, a.sig)),
+      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag', title: a.sig }, a.sig)),
       h('span', { class: 'small' }, sent.length ? sent.length + ' pid(s): ' + sent.join(', ') : '-'), h('span', { class: 'mut small' }, refusedText(a))); })
       : h('div', { class: 'item' }, h('p', {}, allActs.length ? 'No actions match the search. ' : 'No Stop/Quit actions recorded yet.'), allActs.length ? clearBtn() : null), ap.pager);
   return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable];
@@ -816,7 +828,7 @@ function render() {
     h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
-    h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn danger', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn solid', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
+    h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   $('layer').replaceChildren(...layer);
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();

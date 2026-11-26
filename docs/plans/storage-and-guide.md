@@ -61,7 +61,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | N3 | Table export, column chooser, copy row | None |
 | A9 | Mark as expected (feedback baseline) | None |
 | M1 | SQLite schema versioning | None |
-| T1a | Design tokens, buttons and chips | None |
+| T1a | Design tokens, buttons and chips (ongoing; browser checks pending) | None |
 | T1b | Page shell, sidebar groups, table styles | T1a, N1 |
 | R1 | Overview redesign | T1b, N1, A9 |
 | R2 | Network redesign | T1b, N1, N3, A9 |
