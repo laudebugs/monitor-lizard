@@ -6,7 +6,7 @@
 |---|---|
 | `make check` | `check-docs` + `check-code` |
 | `make check-docs` | `scripts/check-todos.mjs` (board consistency), `scripts/check-doc-indexes.mjs` (every doc is indexed) |
-| `make check-code` | `cargo check --locked --all-targets` with warnings as errors. Clippy, duplication (`.jscpd.json` is ready: `bunx jscpd .`) and size budgets are not wired yet |
+| `make check-code` | `cargo check --locked --all-targets` with warnings as errors. Clippy, duplication (`.jscpd.json` is ready: `npx jscpd .`) and size budgets are not wired yet |
 | `make test` | `cargo test --locked` (macOS only) |
 | `make fmt` | `cargo fmt`. Not in `check`: see the 2026-11-26 note in `AGENTS.md` |
 | `make todos` | Prints the derived todo board |
@@ -15,7 +15,7 @@
 
 ## Pin tool versions in one place
 
-Pin runtimes in a file CI also reads. Not done yet: CI uses `dtolnay/rust-toolchain@stable`, and Bun pinned in `.bun-version` (read by CI) for the doc scripts. Add `rust-toolchain.toml` when a release needs a reproducible build.
+Pin runtimes in a file CI also reads. Not done yet: CI uses `dtolnay/rust-toolchain@stable` and Node 22 for the doc scripts. Add `rust-toolchain.toml` when a release needs a reproducible build.
 
 ## Run the app
 
