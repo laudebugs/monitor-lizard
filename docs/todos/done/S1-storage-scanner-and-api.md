@@ -166,4 +166,5 @@ The PR is far above the 200 to 400 line target: about 1,470 lines in `src/storag
 - Convergence across runs is S1b.
 - Mail, Safari and Music caches show `Unavailable("permission denied")` without Full Disk Access.
 - `getattrlistbulk` would cut system calls and reach more locations. It needs more unsafe code.
+- The scan writes nothing under the data folder and does not touch signing, so it uses neither the private-file helpers nor the signing cache.
 - CI is pending. `/writing-review` is not run.
