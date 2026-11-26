@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `N1` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D11, D12 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
@@ -86,9 +86,28 @@ Plan status; `docs/agents/` page notes if present.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record (2026-11-26)
+
+**Built.** `web/index.html` keeps the page, chip filter, search text, sort and selected app in `location.hash` as `#<page>?<key>=<value>&...`, and restores them on load and on `hashchange`. The pure functions `parseHash`, `writeHash`, `historyMode`, `hashStateOf`, `patchOf`, `syncHash` and `crumbParts` sit in one block marked `url-state:begin/end`; the key list is documented in that block's comment. `render()` ends by calling `syncHash`, so every path that changes state (`rec()`, polls, the search box) is covered. Page and selection changes push a history entry; filter, sort and search edits replace it. Each page has a breadcrumb (`Sys Monitor > Page > selected app`) made of links. A selected app that no longer exists is cleared with a toast. Hashes over 2 KB drop the selection, then the filters. The write token is never read into or written to the hash.
+
+**Tests.** `tests/web/url-state.test.mjs` (19 tests, `node --test`) covers every edge case in the table above except Back/Forward in a browser. The repo had no JavaScript test setup and no simulated-DOM harness (AGENTS.md mentions one, but none is in the tree), so this is the smallest fit: the test lifts the marked block out of the page and runs it with fake `location` and `history` objects, which keeps the page free of a build step and of exports. `make test` now runs it after `cargo test`; CI's macOS job gained a `setup-node` step for it.
+
+**Deviations.**
+
+- Dropdown filters (`S.fil`, such as the Apps label and signing filters) are not in the hash, because the todo lists a fixed key set. Only the Privilege "failed" result filter is, as `failed=1`. A shared link therefore does not carry those dropdowns.
+- `host`, `port` and `exposed` are read-only shortcuts that map onto the search text or the Listeners chip; the page never writes them. `failed` is read and written.
+- Row page numbers and page size are not in the hash.
+- The toast for a vanished selection is the existing toast, not a new notice element.
+
+**Open.**
+
+- Pending, not run (the browser extension is not connected): layout of the breadcrumb at desktop and phone width, light and dark; Back and Forward through pages and selections; opening a selected-app link in a new tab; reload on a filtered, sorted view; the vanished-selection toast. The todo asks for these by hand in a real browser.
+- The Counts and Related links that point at hashes belong to the page redesign todos; only the format exists now.
+- `/code-review` and `/writing-review` are for the owner's session.
