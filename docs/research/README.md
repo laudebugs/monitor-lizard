@@ -17,7 +17,8 @@ Add each topic below in the same PR.
 |---|---|
 | [prior-art](prior-art/README.md) | Existing macOS monitors, Apple API limits and Rust crates: no tool keeps a baseline of what is yours |
 | [local-classifier](local-classifier/README.md) | Local models and runtimes for classifying processes; rules decide, the model only explains |
-| [buildanagent-adoption](buildanagent-adoption/README.md) | How the owner's buildanagent SDK could run the classifier agent as a Node sidecar |
+| [resource-monitoring](resource-monitoring/README.md) | What CPU, GPU, memory, disk and network data macOS gives a non-root app, and how to sample and chart it |
+| [buildanagent-adoption](buildanagent-adoption/README.md) | How the owner's buildanagent SDK could run the classifier agent; led to the hybrid in ADR 0003 |
 
 ## Cite, date, and say what was not verified
 

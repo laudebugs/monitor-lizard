@@ -6,7 +6,7 @@
 | Status | `ready` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | A6 |
-| ADRs | [0003](../../decisions/0003-classifier-agent-as-node-sidecar-on-buildanagent.md) (Proposed) |
+| ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
 | Branch | `feat/a12-model-install` |
 | PR title | `feat(model): add a pinned, checksum-verified model install command` |
 | Size | M (200-400) |

@@ -37,7 +37,7 @@ Matches "rules decide, model suggests, human approves": the buildanagent guide s
 | (c) Rust calls llama-server directly; buildanagent for evals only | No Node at runtime; smallest attack surface; native grammars | We write the tool loop; tests only mirror production |
 | (d) harness JSON-RPC and protocol events to the dashboard | Sessions, replay, approval wire | Too heavy for stateless classification; a session log of process names is a privacy surface |
 
-**Decision pending with the owner:** (a), or (c) if Node on users' machines is unacceptable. See [ADR 0003](../../decisions/0003-classifier-agent-as-node-sidecar-on-buildanagent.md).
+**Decision (owner, 2026-11-26): the hybrid, option (c), with buildanagent used for evals only.** See [ADR 0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md).
 
 ## Proposed shape of (a)
 

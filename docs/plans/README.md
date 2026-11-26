@@ -11,3 +11,4 @@ A plan is the design: what we build and why, the current state, the decisions, a
 | Plan | Status |
 |---|---|
 | [system-monitor.md](system-monitor.md) | In progress |
+| [resource-monitoring.md](resource-monitoring.md) | Draft |

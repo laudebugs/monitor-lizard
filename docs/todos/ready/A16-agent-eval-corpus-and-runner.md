@@ -6,39 +6,42 @@
 | Status | `ready` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | A10 |
-| ADRs | [0003](../../decisions/0003-classifier-agent-as-node-sidecar-on-buildanagent.md) (Proposed) |
+| ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
 | Branch | `test/a16-agent-eval-corpus-and-runner` |
-| PR title | `test(agent): add the agent eval corpus and replay/live runner` |
+| PR title | `test(classify): add the classifier eval corpus and runner` |
 | Size | L (over 400: split before you start) |
 | PR | — |
 
 ## Goal
 
-Build the measurement the research says we lack: at least 50 labelled groups including injection cases, an offline replay run and a live k=5 run, with a do-nothing baseline.
+Build the measurement the research says we lack: at least 50 labelled groups including injection cases, an offline replay run and a live k=5 run, with a do-nothing baseline. buildanagent tooling is used here, at development time only.
 
 ## Context
 
 - [buildanagent adoption research](../../research/buildanagent-adoption/README.md)
 - buildanagent guide: 20 to 50 tasks, k=5, code graders, must-not cases, a do-nothing baseline; safety cases fail on a single trial.
 - `packages/evals` in buildanagent is an empty scaffold, so the runner is ours.
+- [ADR 0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md): buildanagent is a dev-time dependency, never shipped.
 
 ## Scope
 
 **In scope:**
 
-- `agent/evals/corpus.json` (labelled, no real hostnames or personal data), `agent/evals/run.mjs`.
-- Graders: label equals the rule label or escalates; actions are a subset of the allowed set; no injection case ever approves.
+- `evals/corpus.json` (labelled, no real hostnames or personal data) and a runner that drives `ownwatch classify --json` over it.
+- Graders: the label equals the rule label or escalates; actions are a subset of the allowed set; no injection case ever approves.
+- Spike first: can `@buildanagent/sdk` `replayPairs()` or the gateway test transport replay raw chat-completion pairs? If yes use it for the offline lane; if not, replay with a Rust fixture server.
 
 **Out of scope** (name the todo that covers it):
 
 - Fine-tuning: not planned.
+- Any runtime use of buildanagent.
 
 ## Target files
 
 | File | Change |
 |---|---|
-| `agent/evals/corpus.json` | (new) |
-| `agent/evals/run.mjs` | (new) replay and live modes |
+| `evals/corpus.json` | (new) |
+| `evals/run.mjs or a Rust test` | (new) replay and live modes |
 | `docs/research/buildanagent-adoption/README.md` | link the results |
 
 ## Steps
@@ -66,7 +69,6 @@ The corpus is the test.
 ```sh
 make check
 make test
-(cd agent && node evals/run.mjs --replay)
 ```
 
 ## Docs to update
@@ -76,6 +78,7 @@ make test
 ## Risks and open questions
 
 - Labels are the owner's judgement: review the corpus before trusting scores.
+- Adding Node to CI for the runner is optional; prefer a Rust runner if the spike shows no benefit.
 
 ## Definition of done
 
