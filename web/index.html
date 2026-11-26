@@ -632,7 +632,8 @@ function network() {
 
 const labelOf = (key) => { const g = S.snap && S.snap.groups.find((x) => x.key === key); return g ? g.label : base(unprefixed(key)); };
 function jsonOr(s, fallback) { try { return JSON.parse(s); } catch (e) { return fallback; } }
-function history() {
+// Not named history: a global function of that name replaces window.history and breaks pushState.
+function historyView() {
   const q = S.q.toLowerCase();
   const allHosts = [...S.seen].sort((a, b) => b.first_seen - a.first_seen); // newest first, baked into the base order
   const hostList = allHosts.filter((s) => !q || labelOf(s.group_key).toLowerCase().includes(q) || s.remote.toLowerCase().includes(q));
@@ -772,7 +773,7 @@ function render() {
   else if (S.view === 'persist') c.replaceChildren(...persistence());
   else if (S.view === 'performance') c.replaceChildren(...performanceView_());
   else if (S.view === 'network') c.replaceChildren(...network());
-  else if (S.view === 'history') c.replaceChildren(...history());
+  else if (S.view === 'history') c.replaceChildren(...historyView());
   else c.replaceChildren(h('p', { class: 'mut' }, 'Unknown view.')); // every NAV id has a branch above; this only guards a future NAV entry added without one
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },

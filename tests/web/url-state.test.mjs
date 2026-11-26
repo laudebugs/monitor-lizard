@@ -162,3 +162,8 @@ test('crumbParts: Sys Monitor > page > selected item, each a link', () => {
   assert.equal(L.parseHash(parts[2].href).sel, 'dev:/x/Foo.app');
   assert.deepEqual(L.crumbParts({ ...base, view: 'overview' }, null).map((p) => p.text), ['Sys Monitor', 'Overview']);
 });
+
+test('the page defines no global named history, which would replace window.history', () => {
+  assert.ok(!/^(async\s+)?function\s+(history|location)\s*\(/m.test(html));
+  assert.ok(!/^(const|let|var)\s+(history|location)\b/m.test(html));
+});
