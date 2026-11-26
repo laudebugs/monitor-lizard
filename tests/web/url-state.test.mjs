@@ -9,9 +9,9 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
 const m = html.match(/\/\* url-state:begin \*\/([\s\S]*?)\/\* url-state:end \*\//);
 assert.ok(m, 'url-state block not found in web/index.html');
-const L = new Function(m[1] + '\nreturn { parseHash, writeHash, historyMode, hashStateOf, patchOf, syncHash, crumbParts };')();
+const L = new Function(m[1] + '\nreturn { parseHash, writeHash, historyMode, toHashState, patchFromHash, selPatch, syncHash, crumbParts, PAGE_SORTS };')();
 
-const base = { view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, failed: false };
+const base = { view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, dd: {} };
 const fakeEnv = (hash) => {
   const calls = [];
   const loc = { hash };
@@ -29,7 +29,7 @@ test('empty, unknown and malformed hashes fall back to Overview', () => {
 });
 
 test('page, filter, search, sort and selection round-trip', () => {
-  const s = { view: 'apps', filter: 'review', sel: 'dev:/Applications/Foo.app', q: 'foo', sorts: { apps: { col: 'procs', dir: 'desc' } }, failed: false };
+  const s = { view: 'apps', filter: 'review', sel: 'dev:/Applications/Foo.app', q: 'foo', sorts: { apps: { col: 'procs', dir: 'desc' } }, dd: { 'apps-label': 'unknown', 'apps-sig': 'apple' } };
   assert.deepEqual(L.parseHash(L.writeHash(s)), s);
 });
 
@@ -61,8 +61,8 @@ test('pre-filtered links: host, port, exposed and failed', () => {
   assert.equal(L.parseHash('#listeners?port=4747').q, '4747');
   assert.equal(L.parseHash('#listeners?port=abc').q, '');
   assert.equal(L.parseHash('#listeners?exposed=1').filter, 'exposed');
-  assert.equal(L.parseHash('#priv?failed=1').failed, true);
-  assert.equal(L.parseHash('#apps?failed=1').failed, false);
+  assert.equal(L.parseHash('#priv?failed=1').dd['auth-result'], 'failed');
+  assert.equal(L.parseHash('#apps?failed=1').dd['auth-result'], undefined);
 });
 
 test('sorts keep only keys that belong to the page', () => {
@@ -88,14 +88,19 @@ test('a hash over 2 KB drops the selection first, then filters, and never throws
   assert.ok(withSel.length <= 2048);
   assert.ok(!withSel.includes('sel='));
   assert.ok(withSel.includes('filter=review') && withSel.includes('q=ok'));
-  const allBig = L.writeHash({ ...base, filter: 'review', sel: big, q: big });
-  assert.equal(allBig, '#apps');
+  const sort = { apps: { col: 'procs', dir: 'desc' } };
+  const allBig = L.writeHash({ ...base, filter: 'review', sel: big, q: big, sorts: sort });
+  assert.equal(allBig, '#apps?sort=apps.procs.desc', 'selection, then filters go; the sort stays');
+  assert.equal(L.writeHash({ ...base, filter: 'review', sel: 'small', q: big, sorts: sort }), '#apps?sort=apps.procs.desc', 'a small selection is dropped before the filters');
+  assert.equal(L.writeHash({ ...base, sel: 'small', sorts: sort, dd: { 'apps-sig': 'apple' } }), '#apps?sel=small&signing=apple&sort=apps.procs.desc');
   assert.doesNotThrow(() => L.parseHash('#apps?q=' + 'y'.repeat(100000)));
 });
 
 test('a lone surrogate cannot make writeHash throw', () => {
   assert.doesNotThrow(() => L.writeHash({ ...base, q: '\uD800' }));
-  assert.equal(L.writeHash({ ...base, q: '\uD800' }), '#apps');
+  const sort = { apps: { col: 'procs', dir: 'desc' } };
+  assert.equal(L.writeHash({ ...base, sel: 'a\uD800', q: 'ok', sorts: sort, filter: 'review' }), '#apps?filter=review&q=ok&sort=apps.procs.desc', 'only the bad value is dropped');
+  assert.equal(L.writeHash({ ...base, q: '\uD800', sel: 'fine' }), '#apps?sel=fine');
 });
 
 test('the write token never appears in a written hash and is ignored on read', () => {
@@ -134,20 +139,20 @@ test('syncHash survives a history API that throws', () => {
   assert.doesNotThrow(() => L.syncHash({ view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, fil: {} }, loc, hist));
 });
 
-test('hashStateOf and patchOf map the page-specific S fields', () => {
+test('toHashState and patchFromHash map the page-specific S fields', () => {
   const S = { view: 'listeners', filter: 'all', lfilter: 'exposed', pfilter: 'all', nfilter: 'all', sel: null, q: '22', sorts: { listen: { col: 'port', dir: 'asc' } }, fil: {} };
-  const st = L.hashStateOf(S);
+  const st = L.toHashState(S);
   assert.equal(st.filter, 'exposed');
-  const patch = L.patchOf(L.parseHash(L.writeHash(st)), S);
+  const patch = L.patchFromHash(L.parseHash(L.writeHash(st)), S);
   assert.equal(patch.view, 'listeners');
   assert.equal(patch.lfilter, 'exposed');
   assert.equal(patch.q, '22');
   assert.deepEqual(patch.sorts, { listen: { col: 'port', dir: 'asc' } });
 });
 
-test('patchOf keeps other pages sorts and the other fil entries', () => {
+test('patchFromHash keeps other pages sorts and the other fil entries', () => {
   const S = { view: 'apps', sorts: { net: { col: 'app', dir: 'asc' }, apps: { col: 'app', dir: 'asc' } }, fil: { 'apps-sig': 'apple', 'auth-result': 'ok' } };
-  const patch = L.patchOf(L.parseHash('#priv?failed=1'), S);
+  const patch = L.patchFromHash(L.parseHash('#priv?failed=1'), S);
   assert.deepEqual(patch.sorts.net, { col: 'app', dir: 'asc' });
   assert.deepEqual(patch.sorts.apps, { col: 'app', dir: 'asc' });
   assert.equal(patch.fil['auth-result'], 'failed');
@@ -166,4 +171,123 @@ test('crumbParts: Sys Monitor > page > selected item, each a link', () => {
 test('the page defines no global named history, which would replace window.history', () => {
   assert.ok(!/^(async\s+)?function\s+(history|location)\s*\(/m.test(html));
   assert.ok(!/^(const|let|var)\s+(history|location)\b/m.test(html));
+});
+
+const POISON = ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf', 'prototype', 'isPrototypeOf'];
+
+test('Object.prototype names are never a page, filter, sort key, column or direction', () => {
+  for (const w of POISON) {
+    assert.equal(L.parseHash('#' + w).view, 'overview', 'page ' + w);
+    assert.equal(L.parseHash('#' + w + '?filter=review').view, 'overview');
+    for (const page of ['apps', 'listeners', 'persist', 'network', 'priv', 'history']) {
+      const p = L.parseHash('#' + page + '?filter=' + w + '&label=' + w + '&signing=' + w + '&proto=' + w + '&result=' + w);
+      assert.equal(p.filter, 'all', page + ' filter ' + w);
+      assert.deepEqual(p.dd, {}, page + ' dropdown ' + w);
+      for (const key of Object.keys(L.PAGE_SORTS[page])) {
+        for (const bad of [key + '.' + w + '.asc', w + '.' + L.PAGE_SORTS[page][key][0] + '.asc', key + '.' + L.PAGE_SORTS[page][key][0] + '.' + w]) {
+          assert.deepEqual(L.parseHash('#' + page + '?sort=' + bad).sorts, {}, page + ' sort ' + bad);
+        }
+      }
+      assert.doesNotThrow(() => L.parseHash('#' + page + '?' + w + '=' + w + '&' + w + '&sort=' + w));
+    }
+    assert.doesNotThrow(() => L.writeHash({ view: w, filter: w, sel: w, q: w, sorts: { [w]: { col: w, dir: w } }, dd: { [w]: w } }));
+    assert.equal(L.writeHash({ view: 'apps', filter: w, sorts: { apps: { col: w, dir: 'asc' } }, dd: { 'apps-label': w } }), '#apps');
+  }
+});
+
+test('the exact crash link: apps sort on __proto__ is dropped', () => {
+  assert.deepEqual(L.parseHash('#apps?sort=apps.__proto__.asc').sorts, {});
+});
+
+test('sort allow-list matches the sortHeader calls in the page', () => {
+  const found = {};
+  for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) found[mm[1]] = [...mm[2].matchAll(/sort: '(\w+)'/g)].map((x) => x[1]);
+  const listed = {};
+  for (const cols of Object.values(L.PAGE_SORTS)) Object.assign(listed, cols);
+  assert.deepEqual(Object.keys(found).sort(), Object.keys(listed).sort());
+  for (const k of Object.keys(found)) assert.deepEqual([...listed[k]].sort(), found[k].sort(), k);
+});
+
+test('sortRows reads getters by own property only', () => {
+  const src = html.match(/function sortRows[\s\S]*?\n}\n/)[0];
+  const S = { sorts: { apps: { col: '__proto__', dir: 'asc' } } };
+  const sortRows = new Function('S', 'isEmpty', src + '\nreturn sortRows;')(S, (v) => v == null || v === '');
+  const rows = [3, 1, 2];
+  assert.deepEqual(sortRows(rows, 'apps', { app: (r) => r }), rows);
+  for (const w of POISON) { S.sorts.apps.col = w; assert.doesNotThrow(() => sortRows(rows, 'apps', { app: (r) => r })); }
+  S.sorts.apps.col = 'app';
+  assert.deepEqual(sortRows(rows, 'apps', { app: (r) => r }), [1, 2, 3]);
+});
+
+test('dropdown filters round-trip with allow-listed keys and values', () => {
+  const s = { ...base, dd: { 'apps-label': 'suspicious', 'apps-sig': 'unsigned' } };
+  const h = L.writeHash(s);
+  assert.equal(h, '#apps?label=suspicious&signing=unsigned');
+  assert.deepEqual(L.parseHash(h).dd, s.dd);
+  assert.equal(L.writeHash({ ...base, dd: { 'apps-label': 'all' } }), '#apps');
+  assert.deepEqual(L.parseHash('#apps?label=evil&signing=apple').dd, { 'apps-sig': 'apple' });
+  assert.deepEqual(L.parseHash('#listeners?proto=UDP').dd, { 'listen-proto': 'UDP' });
+  assert.deepEqual(L.parseHash('#apps?proto=UDP').dd, {});
+  assert.equal(L.writeHash({ view: 'priv', dd: { 'auth-result': 'failed' } }), '#priv?result=failed');
+  assert.equal(L.writeHash({ view: 'network', dd: { 'apps-label': 'trusted' } }), '#network');
+});
+
+test('dropdown filters travel from S to the address and back to S', () => {
+  const S = { view: 'apps', filter: 'review', sel: null, q: '', sorts: {}, fil: { 'apps-label': 'unknown', 'apps-sig': 'all', 'listen-proto': 'TCP' } };
+  const h = L.writeHash(L.toHashState(S));
+  assert.equal(h, '#apps?filter=review&label=unknown');
+  const fresh = { view: 'overview', sorts: {}, fil: {} };
+  const patch = L.patchFromHash(L.parseHash(h), fresh);
+  assert.equal(patch.fil['apps-label'], 'unknown');
+  assert.equal(patch.fil['apps-sig'], 'all');
+});
+
+const SNAP = { groups: [{ key: 'a' }] };
+
+test('selPatch: a missing selection from the address clears with replace and a notice', () => {
+  const p = L.selPatch({ view: 'apps', sel: 'gone', selFromUrl: true }, SNAP);
+  assert.equal(p.sel, null);
+  assert.equal(p.hashReplace, true);
+  assert.match(p.toast, /no longer running/);
+});
+
+test('selPatch: an app that quits during polling clears with replace and no notice', () => {
+  const p = L.selPatch({ view: 'apps', sel: 'gone', selFromUrl: false }, SNAP);
+  assert.equal(p.sel, null);
+  assert.equal(p.hashReplace, true);
+  assert.equal('toast' in p, false);
+});
+
+test('selPatch: a found selection stops counting as from the address; no snapshot means no change', () => {
+  assert.deepEqual(L.selPatch({ view: 'apps', sel: 'a', selFromUrl: true }, SNAP), { selFromUrl: false });
+  assert.equal(L.selPatch({ view: 'apps', sel: 'a', selFromUrl: false }, SNAP), null);
+  assert.equal(L.selPatch({ view: 'apps', sel: 'a', selFromUrl: true }, null), null);
+  assert.equal(L.selPatch({ view: 'network', sel: 'x', selFromUrl: true }, SNAP), null);
+});
+
+test('syncHash with forceReplace replaces even when the selection changed', () => {
+  const { loc, hist, calls } = fakeEnv('#apps?sel=gone');
+  L.syncHash({ view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, fil: {} }, loc, hist, true);
+  assert.deepEqual(calls, [['replace', '#apps']]);
+});
+
+test('fuzz: parseHash, writeHash and the apply path never throw and settle in one step', () => {
+  const pool = [...POISON, 'apps', 'listeners', 'priv', 'network', 'history', 'persist', 'overview', 'filter', 'sel', 'q', 'sort', 'label', 'signing', 'proto', 'result', 'failed', 'host', 'port', 'exposed',
+    'all', 'review', 'asc', 'desc', 'app', 'procs', 'apps.app.asc', 'sudo.time.desc', '1', '', '%', '%E0%A4', '%ZZ', '#', '?', '&', '=', ',', '.', '..', 'é', '\uD800', ' '];
+  let seed = 12345;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  for (let i = 0; i < 3000; i++) {
+    const parts = Array.from({ length: 1 + rnd(14) }, () => pool[rnd(pool.length)]);
+    const hash = '#' + parts.join(['', '?', '&', '=', '.'][rnd(5)]);
+    let p, w, again;
+    assert.doesNotThrow(() => {
+      p = L.parseHash(hash);
+      const S = { view: 'apps', sorts: {}, fil: {}, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', sel: null, q: '' };
+      Object.assign(S, L.patchFromHash(p, S));
+      w = L.writeHash(L.toHashState(S));
+      again = L.writeHash(L.toHashState(Object.assign(S, L.patchFromHash(L.parseHash(w), S))));
+    }, hash);
+    assert.equal(again, w, 'writing is stable for ' + JSON.stringify(hash));
+    assert.ok(w.length <= 2048);
+  }
 });

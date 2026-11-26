@@ -154,34 +154,54 @@ const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved t
 /* url-state:begin */
 /* The address bar is the page's saved state: #<page>?<key>=<value>&...  Keys are a public format once a
    link is shared, so the list stays short and every key keeps its meaning:
-     filter  the page's chip filter (Apps, Listeners, Persistence, Network)
-     sel     the selected app (Apps only)
-     q       the search text (pages the search box filters)
-     sort    comma-separated key.column.direction, e.g. apps.procs.desc
-     failed  1 = only failed requests (Privilege)
-   Read-only link shortcuts for pre-filtered views: host=<addr> (Network), port=<n> and exposed=1 (Listeners).
+     filter   the page's chip filter (Apps, Listeners, Persistence, Network)
+     sel      the selected app (Apps only)
+     q        the search text (pages the search box filters)
+     sort     comma-separated key.column.direction, e.g. apps.procs.desc
+     label, signing   the Apps dropdown filters
+     proto    the Listeners protocol filter
+     result   the Privilege result filter (all, failed, ok)
+   Read-only link shortcuts for pre-filtered views: host=<addr> (Network), port=<n> and exposed=1 (Listeners),
+   failed=1 (Privilege). Every key and value is checked against the lists below: an address is typed or pasted
+   by anyone, so nothing in it is trusted as a property name, a column or a filter value.
    Never put the per-run write token here: a hash is copied, bookmarked and shared. */
 const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History', performance: 'Performance' };
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
 const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history'];
 const PAGE_FILTER = { apps: ['filter', ['all', 'review', 'approved', 'macOS']], listeners: ['lfilter', ['all', 'exposed', 'local']], persist: ['pfilter', ['all', 'new', 'user', 'system']], network: ['nfilter', ['all', 'public', 'lan', 'new']] };
-const PAGE_SORTS = { apps: ['apps'], listeners: ['listen'], persist: ['pers'], network: ['net'], priv: ['sudo', 'auth'], history: ['hist', 'act'] };
+// Dropdown filters per page: S.fil name -> [hash key, allowed values]. Must match the dropdowns the views draw.
+const PAGE_DROPDOWNS = {
+  apps: { 'apps-label': ['label', ['all', 'trusted', 'unknown', 'suspicious']], 'apps-sig': ['signing', ['all', 'apple', 'signed', 'unsigned', 'unchecked']] },
+  listeners: { 'listen-proto': ['proto', ['all', 'TCP', 'UDP']] },
+  priv: { 'auth-result': ['result', ['all', 'failed', 'ok']] },
+};
+// Sortable columns per page and table key. Must match the sortHeader calls; a test compares them.
+const PAGE_SORTS = {
+  apps: { apps: ['app', 'procs', 'out', 'listening', 'signing', 'status', 'label'] },
+  listeners: { listen: ['port', 'proto', 'bind', 'app', 'pid', 'reach'] },
+  persist: { pers: ['label', 'kind', 'scope', 'program', 'trust', 'added'] },
+  network: { net: ['app', 'remote', 'scope', 'sockets', 'seen'] },
+  priv: { sudo: ['time', 'command'], auth: ['time', 'result', 'right', 'requester'] },
+  history: { hist: ['when', 'app', 'host', 'hits'], act: ['when', 'signal', 'sent', 'refused'] },
+};
 const HASH_MAX = 2048; // browsers and chat apps start truncating long addresses around here
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const own = (o, k) => (hasOwn(o, k) ? o[k] : undefined); // never reaches Object.prototype ('constructor', '__proto__', ...)
 const dec = (s) => { try { return decodeURIComponent(s); } catch (e) { return null; } };
+const enc = (s) => { try { return encodeURIComponent(s); } catch (e) { return null; } }; // throws on a lone surrogate
 
 function parseHash(hash) {
   const raw = String(hash || '').replace(/^#/, ''), cut = raw.indexOf('?');
   const page = dec(cut < 0 ? raw : raw.slice(0, cut));
-  const out = { view: 'overview', filter: 'all', sel: null, q: '', sorts: {}, failed: false };
+  const out = { view: 'overview', filter: 'all', sel: null, q: '', sorts: {}, dd: {} };
   if (page == null || !hasOwn(TITLES, page)) return out;
   out.view = page;
-  const p = {};
+  const p = Object.create(null);
   if (cut >= 0) for (const kv of raw.slice(cut + 1).split('&')) {
     const eq = kv.indexOf('='), k = dec(eq < 0 ? kv : kv.slice(0, eq)), v = eq < 0 ? '' : dec(kv.slice(eq + 1));
-    if (k != null && v != null && !hasOwn(p, k)) p[k] = v;
+    if (k != null && v != null && !(k in p)) p[k] = v;
   }
-  const f = PAGE_FILTER[page];
+  const f = own(PAGE_FILTER, page);
   if (f && f[1].includes(p.filter)) out.filter = p.filter;
   if (page === 'listeners' && p.exposed === '1') out.filter = 'exposed';
   if (page === 'apps' && p.sel) out.sel = p.sel;
@@ -190,32 +210,36 @@ function parseHash(hash) {
     else if (page === 'network' && p.host) out.q = p.host;
     else if (page === 'listeners' && /^\d{1,5}$/.test(p.port || '')) out.q = p.port;
   }
-  if (page === 'priv' && p.failed === '1') out.failed = true;
+  for (const [name, [key, values]] of Object.entries(own(PAGE_DROPDOWNS, page) || {})) if (values.includes(p[key])) out.dd[name] = p[key];
+  if (page === 'priv' && p.failed === '1' && !out.dd['auth-result']) out.dd['auth-result'] = 'failed';
+  const cols = own(PAGE_SORTS, page) || {};
   for (const part of (p.sort || '').split(',')) {
     const [key, col, dir, extra] = part.split('.');
-    if (extra === undefined && col && (dir === 'asc' || dir === 'desc') && (PAGE_SORTS[page] || []).includes(key)) out.sorts[key] = { col, dir };
+    if (extra === undefined && hasOwn(cols, key) && cols[key].includes(col) && (dir === 'asc' || dir === 'desc')) out.sorts[key] = { col, dir };
   }
   return out;
 }
 
-// Pure: the same state always gives the same string. Over HASH_MAX the selection goes first, then the filters.
+// Pure: the same state always gives the same string. Over HASH_MAX it sheds, in order: the selection, then the
+// filters (chip, dropdowns, search), then the sort. A value that cannot be encoded is skipped on its own.
 function writeHash(st) {
-  const page = hasOwn(TITLES, st.view) ? st.view : 'overview', f = PAGE_FILTER[page];
-  const build = (withSel, withFilters) => {
-    const kv = [];
-    if (withSel && page === 'apps' && st.sel) kv.push('sel=' + encodeURIComponent(st.sel));
+  const page = hasOwn(TITLES, st.view) ? st.view : 'overview', f = own(PAGE_FILTER, page);
+  const build = (withSel, withFilters, withSort) => {
+    const kv = [], add = (k, v) => { const e = enc(v); if (e != null) kv.push(k + '=' + e); };
+    if (withSel && page === 'apps' && st.sel) add('sel', st.sel);
     if (withFilters) {
-      if (f && st.filter && st.filter !== 'all' && f[1].includes(st.filter)) kv.push('filter=' + encodeURIComponent(st.filter));
-      if (FILTERABLE.includes(page) && st.q) kv.push('q=' + encodeURIComponent(st.q));
-      const sorts = (PAGE_SORTS[page] || []).filter((k) => st.sorts && st.sorts[k] && (st.sorts[k].dir === 'asc' || st.sorts[k].dir === 'desc')).map((k) => k + '.' + st.sorts[k].col + '.' + st.sorts[k].dir);
-      if (sorts.length) kv.push('sort=' + encodeURIComponent(sorts.join(',')));
-      if (page === 'priv' && st.failed) kv.push('failed=1');
+      if (f && f[1].includes(st.filter) && st.filter !== 'all') add('filter', st.filter);
+      for (const [name, [key, values]] of Object.entries(own(PAGE_DROPDOWNS, page) || {})) { const v = st.dd && own(st.dd, name); if (v !== 'all' && values.includes(v)) add(key, v); }
+      if (FILTERABLE.includes(page) && st.q) add('q', st.q);
+    }
+    if (withSort) {
+      const cols = own(PAGE_SORTS, page) || {};
+      const sorts = Object.keys(cols).filter((k) => { const s = st.sorts && own(st.sorts, k); return s && cols[k].includes(s.col) && (s.dir === 'asc' || s.dir === 'desc'); }).map((k) => k + '.' + st.sorts[k].col + '.' + st.sorts[k].dir);
+      if (sorts.length) add('sort', sorts.join(','));
     }
     return '#' + page + (kv.length ? '?' + kv.join('&') : '');
   };
-  try {
-    for (const [a, b] of [[true, true], [false, true]]) { const h = build(a, b); if (h.length <= HASH_MAX) return h; }
-  } catch (e) { /* encodeURIComponent throws on a lone surrogate */ }
+  for (const [a, b, c] of [[true, true, true], [false, true, true], [false, false, true]]) { const h = build(a, b, c); if (h.length <= HASH_MAX) return h; }
   return '#' + page;
 }
 
@@ -227,23 +251,36 @@ function historyMode(prev, next) {
   return a.view !== b.view || a.sel !== b.sel ? 'push' : 'replace';
 }
 
-const hashStateOf = (s) => ({ view: s.view, filter: PAGE_FILTER[s.view] ? s[PAGE_FILTER[s.view][0]] : 'all', sel: s.sel, q: s.q, sorts: s.sorts || {}, failed: s.view === 'priv' && !!s.fil && s.fil['auth-result'] === 'failed' });
+const toHashState = (s) => {
+  const f = own(PAGE_FILTER, s.view), dd = {};
+  for (const name of Object.keys(own(PAGE_DROPDOWNS, s.view) || {})) if (s.fil && hasOwn(s.fil, name)) dd[name] = s.fil[name];
+  return { view: s.view, filter: f ? s[f[0]] : 'all', sel: s.sel, q: s.q, sorts: s.sorts || {}, dd };
+};
 
 // The S fields a parsed hash sets. Other pages' sorts and filters stay as they were.
-function patchOf(st, s) {
+function patchFromHash(st, s) {
   const sorts = Object.assign({}, s.sorts);
-  for (const k of PAGE_SORTS[st.view] || []) delete sorts[k];
-  const patch = { view: st.view, sel: st.sel, q: st.q, sorts: Object.assign(sorts, st.sorts), page: {} };
-  if (PAGE_FILTER[st.view]) patch[PAGE_FILTER[st.view][0]] = st.filter;
-  if (st.view === 'priv') patch.fil = Object.assign({}, s.fil, { 'auth-result': st.failed ? 'failed' : 'all' });
+  for (const k of Object.keys(own(PAGE_SORTS, st.view) || {})) delete sorts[k];
+  const patch = { view: st.view, sel: st.sel, q: st.q, sorts: Object.assign(sorts, st.sorts), page: {}, selFromUrl: !!st.sel };
+  if (own(PAGE_FILTER, st.view)) patch[PAGE_FILTER[st.view][0]] = st.filter;
+  const dds = Object.keys(own(PAGE_DROPDOWNS, st.view) || {});
+  if (dds.length) { patch.fil = Object.assign({}, s.fil); for (const name of dds) patch.fil[name] = st.dd[name] || 'all'; }
   if (st.sel !== s.sel) patch.expand = { procs: false, conns: false };
   return patch;
 }
 
-function syncHash(s, loc, hist) {
-  const next = writeHash(hashStateOf(s));
+// What a loaded snapshot means for the selection. A selection that came from the address and is gone gets a
+// notice; one whose app quit while the page was open does not. Clearing it must not add a history entry.
+function selPatch(s, snap) {
+  if (!snap || s.view !== 'apps' || !s.sel) return null;
+  if (snap.groups.some((g) => g.key === s.sel)) return s.selFromUrl ? { selFromUrl: false } : null;
+  return Object.assign({ sel: null, selFromUrl: false, hashReplace: true }, s.selFromUrl ? { toast: 'That app is no longer running, so nothing is selected.' } : {});
+}
+
+function syncHash(s, loc, hist, forceReplace) {
+  const next = writeHash(toHashState(s));
   if (next === loc.hash) return;
-  const mode = historyMode(loc.hash, next);
+  const mode = forceReplace ? 'replace' : historyMode(loc.hash, next);
   try { hist[mode === 'push' ? 'pushState' : 'replaceState'](null, '', next); } catch (e) { /* the address bar is a convenience, never worth breaking the page */ }
 }
 
@@ -255,7 +292,7 @@ function crumbParts(st, selLabel) {
   return parts;
 }
 /* url-state:end */
-const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false } }, m); Object.assign(S, m); render(); };
+const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
 const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
@@ -302,7 +339,7 @@ const isEmpty = (v) => v == null || v === '';
 // Stable sort; empty values go last in both directions; numbers compare as numbers, text ignores case.
 function sortRows(rows, key, getters) {
   const s = S.sorts[key];
-  if (!s || !getters[s.col]) return rows;
+  if (!s || !Object.prototype.hasOwnProperty.call(getters, s.col)) return rows; // own keys only: 'constructor' and '__proto__' are not columns
   const dir = s.dir === 'desc' ? -1 : 1;
   const empty = (v) => isEmpty(v) || (typeof v === 'number' && Number.isNaN(v));
   return rows.map((r, i) => ({ r, i, v: getters[s.col](r) })).sort((x, y) => {
@@ -372,8 +409,7 @@ async function load(fresh) {
   try {
     const snap = await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json();
     // A shared link can name an app that has quit since; open the page without it rather than with an empty panel.
-    const gone = S.view === 'apps' && S.sel && !snap.groups.some((g) => g.key === S.sel);
-    quiet(gone ? { snap, sel: null, toast: 'That app is no longer running, so nothing is selected.' } : { snap }); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
+    quiet(Object.assign({ snap }, selPatch(S, snap))); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
   catch (e) { $('live').textContent = 'offline: ' + e.message; }
 }
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
@@ -747,7 +783,7 @@ const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', '
 // Each part of the trail is a link, so a selected item can be opened in a new tab and lands on the same item.
 function crumb() {
   const g = S.snap && S.snap.groups.find((x) => x.key === S.sel);
-  const parts = crumbParts(hashStateOf(S), g ? g.label : S.sel && unprefixed(S.sel));
+  const parts = crumbParts(toHashState(S), g ? g.label : S.sel && unprefixed(S.sel));
   return parts.map((p, i) => [i ? h('span', { 'aria-hidden': 'true' }, '\u203A') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, p.text) : h('a', { href: p.href }, p.text)]);
 }
 
@@ -784,11 +820,12 @@ function render() {
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   $('layer').replaceChildren(...layer);
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
-  syncHash(S, location, history);
+  syncHash(S, location, history, S.hashReplace);
+  S.hashReplace = false;
 }
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
-const fromHash = () => { Object.assign(S, patchOf(parseHash(location.hash), S)); $('q').value = S.q; };
+const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
 window.addEventListener('hashchange', () => { fromHash(); render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
