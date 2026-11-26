@@ -32,7 +32,7 @@ pub fn evaluate(groups: &[Group]) -> Vec<Finding> {
 }
 
 /// The trust label for one group and the rules that produced it, from the same findings the dashboard shows.
-/// Only rules decide this: a model may later escalate a label, never lower it (plan decision D4).
+/// Only rules decide this: a model may later explain a label or escalate it, but never lower it.
 pub fn classify(g: &Group, findings: &[Finding]) -> (Label, Vec<&'static str>) {
     let mut fired: Vec<&'static str> = Vec::new();
     let apple = g.signing.as_ref().is_some_and(|s| s.apple);
@@ -41,19 +41,15 @@ pub fn classify(g: &Group, findings: &[Finding]) -> (Label, Vec<&'static str>) {
     for f in findings.iter().filter(|f| f.group_key == g.key) {
         if !fired.contains(&f.rule) { fired.push(f.rule); }
     }
-    let has = |r: &str| fired.contains(&r);
     // An unsigned program using the network stays suspicious even after you approved it.
-    let label = if has("unsigned-network") { Label::Suspicious }
+    let label = if fired.contains(&"unsigned-network") { Label::Suspicious }
+        // Apple-signed wins over every other finding: Apple's own LAN services and tools are expected.
         else if apple { Label::Trusted }
-        else if g.approved {
-            // Anything beyond a clean approval, except Apple-style LAN exposure (impossible here), makes it unknown again.
-            if fired.iter().all(|r| *r == "approved") { Label::Trusted } else { Label::Unknown }
-        }
-        else {
-            // Not approved and not known to be Apple's. If no finding says why, say so, so every unknown has a reason.
-            if fired.is_empty() { fired.push("unverified"); }
-            Label::Unknown
-        };
+        else if g.approved && fired.iter().all(|r| *r == "approved") { Label::Trusted }
+        // Approved but flagged again, or not approved and not known to be Apple's.
+        else { Label::Unknown };
+    // Every unknown label must say why: when no finding does, the reason is that nothing verifies it.
+    if label == Label::Unknown && fired.is_empty() { fired.push("unverified"); }
     (label, fired)
 }
 
@@ -102,6 +98,14 @@ mod tests {
     fn approved_with_a_debug_port_is_unknown() {
         let dbg = vec![conn(Direction::Listen, Scope::Loopback, false, 9222)];
         assert_eq!(label(&grp(true, Some((true, false)), dbg), &[]).0, Label::Unknown);
+    }
+    #[test]
+    fn apple_signed_stays_trusted_even_with_a_debug_port() {
+        // Decided, not accidental: Apple-signed wins over medium findings. Revisit if an Apple tool ever opens 9222.
+        let dbg = vec![conn(Direction::Listen, Scope::Loopback, false, 9222)];
+        let (l, fired) = label(&grp(false, Some((true, true)), dbg), &[]);
+        assert_eq!(l, Label::Trusted);
+        assert!(fired.contains(&"debug-port"));
     }
     #[test]
     fn approved_and_clean_is_trusted() {

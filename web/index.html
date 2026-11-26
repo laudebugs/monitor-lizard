@@ -225,7 +225,7 @@ function apps() {
   const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
   const pg = paginate(list, 'apps');
   const table = h('section', { class: 'card tbl', style: 'flex:999 1 640px;min-width:0' },
-    h('div', { class: 'tr h ell' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Trust'), h('span', {}, 'Status'), h('span', {}, 'Label')),
+    h('div', { class: 'tr h ell' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Signing'), h('span', {}, 'Status'), h('span', {}, 'Label')),
     pg.slice.map((g) => h('button', { class: 'tr ell ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
       h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
       h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))), h('span', {}, h('span', { class: 'tag ' + trustCls(g.trust), title: (g.rules_fired || []).join(', ') }, g.trust)))),

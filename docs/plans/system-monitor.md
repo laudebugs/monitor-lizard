@@ -16,7 +16,7 @@ Continuously answer one question for one person: is every process and connection
 As of 2026-11-26, on `main`:
 
 - `src/collect.rs`, `src/group.rs`, `src/snapshot.rs`: polls `ps`, `lsof` and `libproc`, verifies signatures with `codesign`, and groups processes and sockets by app bundle, toolchain or macOS system.
-- `src/rules.rs`: findings for exposed listeners, unsigned binaries with sockets, unreviewed apps and an open debug port.
+- `src/rules.rs`: findings for exposed listeners, unsigned binaries with sockets, unreviewed apps and an open debug port, and the rule-based trust label (`rules::classify`, [A6](../todos/done/A6-rule-based-labels.md)).
 - `src/history.rs`: SQLite first-seen remote host per app; flags new hosts for approved apps after a 60 s learning window.
 - `src/privilege.rs`, `src/watcher.rs`: authorization-log parsing and a 20 ms process-table watcher that records sudo/su launches with their parent chain.
 - `src/actions.rs`, `src/server.rs`: guarded Stop/Quit (own-user processes only, per-run token, audit log) on a loopback server.
