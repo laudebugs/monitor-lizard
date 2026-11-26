@@ -126,8 +126,11 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
+// A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
+// otherwise leak into view: the app bundle path itself never has one, so this is always safe.
+const unprefixed = (key) => key.replace(/^(apple|dev|other):/, '');
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
 const status = (g) => (g.approved ? 'approved' : apple(g) ? 'macOS' : net(g) ? 'review' : 'idle');
@@ -255,7 +258,7 @@ async function load(fresh) {
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
-const loadHist = async () => { try { quiet({ seen: ((await (await api('/api/history')).json()) || {}).seen || [] }); } catch (e) {} };
+const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [] }); } catch (e) {} };
 const toast = (t) => rec({ toast: t });
 const mute = (id) => { S.muted.add(id); localStorage.setItem('sysmon-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -265,6 +268,7 @@ async function stop(sig) {
     const o = await (await api('/api/kill?sig=' + sig + '&pids=' + m.pids.join(','), 'POST')).json();
     toast('Sent SIG' + sig + ' to ' + o.sent.length + ' process(es) of ' + m.label + (o.refused.length ? '. Refused ' + o.refused.length + ': ' + o.refused[0].reason : '.'));
     setTimeout(() => load(true), 700);
+    setTimeout(loadHist, 700); // the audit row for this action lands on the server at the same moment
   } catch (e) { toast('Stop failed: ' + e.message); }
 }
 const askStop = (label, procs) => rec({ modal: { label, pids: procs.map((p) => p.pid), count: procs.length } });
@@ -349,7 +353,7 @@ function drawer(g, listen, sig) {
   const mine = g.procs.filter((p) => p.user !== 'root');
   const outs = g.conns.filter((c) => c.direction === 'outbound');
   return h('aside', { class: 'drawer card' + (S.drawerW ? ' sized' : ''), style: S.drawerW ? '--dw:' + S.drawerW + 'px' : '', 'aria-label': 'App detail' },
-    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, g.key.replace(/^(apple|dev|other):/, ''))),
+    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, unprefixed(g.key))),
       h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
       !g.approved && !apple(g) ? h('button', { class: 'btn pri sm', onClick: () => approve(g) }, 'Approve app') : null,
@@ -481,11 +485,44 @@ function network() {
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')];
 }
 
-const SOON = { history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
+
+const labelOf = (key) => { const g = S.snap && S.snap.groups.find((x) => x.key === key); return g ? g.label : base(unprefixed(key)); };
+function jsonOr(s, fallback) { try { return JSON.parse(s); } catch (e) { return fallback; } }
+function history() {
+  const q = S.q.toLowerCase();
+  const allHosts = [...S.seen].sort((a, b) => b.first_seen - a.first_seen); // newest first, baked into the base order
+  const hostList = allHosts.filter((s) => !q || labelOf(s.group_key).toLowerCase().includes(q) || s.remote.toLowerCase().includes(q));
+  const hostsShown = sortRows(hostList, 'hist', { when: (s) => s.first_seen, app: (s) => labelOf(s.group_key), host: (s) => s.remote, hits: (s) => s.hits });
+  const hp = paginate(hostsShown, 'hist');
+  const hostCols = 'grid-template-columns:140px minmax(0,1fr) minmax(0,1.2fr) 70px';
+  const hostsTable = h('section', { class: 'card tbl', style: 'margin-bottom:20px' },
+    sortHeader('hist', [{ label: 'When', sort: 'when' }, { label: 'App', sort: 'app' }, { label: 'Host', sort: 'host' }, { label: 'Hits', sort: 'hits', cls: 'num' }], hostCols),
+    hp.slice.length ? hp.slice.map((s) => h('div', { class: 'tr', style: hostCols + ';cursor:default' },
+      h('span', { class: 'mut small' }, new Date(s.first_seen * 1000).toLocaleString()), h('span', { style: 'font-weight:500' }, labelOf(s.group_key)),
+      h('span', { class: 'mut small', style: 'word-break:break-all' }, s.remote), h('span', { class: 'num' }, s.hits)))
+      : h('div', { class: 'item' }, h('p', {}, allHosts.length ? 'No hosts match the search. ' : 'No new hosts recorded yet.'), allHosts.length ? clearBtn() : null), hp.pager);
+  const allActs = [...S.acts].sort((a, b) => b.ts - a.ts); // newest first, baked into the base order
+  const actList = allActs.filter((a) => !q || a.sig.toLowerCase().includes(q) || a.sent.includes(q) || a.refused.toLowerCase().includes(q));
+  const refusedText = (a) => {
+    const r = jsonOr(a.refused, []);
+    return r.length ? r.length + ' refused: ' + r[0].reason + (r.length > 1 ? ', ...' : '') : '-';
+  };
+  const actsShown = sortRows(actList, 'act', { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).length, refused: (a) => refusedText(a) });
+  const ap = paginate(actsShown, 'act');
+  const actCols = 'grid-template-columns:140px 70px minmax(0,1fr) minmax(0,1.4fr)';
+  const actsTable = h('section', { class: 'card tbl' },
+    sortHeader('act', [{ label: 'When', sort: 'when' }, { label: 'Signal', sort: 'signal' }, { label: 'Sent', sort: 'sent', cls: 'num' }, { label: 'Refused', sort: 'refused' }], actCols),
+    ap.slice.length ? ap.slice.map((a) => { const sent = jsonOr(a.sent, []); return h('div', { class: 'tr', style: actCols + ';cursor:default' },
+      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag' }, a.sig)),
+      h('span', { class: 'small' }, sent.length ? sent.length + ' pid(s): ' + sent.join(', ') : '-'), h('span', { class: 'mut small' }, refusedText(a))); })
+      : h('div', { class: 'item' }, h('p', {}, allActs.length ? 'No actions match the search. ' : 'No Stop/Quit actions recorded yet.'), allActs.length ? clearBtn() : null), ap.pager);
+  return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable];
+}
+
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
-const FILTERABLE = ['apps', 'listeners', 'persist', 'network'];
-const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network' };
+const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history'];
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History' };
 
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
@@ -496,7 +533,7 @@ function render() {
     h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' }), h('span', { class: 'grow' }, label), badge[id] ? h('span', { class: 'badge ' + badge[id][1] }, badge[id][0]) : null)));
   // createElement has no SVG namespace; set the icon markup after the fact.
   document.querySelectorAll('#nav svg').forEach((svg, i) => { svg.innerHTML = '<path d="' + NAV[i][2] + '" stroke-linecap="round" stroke-linejoin="round"/>'; });
-  $('title').textContent = TITLES[S.view] || (SOON[S.view] || [''])[0];
+  $('title').textContent = TITLES[S.view] || '';
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (!S.snap) c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...'));
@@ -506,7 +543,8 @@ function render() {
   else if (S.view === 'listeners') c.replaceChildren(...listeners());
   else if (S.view === 'persist') c.replaceChildren(...persistence());
   else if (S.view === 'network') c.replaceChildren(...network());
-  else c.replaceChildren(h('section', { class: 'card', style: 'padding:28px;max-width:620px' }, h('h2', { style: 'margin:0 0 8px;font-size:16px' }, SOON[S.view][0]), h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, SOON[S.view][1] + ' Coming in a later phase.')));
+  else if (S.view === 'history') c.replaceChildren(...history());
+  else c.replaceChildren(h('p', { class: 'mut' }, 'Unknown view.')); // every NAV id has a branch above; this only guards a future NAV entry added without one
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
     h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
