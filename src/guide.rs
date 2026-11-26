@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 /// What a command does to the Mac, in the words the Guide shows.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
 pub enum Safety {
     #[serde(rename = "read-only")]
     ReadOnly,
@@ -14,12 +14,9 @@ pub enum Safety {
 }
 
 impl Safety {
-    pub fn label(self) -> &'static str {
-        match self {
-            Safety::ReadOnly => "read-only",
-            Safety::ChangesFiles => "changes files",
-            Safety::NeedsSudo => "needs sudo",
-        }
+    /// The serialized name, so the terminal and the JSON can never disagree.
+    pub fn label(self) -> String {
+        serde_json::to_value(self).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
 }
 
@@ -92,7 +89,7 @@ pub static COMMANDS: &[Command] = &[
     },
     Command {
         id: "sm-llm-classify", topic: OWN_TOPIC, title: "Ask a local model about a group",
-        command: "sys-monitor llm-classify <group-key> [port]",
+        command: "sys-monitor llm-classify <group-key> [port=8090]",
         description: "Sends the evidence for one group to a model server on this Mac (default port 8090) and prints its reply. Nothing leaves the machine.",
         example: None, safety: Safety::ReadOnly, appears_in: None, undo: None,
         tags: &["llm", "model", "classify"],
@@ -176,7 +173,7 @@ pub static COMMANDS: &[Command] = &[
     Command {
         id: "tmutil-delete", topic: STORAGE, title: "Delete one local snapshot",
         command: "tmutil deletelocalsnapshots <date>",
-        description: "Deletes every local Time Machine snapshot with that date (format YYYY-MM-DD-HHMMSS, as listed above) on all mounted disks. Needs root and Full Disk Access on most Macs.",
+        description: "Deletes every local Time Machine snapshot with that date (format YYYY-MM-DD-HHMMSS, as listed above) on all mounted disks. The man page does not say it needs root; the usual instruction is to run it with sudo and to give the terminal Full Disk Access. Labelled needs sudo as the safe assumption.",
         example: None, safety: Safety::NeedsSudo, appears_in: Some("Storage"),
         undo: Some("None. The snapshot is gone; Time Machine makes a new one at its next run."),
         tags: &["snapshot", "time machine", "tmutil", "delete"],
@@ -184,7 +181,7 @@ pub static COMMANDS: &[Command] = &[
     Command {
         id: "du-library", topic: STORAGE, title: "Largest folders in your Library",
         command: "du -sh ~/Library/* | sort -h",
-        description: "Sums each folder in your Library and sorts them smallest to largest. It can take a minute on a large Library.",
+        description: "Sums each folder in your Library and sorts them smallest to largest. It can take a minute on a large Library. The example shortens the absolute paths that `du` prints to `~`.",
         example: Some(Example { macos: MACOS, output: " 11G\t~/Library/Containers\n 19G\t~/Library/pnpm\n 29G\t~/Library/Caches\n 33G\t~/Library/Application Support" }),
         safety: Safety::ReadOnly, appears_in: Some("Storage"), undo: None,
         tags: &["library", "folders", "size", "du", "caches"],
@@ -207,9 +204,9 @@ pub static COMMANDS: &[Command] = &[
     Command {
         id: "docker-prune", topic: STORAGE, title: "Remove unused Docker data",
         command: "docker system prune",
-        description: "Removes stopped containers, unused networks, dangling images and build cache after asking for confirmation. Add --all to remove every unused image and --volumes to remove anonymous volumes; `-f` skips the question.",
+        description: "Asks for confirmation, then removes stopped containers, networks no container uses, dangling images and dangling build cache. `--all` also removes every unused image, `--volumes` also removes anonymous volumes, and `-f` skips the question.",
         example: None, safety: Safety::ChangesFiles, appears_in: Some("Storage"),
-        undo: Some("None. Images can be pulled again; data in removed volumes is lost."),
+        undo: Some("None. Images can be pulled or rebuilt again; files in removed containers and anonymous volumes are lost."),
         tags: &["docker", "prune", "cleanup", "developer"],
     },
     Command {
@@ -253,8 +250,8 @@ pub fn search(word: &str) -> (Vec<&'static Command>, Vec<&'static Term>) {
 }
 
 fn topics() -> Vec<&'static str> {
-    let mut t: Vec<&str> = COMMANDS.iter().map(|c| c.topic).collect();
-    t.dedup();
+    let mut t: Vec<&str> = Vec::new();
+    for c in COMMANDS { if !t.contains(&c.topic) { t.push(c.topic); } }
     t
 }
 
@@ -284,10 +281,39 @@ pub fn to_json() -> String {
 mod tests {
     use super::*;
 
-    /// Subcommand names as `main.rs` matches them: `Some("name") =>`.
+    /// Subcommand names from the dispatch `match` in `main.rs`. Only plain `Some("name") =>` arms
+    /// (optionally `None | Some("name")`) are understood; any other arm shape is an error, so a
+    /// subcommand written another way fails loudly instead of slipping past the check.
+    fn parse_arms(src: &str) -> Result<Vec<String>, String> {
+        let start = src.find("match args.next().as_deref() {").ok_or("dispatch match not found in main.rs")?;
+        let mut names = Vec::new();
+        for line in src[start..].lines().skip(1) {
+            if line.starts_with("    }") { break; }
+            let Some(arm) = line.strip_prefix("        ").filter(|a| !a.starts_with(' ')) else { continue };
+            if arm.starts_with("//") || arm.starts_with('}') { continue; }
+            let Some((pat, _)) = arm.split_once(" =>") else { return Err(format!("cannot read dispatch arm: {arm}")) };
+            let pat = pat.strip_prefix("None | ").unwrap_or(pat);
+            if pat == "_" { continue; }
+            match pat.strip_prefix("Some(\"").and_then(|p| p.strip_suffix("\")")).filter(|n| !n.contains('"')) {
+                Some(n) => names.push(n.to_string()),
+                None => return Err(format!("unsupported dispatch arm `{pat}`: write it as Some(\"name\") or extend parse_arms")),
+            }
+        }
+        Ok(names)
+    }
+
     fn main_subcommands() -> Vec<String> {
-        let src = include_str!("main.rs");
-        src.split("Some(\"").skip(1).filter_map(|s| s.split_once("\")")).map(|(n, _)| n.to_string()).collect()
+        parse_arms(include_str!("main.rs")).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[test]
+    fn unsupported_arm_shapes_are_rejected() {
+        let wrap = |arm: &str| format!("    match args.next().as_deref() {{\n        {arm} => run(),\n    }}\n");
+        assert_eq!(parse_arms(&wrap("Some(\"a\")")).unwrap(), ["a"]);
+        assert_eq!(parse_arms(&wrap("None | Some(\"b\")")).unwrap(), ["b"]);
+        for bad in ["Some(\"a\" | \"b\")", "Some(x) if x == \"c\"", "\"d\""] {
+            assert!(parse_arms(&wrap(bad)).is_err(), "{bad} should be rejected");
+        }
     }
 
     fn own_names() -> Vec<&'static str> {
@@ -299,13 +325,13 @@ mod tests {
         let names = own_names();
         let subs = main_subcommands();
         assert!(subs.len() >= 10, "parsed too few subcommands: {subs:?}");
-        for s in &subs { assert!(names.contains(&s.as_str()), "main.rs handles `{s}` but the guide table has no entry"); }
+        for s in &subs { assert!(names.contains(&s.as_str()), "main.rs handles `{s}` but the guide table has no entry: add an entry to COMMANDS in src/guide.rs"); }
     }
 
     #[test]
     fn every_own_entry_is_a_real_subcommand() {
         let subs = main_subcommands();
-        for n in own_names() { assert!(subs.iter().any(|s| s == n), "guide lists `{n}` but main.rs does not handle it"); }
+        for n in own_names() { assert!(subs.iter().any(|s| s == n), "guide lists `{n}` but main.rs does not handle it: remove the entry from COMMANDS in src/guide.rs or add the arm"); }
     }
 
     #[test]
@@ -350,14 +376,14 @@ mod tests {
     fn text_has_no_identifying_details() {
         let json = to_json();
         assert!(!json.contains("/Users/"), "guide text contains a home path");
-        if let Ok(user) = std::env::var("USER").map(|u| format!("/{u}")).or_else(|_| Err(())) { assert!(!json.contains(&user), "guide text contains the account name"); }
+        if let Some(user) = std::env::var("USER").ok().filter(|u| u.len() > 2) { assert!(!json.contains(&format!("/{user}")), "guide text contains the account name"); }
     }
 
     #[test]
     fn json_has_both_tables_with_safety_text() {
         let v: serde_json::Value = serde_json::from_str(&to_json()).unwrap();
-        assert!(v["commands"].as_array().unwrap().len() == COMMANDS.len());
-        assert!(v["terms"].as_array().unwrap().len() == TERMS.len());
+        assert_eq!(v["commands"].as_array().unwrap().len(), COMMANDS.len());
+        assert_eq!(v["terms"].as_array().unwrap().len(), TERMS.len());
         assert!(v["commands"].as_array().unwrap().iter().any(|c| c["safety"] == "needs sudo"));
     }
 }

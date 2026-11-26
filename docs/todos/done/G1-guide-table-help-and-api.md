@@ -88,20 +88,23 @@ cargo run --release -- help snapshot
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
-**2026-11-26.** Built `src/guide.rs` with `COMMANDS` (12 `sys-monitor` entries and 9 macOS and developer entries), `TERMS` (9), a `Safety` enum and a search helper. `sys-monitor help [word]` prints matches or "No command matches" plus the topic list. The usage line printed for an unknown subcommand is generated from the table; the exit code is unchanged (0). `GET /api/guide` returns both tables as JSON (one route line in `src/server.rs`). Nine Rust tests cover completeness in both directions, unique ids, search, no-match text, usage, placeholders and absence of home paths. Docs: `docs/agents/commands.md`, README, plan.
+**2026-11-26.** Built `src/guide.rs` with `COMMANDS` (12 `sys-monitor` entries, 9 macOS and developer entries), `TERMS` (9), a `Safety` enum and a search helper. `sys-monitor help [word]` prints matches, or "No command matches" and the topic list. An unknown subcommand prints a usage line generated from the table, with the exit code unchanged (0). `GET /api/guide` returns both tables as JSON through one route line in `src/server.rs`.
+
+Ten Rust tests cover completeness in both directions, unsupported arm shapes, unique ids, search, no-match text, usage, placeholders and absence of home paths. Docs changed: `docs/agents/commands.md`, README, plan.
 
 **Deviations and open items:**
 
-- `docker system df` has no example: the Docker daemon was not running, and the todo asks for real output only. Capture one when Docker is up.
-- `xcrun simctl delete unavailable`, `docker system prune` and `tmutil deletelocalsnapshots` were not run, because they delete data; their entries come from `simctl help`, `docker system prune --help` and `man tmutil`. A deletion attempt for a non-existent snapshot failed without root-specific text, so "needs sudo" for `deletelocalsnapshots` rests on `man tmutil`'s general note that several verbs need root; confirm against a real snapshot.
-- `tmutil listlocalsnapshots /` showed no snapshots on the capture Mac, so its example is the empty-list header only.
-- Examples were captured on macOS 27.0.1. `diskutil apfs list` is trimmed to the container header with the UUID replaced by `<uuid>`; the `du` example shows `~` for the home folder.
+- `docker system df` has no example, because the Docker daemon was not running. Capture one when Docker is up.
+- `xcrun simctl delete unavailable`, `docker system prune` and `tmutil deletelocalsnapshots` delete data, so they were not run. Their entries come from `simctl help`, `docker system prune --help` and `man tmutil`.
+- The man page does not say `deletelocalsnapshots` needs root. The label `needs sudo` is the safe assumption; confirm it against a real snapshot.
+- `tmutil listlocalsnapshots /` listed no snapshots on the capture Mac, so its example is the header line.
+- Examples were captured on macOS 27.0.1. The `diskutil apfs list` example is trimmed and shows `<uuid>`; the `du` example shortens the home folder to `~`.
 - The `sys-monitor` entries have no examples yet.
-- The completeness test reads `src/main.rs` for `Some("name")` arms, so a subcommand written another way would not be seen.
+- The completeness test reads the dispatch `match` in `src/main.rs` and rejects any arm that is not `Some("name")`.
