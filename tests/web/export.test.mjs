@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
 const m = html.match(/\/\* export:begin \*\/([\s\S]*?)\/\* export:end \*\//);
 assert.ok(m, 'export block not found in web/index.html');
-const X = new Function(m[1] + '\nreturn { csvCell, toCsv, toJson, rowObject, colId, hiddenFrom, visibleCols, toggleHidden, fileName };')();
+const X = new Function(m[1] + '\nreturn { csvCell, toCsv, toJson, rowObject, colId, hiddenFrom, visibleCols, toggleHidden, fileName, tableAligned, pruneTables };')();
 
 const col = (id, get, extra) => Object.assign({ id, label: id.toUpperCase(), get: get || ((r) => r[id]) }, extra);
 const csv = (cols, rows) => X.toCsv(cols, rows);
@@ -83,7 +83,7 @@ test('json: zero rows is an empty array', () => {
 
 test('rowObject builds one row the same way toJson does', () => {
   const cols = [col('a'), col('t', null, { time: true })];
-  assert.deepEqual(X.rowObject(cols, { a: 'x', t: 60 }), JSON.parse(X.toJson(cols, [{ a: 'x', t: 60 }]))[0]);
+  assert.deepEqual(JSON.parse(JSON.stringify(X.rowObject(cols, { a: 'x', t: 60 }))), JSON.parse(X.toJson(cols, [{ a: 'x', t: 60 }]))[0]);
 });
 
 test('column ids come from the sort key, then the label', () => {
@@ -147,4 +147,64 @@ test('every table column the page draws has an export value', () => {
     assert.deepEqual([...(have[mm[1]] || [])].sort(), ids.sort(), 'table ' + mm[1]);
   }
   assert.equal(seen, 8);
+});
+
+// The per-column export values, loaded with the small page helpers they call and stand-ins for the rest.
+const region = html.match(/\/\* export-cols:begin \*\/([\s\S]*?)\/\* export-cols:end \*\//)[1];
+const helper = (re) => html.match(re)[0];
+const E = new Function('base', 'status', 'reachOf', 'psig', 'labelOf',
+  [helper(/^const listenText = .*$/m), helper(/^const signText = .*$/m), helper(/^function jsonOr.*$/m), helper(/function refusedText[\s\S]*?\n}\n/), region].join('\n') + '\nreturn EXPORT;')(
+  (p) => String(p).split('/').pop(), () => 'idle', () => 'local', () => null, (k) => k);
+
+test('a "none" dash on screen is an empty cell in the file, so it is not turned into text', () => {
+  assert.equal(E.act.refused({ refused: '[]' }), '');
+  assert.equal(E.act.sent({ sent: '[]' }), '');
+  assert.equal(E.apps.listening({ conns: [] }), '');
+  assert.equal(E.apps.signing({ signing: null }), '');
+  assert.equal(X.csvCell(E.act.refused({ refused: '[]' })), '');
+});
+
+test('real refusals and ports keep the on-screen text', () => {
+  assert.equal(E.act.refused({ refused: '[{"reason":"root"},{"reason":"x"}]' }), '2 refused: root, ...');
+  assert.equal(E.act.sent({ sent: '[12,34]' }), '12 34');
+  assert.equal(E.net.ports({ ports: [80, 443] }), '80, 443');
+  assert.equal(E.apps.signing({ signing: { apple: true } }), 'Apple');
+});
+
+test('a column id that equals another column time-twin name would collide in JSON', () => {
+  for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?/g)].map((x) => X.colId({ sort: x[2], label: x[1] }));
+    for (const id of ids) assert.ok(!ids.includes(id + '_iso'), mm[1] + ': ' + id);
+    assert.equal(new Set(ids).size, ids.length, mm[1] + ' has duplicate ids');
+  }
+});
+
+test('rowObject has no prototype, so __proto__ and constructor are ordinary keys', () => {
+  const cols = [col('__proto__', () => 'p'), col('constructor', () => 'c'), col('a', () => 1)];
+  const o = X.rowObject(cols, {});
+  assert.equal(Object.getPrototypeOf(o), null);
+  assert.deepEqual(Object.keys(o), ['__proto__', 'constructor', 'a']);
+  assert.equal(JSON.parse(X.toJson(cols, [{}]))[0].constructor, 'c');
+  assert.equal(Object.keys(JSON.parse(X.toJson(cols, [{}]))[0]).length, 3);
+});
+
+test('tableAligned: a matching table passes; an extra row or a short row fails', () => {
+  assert.ok(X.tableAligned(3, [3, 3, 3], 3));
+  assert.ok(X.tableAligned(3, [], 0));
+  assert.ok(!X.tableAligned(3, [3, 3, 3, 3], 3), 'an extra drawn row');
+  assert.ok(!X.tableAligned(3, [3, 3], 3), 'a missing drawn row');
+  assert.ok(!X.tableAligned(3, [3, 2, 3], 3), 'a short row');
+  assert.ok(!X.tableAligned(3, [3, 4, 3], 3), 'a long row');
+});
+
+test('pruneTables keeps only the tables of the page being drawn', () => {
+  const t = { apps: { rows: [1] }, net: { rows: [2] }, sudo: { rows: [3] }, auth: { rows: [4] } };
+  X.pruneTables(t, ['sudo', 'auth']);
+  assert.deepEqual(Object.keys(t), ['sudo', 'auth']);
+  X.pruneTables(t, []);
+  assert.deepEqual(Object.keys(t), []);
+});
+
+test('the page prunes tables on every render, using the page sort list', () => {
+  assert.match(html, /function render\(\) \{\n\s+pruneTables\(TABLES, Object\.keys\(PAGE_SORTS\[S\.view\] \|\| \{\}\)\)/);
 });

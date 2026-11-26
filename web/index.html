@@ -397,8 +397,9 @@ function toCsv(cols, rows) {
   for (const r of rows) out.push(cols.map((c) => csvCell(c.time ? isoOf(c.get(r)) : c.get(r))).join(','));
   return out.join('\r\n') + '\r\n';
 }
+// No prototype, so a column id such as __proto__ is an ordinary key and cannot be lost or reach Object.prototype.
 function rowObject(cols, row) {
-  const o = {};
+  const o = Object.create(null);
   for (const c of cols) {
     const v = c.get(row);
     o[c.id] = v === undefined || (typeof v === 'number' && !Number.isFinite(v)) ? null : v;
@@ -424,31 +425,50 @@ function toggleHidden(cols, hidden, id) {
   if (known.includes(id)) return known.filter((x) => x !== id);
   return cols.length - known.length <= 1 ? known : known.concat(id);
 }
-const EXPORT_PREFIX = ''; // put the product name here if exported files should carry it
 function fileName(page, ext, now) {
   const p = (n) => String(n).padStart(2, '0');
-  return EXPORT_PREFIX + page + '-' + now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate()) + '.' + ext;
+  return page + '-' + now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate()) + '.' + ext;
+}
+// Copy buttons and hidden columns are matched to rows by position, so they are applied only when the drawn
+// table is exactly what the page rows predict: one DOM row per page row, each with one cell per header column.
+function tableAligned(headCells, rowCells, pageRows) {
+  return rowCells.length === pageRows && rowCells.every((n) => n === headCells);
+}
+// Each page keeps only the tables it draws, so rows of tables left behind are not held in memory.
+function pruneTables(tables, keep) {
+  for (const k of Object.keys(tables)) if (!keep.includes(k)) delete tables[k];
 }
 /* export:end */
 /* export-cols:begin */
-// Export value of every column, per table key. These are the same texts the table shows, not the numbers
-// used for sorting, so a file and the screen agree. The '-' the table shows for "none" is exported as empty, because a leading '-' would be written as text with an apostrophe. Ids must match the sortHeader columns; a test checks it.
+// Export value of every column, per table key: the text the table shows, not the number used for sorting.
+// Differences are deliberate: a "none" dash is exported as empty (a leading '-' would be written as text with an
+// apostrophe), times are epoch seconds (the file adds an ISO string), Actions "sent" is the bare process IDs, and
+// Authorization time is the full time stamp. Ids must match the sortHeader columns; a test checks it.
+const noDash = (s) => (s === '-' ? '' : s);
 const EXPORT = {
-  apps: { app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length, listening: (g) => (listenText(g) === '-' ? '' : listenText(g)), signing: (g) => (g.signing ? signText(g) : ''), status: (g) => status(g), label: (g) => g.trust },
+  apps: { app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length, listening: (g) => noDash(listenText(g)), signing: (g) => noDash(signText(g)), status: (g) => status(g), label: (g) => g.trust },
   sudo: { time: (e) => e.ts, command: (e) => e.args, requester_chain: (e) => (e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)') },
   auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)') },
   listen: { port: (r) => r.c.local_port, proto: (r) => r.c.proto, bind: (r) => r.c.local_addr, app: (r) => r.g.label, pid: (r) => r.c.pid, reach: (r) => reachOf(r) },
   pers: { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen },
-  net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(' '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
+  net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(', '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
   hist: { when: (s) => s.first_seen, app: (s) => labelOf(s.group_key), host: (s) => s.remote, hits: (s) => s.hits },
-  act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => refusedText(a) },
+  act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => noDash(refusedText(a)) },
 };
 /* export-cols:end */
-const TIME_COLS = { sudo: ['time'], pers: ['added'], net: ['seen'], hist: ['when'], act: ['when'] };
-// What each file holds, shown beside the buttons: a shared file shows habits (apps, hosts, paths), so the
-// button states it before anything is written.
-const EXPORT_INFO = { apps: 'app names, signing details and listening ports', sudo: 'the commands run with sudo and the programs that ran them', auth: 'authorization rights and the programs that asked', listen: 'app names, ports and bind addresses', pers: 'startup item names and program paths', net: 'app names and the remote hosts they contacted', hist: 'app names and the hosts they first contacted', act: 'which processes you stopped and when' };
-const EXPORT_PAGE = { apps: 'apps', sudo: 'sudo-launches', auth: 'authorization-requests', listen: 'listeners', pers: 'persistence', net: 'network', hist: 'new-hosts', act: 'actions' };
+// One descriptor per table: file name, what the file holds (shown beside the buttons, since a shared file shows
+// habits such as apps, hosts and paths), which columns are times, and an optional warning where one is needed.
+const SECRETS = 'Commands can contain secrets in their arguments.';
+const TABLE_META = {
+  apps: { file: 'apps', info: 'app names, signing details and listening ports', time: [] },
+  sudo: { file: 'sudo-launches', info: 'the commands run with sudo and the programs that ran them', warn: SECRETS, time: ['time'] },
+  auth: { file: 'authorization-requests', info: 'authorization rights and the programs that asked', warn: SECRETS, time: [] },
+  listen: { file: 'listeners', info: 'app names, ports and bind addresses', time: [] },
+  pers: { file: 'persistence', info: 'startup item names and program paths', time: ['added'] },
+  net: { file: 'network', info: 'app names and the remote hosts they contacted', time: ['seen'] },
+  hist: { file: 'new-hosts', info: 'app names and the hosts they first contacted', time: ['when'] },
+  act: { file: 'actions', info: 'which processes you stopped and when', time: ['when'] },
+};
 // The filtered, sorted rows of each table (all pages), left by paginate() for the toolbar and the row buttons.
 const TABLES = {};
 const HEADERS = {}; // the columns each table's last sortHeader drew
@@ -468,7 +488,7 @@ function setHidden(key, list) {
 }
 const exportCols = (key, header) => header.map((c) => {
   const id = colId(c);
-  return { id, label: c.label, get: (EXPORT[key] && EXPORT[key][id]) || (() => null), time: (TIME_COLS[key] || []).includes(id) };
+  return { id, label: c.label, get: (EXPORT[key] && EXPORT[key][id]) || (() => null), time: ((TABLE_META[key] || {}).time || []).includes(id) };
 });
 function download(name, mime, text) {
   const url = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
@@ -480,7 +500,7 @@ const rowsOf = (key) => (TABLES[key] ? TABLES[key].rows : []);
 function exportTable(key, header, kind) {
   const cols = visibleCols(exportCols(key, header), hiddenOf(key)), rows = rowsOf(key);
   const text = kind === 'csv' ? toCsv(cols, rows) : toJson(cols, rows);
-  download(fileName(EXPORT_PAGE[key] || key, kind, new Date()), kind === 'csv' ? 'text/csv' : 'application/json', text);
+  download(fileName((TABLE_META[key] || {}).file || key, kind, new Date()), kind === 'csv' ? 'text/csv' : 'application/json', text);
 }
 let lastColToggle = null;
 function columnsMenu(key, header) {
@@ -492,10 +512,10 @@ function columnsMenu(key, header) {
         h('input', { type: 'checkbox', checked: shown.includes(c), disabled: shown.length === 1 && shown[0] === c, 'data-autofocus': lastColToggle === key + ':' + c.id ? '' : null, onChange: () => { lastColToggle = key + ':' + c.id; setHidden(key, toggleHidden(all, hidden, c.id)); rec({}); } }), c.label))) : null);
 }
 function exportBar(key, header) {
-  const n = rowsOf(key).length, info = EXPORT_INFO[key] || 'the rows shown';
-  const btn = (kind) => h('button', { class: 'btn sm', type: 'button', title: (n ? 'Saves ' + n + (n === 1 ? ' row' : ' rows') : 'Saves only the column names') + ' as ' + kind.toUpperCase() + ', with the shown columns and your filters and sort. The file holds ' + info + '. It is made in this page and goes nowhere else.', onClick: () => exportTable(key, header, kind) },
+  const n = rowsOf(key).length, meta = TABLE_META[key] || {}, info = meta.info || 'the rows shown';
+  const btn = (kind) => h('button', { class: 'btn sm', type: 'button', title: (n ? 'Saves ' + n + (n === 1 ? ' row' : ' rows') : 'Saves only the column names') + ' as ' + kind.toUpperCase() + ', with the shown columns and your filters and sort. The file holds ' + info + '.' + (meta.warn ? ' ' + meta.warn : '') + ' It is made in this page and goes nowhere else.', onClick: () => exportTable(key, header, kind) },
     n ? 'Export ' + kind.toUpperCase() + ' (' + n + (n === 1 ? ' row' : ' rows') + ')' : 'Nothing to export (' + kind.toUpperCase() + ')');
-  return h('div', { class: 'xbar' }, btn('csv'), btn('json'), columnsMenu(key, header), h('span', { class: 'mut small xnote' }, 'File holds ' + info + '. It stays on this Mac.'));
+  return h('div', { class: 'xbar' }, btn('csv'), btn('json'), columnsMenu(key, header), h('span', { class: 'mut small xnote' }, 'File holds ' + info + '. ' + (meta.warn ? meta.warn + ' ' : '') + 'In the CSV, a cell starting with = + - or @ gets a leading \' so spreadsheets do not run it; the JSON is unchanged. The file is a copy: it stays on this Mac until you share it.'));
 }
 // Hidden columns and the row buttons are applied to the drawn table after each render, so every table gets
 // both from its sortHeader call and no page draws them itself.
@@ -510,23 +530,26 @@ function tracksOf(el) {
   }
   return cur ? out.concat(cur) : out;
 }
+const warned = new Set();
 function decorateTables() {
   for (const head of document.querySelectorAll('.tr.h[data-table]')) {
     const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');
+    const rows = [...sec.querySelectorAll(':scope > .tr:not(.h)')], slice = TABLES[key] ? TABLES[key].page : [];
+    for (const old of sec.querySelectorAll(':scope > .rowcopy-layer')) old.remove();
+    // Position decides which cell is hidden and which record a button copies, so a table that does not line up is left alone.
+    if (head.children.length !== ids.length || !tableAligned(ids.length, rows.map((r) => r.children.length), slice.length)) {
+      if (!warned.has(key)) { warned.add(key); console.warn('table "' + key + '": drawn rows do not match its data; column hiding and row copy are off'); }
+      continue;
+    }
     const shown = visibleCols(ids.map((id) => ({ id })), hiddenOf(key)).map((c) => c.id);
-    const rows = [...sec.querySelectorAll(':scope > .tr:not(.h)')];
     for (const r of [head, ...rows]) {
-      if (r.children.length !== ids.length) continue;
       const tracks = tracksOf(r);
       [...r.children].forEach((c, i) => { c.style.display = shown.includes(ids[i]) ? '' : 'none'; });
       r.style.gridTemplateColumns = tracks.filter((_, i) => shown.includes(ids[i])).join(' ');
     }
-    for (const old of sec.querySelectorAll(':scope > .rowcopy-layer')) old.remove();
     sec.classList.add('has-copy');
-    const slice = TABLES[key] ? TABLES[key].page : [];
-    const layer = h('div', { class: 'rowcopy-layer', style: 'width:' + sec.scrollWidth + 'px' }, rows.slice(0, slice.length).map((r, i) =>
-      h('button', { class: 'rowcopy', type: 'button', style: 'top:' + (r.offsetTop + Math.max(0, (r.offsetHeight - 24) / 2)) + 'px', title: 'Copy this row as JSON', 'aria-label': 'Copy row ' + (i + 1) + ' as JSON', onClick: () => copyRow(key, slice[i]) }, 'Copy')));
-    sec.append(layer);
+    sec.append(h('div', { class: 'rowcopy-layer', style: 'width:' + sec.scrollWidth + 'px' }, rows.map((r, i) =>
+      h('button', { class: 'rowcopy', type: 'button', style: 'top:' + (r.offsetTop + Math.max(0, (r.offsetHeight - 24) / 2)) + 'px', title: 'Copy this row as JSON', 'aria-label': 'Copy row ' + (i + 1) + ' as JSON', onClick: () => copyRow(key, slice[i]) }, 'Copy'))));
   }
 }
 let decoRaf = 0;
@@ -979,6 +1002,7 @@ function crumb() {
 }
 
 function render() {
+  pruneTables(TABLES, Object.keys(PAGE_SORTS[S.view] || {})); pruneTables(HEADERS, Object.keys(PAGE_SORTS[S.view] || {}));
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
   const newPers = S.pers.filter((i) => i.is_new).length;
