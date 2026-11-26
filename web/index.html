@@ -37,8 +37,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
 .nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
 .grow{flex:1 1 auto;min-width:0}
-.badge{font:500 11px/1.2 var(--font-mono);letter-spacing:.08em;min-width:22px;text-align:center;padding:2px 6px;background:var(--chip-n-bg);color:var(--chip-n-fg);border:1px solid color-mix(in srgb,var(--chip-n-fg) 35%,var(--chip-n-bg))}
-.badge.warn{background:var(--chip-warn-bg);color:var(--chip-warn-fg);border-color:color-mix(in srgb,var(--chip-warn-fg) 35%,var(--chip-warn-bg))}.badge.bad{background:var(--chip-bad-bg);color:var(--chip-bad-fg);border-color:color-mix(in srgb,var(--chip-bad-fg) 35%,var(--chip-bad-bg))}
+.badge{min-width:22px;text-align:center;padding:2px 6px}
 .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
 .top h1{margin:0;font-size:20px;font-weight:600}
 .search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
@@ -55,30 +54,30 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
    for; stated up front rather than left to be remembered when that first transition is added. */
 @media(prefers-reduced-motion:reduce){.tile,.spark,.spark *,.btn,.btn::before,.chip,.tag,.sel-btn{transition:none!important;animation:none!important}}
 /* The chamfer is a clip-path, which also clips borders and outlines. So the edge is the button's own
-   background and ::before paints the fill inset by --bw (hover and focus only change --edge and --bw).
-   --ci shortens the inner cut by bw*(2 - sqrt2) so both diagonals stay parallel. */
-.btn{--edge:var(--line);--fill:var(--panel2);--ink:var(--fg);--bw:1px;--ci:.59px;--cutpath:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut));position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 18px;border:0;background:var(--edge);color:var(--ink);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;text-align:center;clip-path:var(--cutpath)}
-.btn::before{content:"";position:absolute;inset:var(--bw);z-index:-1;background:var(--fill);clip-path:polygon(calc(var(--cut) - var(--ci)) 0,100% 0,100% calc(100% - var(--cut) + var(--ci)),calc(100% - var(--cut) + var(--ci)) 100%,0 100%,0 calc(var(--cut) - var(--ci)))}
-.btn:hover{--edge:var(--acc)}
-.btn:focus-visible{outline:none;--edge:var(--fg);--bw:3px;--ci:1.76px}
-.btn.btn-acc{--fill:var(--acc);--edge:var(--acc);--ink:var(--accfg)}
-.btn.btn-danger{--fill:var(--bad);--edge:var(--bad);--ink:var(--badfg)}
-.btn.btn-acc:hover,.btn.btn-danger:hover{--edge:var(--fg)}
-.btn.btn-danger.quiet{--fill:var(--panel);--edge:var(--bad);--ink:var(--bad)}
+   background and ::before paints the fill inset by --bw. Variants change only the rest-state --edge-rest;
+   hover and focus set --edge from a rule no variant overrides, so every variant shows them. */
+.btn{--edge-rest:var(--line);--edge:var(--edge-rest);--hover-edge:var(--acc);--focus-edge:var(--fg);--fill:var(--panel2);--ink:var(--fg);--bw:1px;--inner-trim:calc(var(--bw)*.586);position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 18px;border:0;background:var(--edge);color:var(--ink);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;text-align:center;clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+.btn::before{content:"";position:absolute;inset:var(--bw);z-index:-1;background:var(--fill);clip-path:polygon(calc(var(--cut) - var(--inner-trim)) 0,100% 0,100% calc(100% - var(--cut) + var(--inner-trim)),calc(100% - var(--cut) + var(--inner-trim)) 100%,0 100%,0 calc(var(--cut) - var(--inner-trim)))}
+.btn.btn-acc{--fill:var(--acc);--edge-rest:var(--acc);--hover-edge:var(--fg);--ink:var(--accfg)}
+.btn.btn-danger{--fill:var(--bad);--edge-rest:var(--bad);--hover-edge:var(--fg);--ink:var(--badfg)}
+.btn.btn-danger.quiet{--fill:var(--panel);--edge-rest:var(--bad);--hover-edge:var(--bad);--ink:var(--bad)}
 .btn.btn-danger.quiet:hover{--fill:var(--bad);--ink:var(--badfg)}
+.btn:hover{--edge:var(--hover-edge)}
+.btn:focus-visible{outline:none;--edge:var(--focus-edge);--bw:3px}
 .btn.sm{min-height:28px;padding:4px 12px;font-size:11px}
-.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{--edge:var(--line)}
+.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{--edge:var(--edge-rest)}
 /* Windows High Contrast and other forced-colors modes recolor backgrounds, so name the edge and fill explicitly. */
-@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge:ButtonText;--fill:ButtonFace;--ink:ButtonText}.btn:hover,.btn:focus-visible{--edge:Highlight}.btn[disabled]{--edge:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
+@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge-rest:ButtonText;--hover-edge:Highlight;--focus-edge:Highlight;--fill:ButtonFace;--ink:ButtonText}.btn.btn-danger.quiet:hover{--fill:ButtonFace;--ink:ButtonText}.btn[disabled],.btn.btn-acc[disabled],.btn.btn-danger[disabled],.btn.btn-danger.quiet[disabled]{--edge-rest:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
 .sec{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 8px;font-weight:500}
 .sev{width:9px;height:9px;flex:none;margin-top:5px}.sev.high{background:var(--bad)}.sev.medium{background:var(--warn)}.sev.low{background:var(--mut)}
 .item{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
 .item h3{margin:0 0 2px;font-size:14px;font-weight:600}.item p{margin:0;font-size:13px;color:var(--mut);line-height:1.45}
-/* Chips carry their meaning in the text as well as the color. */
-.tag{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;border:1px solid color-mix(in srgb,var(--chip-n-fg) 35%,var(--chip-n-bg));background:var(--chip-n-bg);color:var(--chip-n-fg);white-space:nowrap}
-.tag.ok{background:var(--chip-ok-bg);color:var(--chip-ok-fg);border-color:color-mix(in srgb,var(--chip-ok-fg) 35%,var(--chip-ok-bg))}
-.tag.warn{background:var(--chip-warn-bg);color:var(--chip-warn-fg);border-color:color-mix(in srgb,var(--chip-warn-fg) 35%,var(--chip-warn-bg))}
-.tag.bad{background:var(--chip-bad-bg);color:var(--chip-bad-fg);border-color:color-mix(in srgb,var(--chip-bad-fg) 35%,var(--chip-bad-bg))}
+/* Chips carry their meaning in the text as well as the color. One variant sets only --c-bg and --c-fg. */
+.tag,.badge{--c-bg:var(--chip-n-bg);--c-fg:var(--chip-n-fg);background:var(--c-bg);color:var(--c-fg);border:1px solid color-mix(in srgb,var(--c-fg) 35%,var(--c-bg));font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
+.tag{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;white-space:nowrap}
+.tag.ok{--c-bg:var(--chip-ok-bg);--c-fg:var(--chip-ok-fg)}
+.tag.warn,.badge.warn{--c-bg:var(--chip-warn-bg);--c-fg:var(--chip-warn-fg)}
+.tag.bad,.badge.bad{--c-bg:var(--chip-bad-bg);--c-fg:var(--chip-bad-fg)}
 .tbl{overflow-x:auto}
 .pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
 .sel{position:relative;display:inline-block}
@@ -325,18 +324,18 @@ function cards() {
   const add = (c) => { if (!S.muted.has(c.id)) out.push(c); };
   for (const x of f) {
     const G = grp(x.group);
-    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'pri', () => approve(G)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'debug-port' && G) add({ id: 'dbg:' + G.key, sev: 'high', title: G.label + ' has its debug port open', sub: x.detail, acts: [['Quit ' + G.label + '...', 'danger', () => askStop(G.label, G.procs.filter((p) => p.user !== 'root'))], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'unsigned-network' && G) add({ id: 'uns:' + G.key, sev: 'high', title: G.label + ' is unsigned and uses the network', sub: x.detail, acts: [['Details', 'pri', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'pri', () => rec({ view: 'apps', sel: G.key })], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
+    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'btn-acc', () => approve(G)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'debug-port' && G) add({ id: 'dbg:' + G.key, sev: 'high', title: G.label + ' has its debug port open', sub: x.detail, acts: [['Quit ' + G.label + '...', 'btn-danger quiet', () => askStop(G.label, G.procs.filter((p) => p.user !== 'root'))], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'unsigned-network' && G) add({ id: 'uns:' + G.key, sev: 'high', title: G.label + ' is unsigned and uses the network', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
   }
   const pending = g.filter((x) => status(x) === 'review');
-  if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'pri', () => rec({ view: 'apps', filter: 'review' })]] });
+  if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'btn-acc', () => rec({ view: 'apps', filter: 'review' })]] });
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
-  if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'pri', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
+  if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'btn-acc', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
-  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'pri', () => rec({ view: 'persist', q: '', pfilter: 'new' })]] });
+  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })]] });
   return out;
 }
 
