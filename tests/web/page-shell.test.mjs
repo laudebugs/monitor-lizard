@@ -9,22 +9,22 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
 const block = (name) => { const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/')); assert.ok(m, name + ' block not found in web/index.html'); return m[1]; };
 // page-shell reads TITLES, which the url-state block defines.
-const P = new Function(block('url-state') + block('page-shell') + '\nreturn { TITLES, NAV, NAV_GROUPS, countText, plural, navBadges, verdictTitle, relTime };')();
+const P = new Function(block('url-state') + block('page-shell') + '\nreturn { TITLES, NAV, NAV_GROUPS, countText, plural, navBadges, verdictTitle, relTime, countReview, titleReady, TITLE_NEEDS, relatedLinks, writeHash, parseHash };')();
 const X = new Function(block('export') + '\nreturn { exportNote, csvCell };')();
 
 test('every NAV entry has a group that is listed, and every group has an entry', () => {
-  for (const [id, , , group] of P.NAV) assert.ok(P.NAV_GROUPS.includes(group), id + ' has no known group: ' + group);
-  for (const g of P.NAV_GROUPS) assert.ok(P.NAV.some((n) => n[3] === g), 'empty group ' + g);
+  for (const { id, group } of P.NAV) assert.ok(P.NAV_GROUPS.includes(group), id + ' has no known group: ' + group);
+  for (const g of P.NAV_GROUPS) assert.ok(P.NAV.some((n) => n.group === g), 'empty group ' + g);
 });
 
 test('NAV ids are the pages the address knows, once each', () => {
-  const ids = P.NAV.map((n) => n[0]);
+  const ids = P.NAV.map((n) => n.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual([...ids].sort(), Object.keys(P.TITLES).sort());
 });
 
 test('sidebar groups hold the pages the design names, in order', () => {
-  const by = (g) => P.NAV.filter((n) => n[3] === g).map((n) => n[1]);
+  const by = (g) => P.NAV.filter((n) => n.group === g).map((n) => n.label);
   assert.deepEqual(by('Security'), ['Overview', 'Apps', 'Network', 'Listeners', 'Privilege', 'Persistence', 'History']);
   assert.deepEqual(by('Machine'), ['Performance']);
   assert.deepEqual(by('Help'), ['Guide']);
@@ -35,6 +35,9 @@ test('a count above 99 reads 99+', () => {
   assert.equal(P.countText(100), '99+');
   assert.equal(P.navBadges({ review: 250 }).apps.text, '99+');
   assert.equal(P.navBadges({ review: 250 }).apps.n, 250, 'the label keeps the real number');
+  assert.equal(P.navBadges({ review: 120 }).apps.label, '99+ apps need review, 120 in total', 'the name starts with what is shown');
+  assert.equal(P.navBadges({ review: 100 }).apps.label, '99+ apps need review, 100 in total');
+  assert.equal(P.navBadges({ review: 99 }).apps.label, '99 apps need review');
 });
 
 test('badges appear only for a positive count, with a label that names the number', () => {
@@ -81,7 +84,8 @@ test('an unknown page name gives an empty title, and never reaches Object.protot
 test('every page has a title, and the badges count the rows their link opens', () => {
   for (const v of Object.keys(P.TITLES)) assert.ok(P.verdictTitle(v, null).length > 0, v);
   assert.match(html, /const badgeHash = .*filter: 'review'.*'auth-result': 'failed'.*filter: 'new'/);
-  assert.match(html, /failed: S\.priv\.filter\(\(e\) => !e\.ok\)\.length/, 'the Privilege count is every failed request, as the Failed filter shows');
+  assert.match(html, /const failedAuth = \(\) => S\.priv\.filter\(\(e\) => !e\.ok\)\.length/, 'the Privilege count is every failed request, as the Failed filter shows');
+  assert.match(html, /failed: failedAuth\(\)/, 'the badge uses it');
 });
 
 test('relative time: short form for each span', () => {
@@ -104,7 +108,11 @@ test('relative time: a time in the future (clock skew) and missing values never 
 });
 
 test('the time cell keeps the absolute time in its title', () => {
-  assert.match(html, /const timeCell = .*title: new Date\(sec \* 1000\)\.toLocaleString\(\).*relTime\(sec, Date\.now\(\) \/ 1000\)/);
+  const fn = html.slice(html.indexOf('function timeCell'), html.indexOf('const crumbNodes'));
+  assert.match(fn, /h\('time'/);
+  assert.match(fn, /datetime: new Date\(sec \* 1000\)\.toISOString\(\), title: abs/);
+  assert.match(fn, /class: 'sr-only' \}, abs \+ ', ' \+ relTime\(sec, now, true\)/, 'a screen reader gets the exact time and the long relative text');
+  assert.match(fn, /'aria-hidden': 'true' \}, relTime\(sec, now\)/, 'the short text is not read twice');
 });
 
 test('export note: one short line, with the full text behind a button', () => {
@@ -138,18 +146,128 @@ test('every table the page draws has a descriptor the note can use', () => {
   for (const k of new Set(keys)) assert.match(meta, new RegExp('\\b' + k + ': \\{ file:'), k);
 });
 
-test('every page renderer returns the shell', () => {
-  for (const fn of ['overview', 'apps', 'priv', 'listeners', 'persistence', 'network', 'historyView', 'performanceView_', 'guide']) {
-    const start = html.indexOf('function ' + fn + '(');
-    assert.ok(start > 0, fn);
-    const next = html.indexOf('\nfunction ', start + 10), body = html.slice(start, next > 0 ? next : undefined);
-    assert.match(body, /pageShell\(/, fn + ' draws through pageShell');
-  }
-});
-
 test('the page title is not a static heading any more: the shell draws it', () => {
   const body = html.slice(html.indexOf('<body'), html.indexOf('<script', html.indexOf('<body')));
   assert.ok(!/<h1/.test(body));
   assert.match(body, /id="skip"/);
   assert.ok(body.indexOf('id="crumb"') < body.indexOf('id="q"'), 'breadcrumb comes before search in the focus order');
+});
+
+test('relative time, long form for a screen reader', () => {
+  const now = 1_000_000;
+  assert.equal(P.relTime(now - 300, now, true), '5 minutes ago');
+  assert.equal(P.relTime(now - 60, now, true), '1 minute ago');
+  assert.equal(P.relTime(now - 7200, now, true), '2 hours ago');
+  assert.equal(P.relTime(now - 86400, now, true), '1 day ago');
+  assert.equal(P.relTime(now - 5, now, true), 'just now');
+});
+
+// ---- one count of apps that need review
+test('the review count is one function over all groups, with or without connections', () => {
+  const statusOf = (g) => g.s;
+  const groups = [{ s: 'review', conns: [] }, { s: 'review', conns: [1] }, { s: 'idle', conns: [] }, { s: 'approved', conns: [] }];
+  assert.equal(P.countReview(groups, statusOf), 2);
+  assert.equal(P.countReview([], statusOf), 0);
+  const apps = html.slice(html.indexOf('function apps()'), html.indexOf('function drawer('));
+  assert.match(apps, /review: reviewCount\(\)/, 'the Apps title');
+  assert.match(html, /const badges = navBadges\(\{ review: reviewCount\(\)/, 'the badge');
+  assert.match(html, /const review = reviewCount\(\);/, 'the Overview tile');
+  assert.ok(!/count\('review'\)/.test(apps));
+});
+
+// ---- a title never says "nothing" before the data it counts has loaded
+test('every verdict title names the data it waits for, and waits for it', () => {
+  for (const v of ['overview', 'apps', 'priv', 'listeners', 'persist', 'network']) assert.ok(P.TITLE_NEEDS[v] && P.TITLE_NEEDS[v].length, v);
+  assert.deepEqual(P.TITLE_NEEDS.network, ['snap', 'hist'], 'new hosts need the host history');
+  assert.ok(!P.titleReady('network', { snap: true, hist: false }));
+  assert.ok(P.titleReady('network', { snap: true, hist: true }));
+  assert.ok(!P.titleReady('overview', { snap: true, priv: true, pers: false }));
+  assert.ok(!P.titleReady('priv', {}) && !P.titleReady('persist', null));
+  assert.ok(P.titleReady('history', {}), 'a page with no verdict has nothing to wait for');
+});
+
+test('the page sets each load flag when its data arrives', () => {
+  for (const [flag, loader] of [['privOk', 'loadPriv'], ['persOk', 'loadPers'], ['histOk', 'loadHist']]) {
+    const m = html.match(new RegExp('const ' + loader + ' = .*'));
+    assert.ok(m && m[0].includes(flag + ': true'), loader + ' sets ' + flag);
+  }
+  assert.match(html, /const verdict = \(view, facts\) => verdictTitle\(view, titleReady\(view, loadedNow\(\)\) \? facts : null\)/);
+  assert.match(html, /hist: S\.histOk/);
+});
+
+test('a page title is drawn through verdict(), never verdictTitle() with its own guard', () => {
+  const pages = html.slice(html.indexOf('function overview()'), html.indexOf('function perfOverviewTab_'));
+  for (const m of pages.matchAll(/title: (\w+)\('(\w+)'/g)) if (['overview', 'apps', 'priv', 'listeners', 'persist', 'network'].includes(m[2])) assert.equal(m[1], 'verdict', m[2]);
+});
+
+// ---- related links
+test('related links: only those that open rows, built by writeHash', () => {
+  const l = P.relatedLinks({ hosts: 3, sockets: 0, startup: 1, newHosts: 0 }, 'Google Chrome', '/Applications/Google Chrome.app');
+  assert.deepEqual(l.map((x) => x.text), ['3 remote hosts on Network', '1 startup item on Persistence']);
+  assert.equal(l[0].hash, P.writeHash({ view: 'network', q: 'Google Chrome' }));
+  assert.equal(P.parseHash(l[0].hash).view, 'network');
+  assert.equal(P.parseHash(l[0].hash).q, 'Google Chrome', 'the allow-listed search text carries the app');
+  assert.equal(P.parseHash(l[1].hash).q, '/Applications/Google Chrome.app');
+  assert.deepEqual(P.relatedLinks({ hosts: 0, sockets: 0, startup: 0, newHosts: 0 }, 'x', 'y'), []);
+  assert.deepEqual(P.relatedLinks(null, 'x', 'y'), []);
+  assert.equal(P.relatedLinks({ sockets: 1 }, 'x', 'y')[0].text, '1 listening socket on Listeners');
+});
+
+test('related link hashes survive odd names', () => {
+  for (const name of ['a&b=c', 'x#y', 'é ü', '?sort=a', 'a'.repeat(300)]) {
+    const l = P.relatedLinks({ hosts: 1 }, name, name)[0];
+    assert.equal(P.parseHash(l.hash).q, name);
+  }
+});
+
+// ---- counts in sentences go through plural()
+test('page subtitles never join a count to a literal noun by hand', () => {
+  const hand = (e) => /(?:\.length|\w)\s*\+\s*' [a-z]/.test(e.replace(/plural\([^)]*\)/g, ''));
+  const subs = [...html.matchAll(/subtitle: (.*?), (?:filters|body|inspector|actions):/g)].map((m) => m[1]);
+  assert.ok(subs.length >= 5);
+  for (const e of subs) assert.ok(!hand(e), e);
+  assert.ok(hand("g.length + ' apps, ' + n"), 'the check catches the old Overview subtitle');
+  assert.ok(!hand("plural(g.length, 'app', 'apps') + ' right now'"));
+});
+
+// ---- every return of every renderer is the shell
+const RENDERERS = ['overview', 'apps', 'priv', 'listeners', 'persistence', 'network', 'historyView', 'performanceView_', 'guide'];
+// The `return` statements in a function's own body (not in functions nested inside it), each with the text after it.
+function topReturns(src, name) {
+  const start = src.indexOf('function ' + name + '(');
+  if (start < 0) throw new Error('no function ' + name);
+  const text = src.slice(start).replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g, "''").replace(/\/\/.*$/gm, '');
+  let i = text.indexOf('{', text.indexOf(')')), depth = 0;
+  const out = [];
+  for (let j = i; j < text.length; j++) {
+    const ch = text[j];
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (!depth) break; }
+    else if (depth === 1 && text.startsWith('return', j) && /\W/.test(text[j - 1]) && /[\s(\[{]/.test(text[j + 6])) out.push(text.slice(j + 6, j + 40).trim());
+  }
+  return out;
+}
+const bad = (src) => RENDERERS.flatMap((n) => topReturns(src, n).filter((r) => !r.startsWith('pageShell(')).map((r) => n + ': ' + r));
+
+test('every return in every renderer is the shell', () => {
+  for (const n of RENDERERS) assert.ok(topReturns(html, n).length >= 1, n + ' has a return');
+  assert.equal(topReturns(html, 'guide').length, 5, 'the Guide has five return paths');
+  assert.deepEqual(bad(html), []);
+});
+
+test('mutation: one bare return in a copy of the page is caught', () => {
+  const i = html.indexOf('function guide()'), j = html.indexOf('return pageShell(', i);
+  const mutated = html.slice(0, j) + 'return [' + html.slice(j + 'return pageShell('.length);
+  assert.equal(bad(mutated).length, 1);
+  assert.match(bad(mutated)[0], /^guide: /);
+  const k = html.indexOf('return pageShell(', html.indexOf('function priv()')), mutated2 = html.slice(0, k) + 'return h(' + html.slice(k + 'return pageShell('.length);
+  assert.match(bad(mutated2)[0], /^priv: /);
+});
+
+test('performance puts its live toggle in the title actions', () => {
+  assert.match(html.slice(html.indexOf('function performanceView_'), html.indexOf('const SAFETY_TAG')), /actions: \[/);
+});
+
+test('the Overview tile says what it counts and links to the failed filter', () => {
+  assert.match(html, /tile\('Failed sudo', failed, 'sudo only, last 2 hours', \(\) => rec\(\{ view: 'priv', fil: Object\.assign\(\{\}, S\.fil, \{ 'auth-result': 'failed' \}\)/);
 });
