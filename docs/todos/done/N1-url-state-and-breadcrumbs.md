@@ -43,10 +43,10 @@ Make every view addressable: page, filters, search text, sort and selected item 
 
 ## Steps
 
-- [ ] Write the parse and write functions as pure functions with tests first.
-- [ ] Wire `rec()` and the initial load.
-- [ ] Add the breadcrumb to each page's header.
-- [ ] Open a selected-item link in a new tab and check it lands on the same item.
+- [x] Write the parse and write functions as pure functions with tests first.
+- [x] Wire `rec()` and the initial load.
+- [x] Add the breadcrumb to each page's header.
+- [x] Open a selected-item link in a new tab and check it lands on the same item.
 
 ## Edge cases (must be covered)
 
@@ -88,30 +88,45 @@ Plan status; `docs/agents/` page notes if present.
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record (2026-11-26)
 
-**Built.** `web/index.html` keeps the page, chip filter, search text, sort and selected app in `location.hash` as `#<page>?<key>=<value>&...`, and restores them on load and on `hashchange`. The pure functions `parseHash`, `writeHash`, `historyMode`, `hashStateOf`, `patchOf`, `syncHash` and `crumbParts` sit in one block marked `url-state:begin/end`; the key list is documented in that block's comment. `render()` ends by calling `syncHash`, so every path that changes state (`rec()`, polls, the search box) is covered. Page and selection changes push a history entry; filter, sort and search edits replace it. Each page has a breadcrumb (`Sys Monitor > Page > selected app`) made of links. A selected app that no longer exists is cleared with a toast. Hashes over 2 KB drop the selection, then the filters. The write token is never read into or written to the hash.
+**Built.** The dashboard keeps its state in `location.hash`, as `#<page>?<key>=<value>&...`. The state is the page, chip filter, dropdown filters, search text, sort and selected app. It is restored on load, on reload and on Back or Forward. The key list is documented in the header comment of the `url-state` block in `web/index.html`.
 
-**Tests.** `tests/web/url-state.test.mjs` (19 tests, `node --test`) covers every edge case in the table above except Back/Forward in a browser. The repo had no JavaScript test setup and no simulated-DOM harness (AGENTS.md mentions one, but none is in the tree), so this is the smallest fit: the test lifts the marked block out of the page and runs it with fake `location` and `history` objects, which keeps the page free of a build step and of exports. `make test` now runs it after `cargo test`; CI's macOS job gained a `setup-node` step for it.
+Page and selection changes push a history entry. Filter, sort and search edits replace it, so Back skips them. Each page shows a breadcrumb (`Sys Monitor > Page > selected app`) made of links.
 
-**Found in the browser.** The page defined a global `function history()` (the History view), which replaces `window.history`, so `pushState` was undefined and the first version never updated the address. The unit tests missed it because they pass a fake `history`. The view is now `historyView()` and a test fails if the page defines a global with that name again.
+An address is untrusted input. Every page, filter value, dropdown value, sort key, sort column and direction is checked against a fixed list, and lookups use own properties only, so names such as `__proto__` and `constructor` are ignored. Over 2 KB the hash drops the selection, then the filters, then the sort. A value that cannot be encoded is skipped on its own. The write token is never read into or written to the hash.
+
+**Tests.** `tests/web/url-state.test.mjs` has 31 tests run by `node --test`. They cover every edge case in the table above except Back and Forward in a browser. The repo had no JavaScript test setup, and the simulated DOM harness that AGENTS.md mentions is not in the tree. The test therefore lifts the marked block out of the page and runs it with fake `location` and `history` objects. This needs no build step or exports. `make test` runs it after `cargo test`, and CI's macOS job gained a `setup-node` step.
+
+**Found in review and the browser.**
+
+- The page defined a global `function history()` (the History view), which replaced `window.history`. The first version never updated the address. The view is now `historyView()`, and a test fails if a global with that name returns.
+- `#apps?sort=apps.__proto__.asc` blanked the page, because the sort column was looked up on `Object.prototype`. Columns are now validated per page, a test compares the list with the `sortHeader` calls, and `sortRows` uses an own-property check.
+- Dropdown filters were first left out of the hash. They are now in it, so a copied link shows the same rows.
 
 **Deviations.**
 
-- Dropdown filters (`S.fil`, such as the Apps label and signing filters) are not in the hash, because the todo lists a fixed key set. Only the Privilege "failed" result filter is, as `failed=1`. A shared link therefore does not carry those dropdowns.
-- `host`, `port` and `exposed` are read-only shortcuts that map onto the search text or the Listeners chip; the page never writes them. `failed` is read and written.
-- Row page numbers and page size are not in the hash.
-- The toast for a vanished selection is the existing toast, not a new notice element.
+- `host`, `port`, `exposed` and `failed` are read-only shortcuts. The page writes the canonical keys instead: the search text, the Listeners chip and `result`.
+- The keys `label`, `signing`, `proto` and `result` are additions to the todo's list, for the dropdown filters.
+- Page number and page size are not in the hash.
+- The notice for a vanished selection is the existing toast. It shows only when the selection came from the address, not when an app quits during polling.
+
+**Checked in a real browser** (Chrome, 2026-11-26, this branch's build on a spare port):
+
+- Overview, Apps, the Needs review chip, a column sort, a dropdown filter and a selected app gave one history entry for the page and one for the selection. The chip, sort and dropdown added none.
+- Back cleared the selection, Back again reached Overview, and Forward twice restored filter, dropdown, sort and selection.
+- A fresh document on the same URL showed the same rows and selection at 1000 px and at 400 px wide, in the light theme. At 400 px the breadcrumb fit without overflow.
+- The crash link above and its equivalents on Listeners, Persistence, Network, History and Privilege rendered each page with the bad sort ignored.
+- A URL naming an app that is not running opened Apps with no selection, the toast and a hash without `sel`.
 
 **Open.**
 
-- Checked in a real browser (Chrome, desktop window about 1350 px wide, dark theme, a build of this branch served on a spare port, 2026-11-26): from Overview, Apps, the Needs review chip, a column sort and a selected app gave the hash for Apps with filter, sort and sel; history grew by one entry for the page change and one for the selection, none for the chip or sort. Back went to the Apps list (selection cleared), Back again to Overview, and Forward twice restored the filter, sort and selection. A reload on the filtered, sorted, selected URL restored the same page, rows, sort and open inspector. A second new tab opened on the same URL showed the same rows and selection. A URL naming an app that is not running opened Apps with no selection, the toast, and `#apps` in the address bar. The breadcrumb showed `Sys Monitor > Apps > Claude` as links.
-- Not checked: phone width, light theme, a Back/Forward run through the other pages, middle-click or cmd-click on a crumb, and the host, port, exposed and failed shortcuts in the browser (covered by unit tests only).
-- A vanished selection is only noticed when a snapshot loads; a pasted hash change on an already-open page shows the notice at the next 10 s poll.
+- Not checked in a browser: Back and Forward through the other pages, cmd-click on a crumb, and the `host`, `port` and `exposed` shortcuts (unit tests only).
+- The history entry after a vanished selection is covered by unit tests only, because an iframe shares the tab's history count.
 - The Counts and Related links that point at hashes belong to the page redesign todos; only the format exists now.
-- `/code-review` and `/writing-review` are for the owner's session.
+- `/writing-review` is for the owner's session.
