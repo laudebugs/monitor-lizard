@@ -65,7 +65,7 @@ Show which apps wrote the most to disk in the last 24 hours, with an hourly trac
 ## Acceptance criteria
 
 - With the setting on for 24 hours the panel shows non-zero writes for at least the busiest app.
-- With the setting off, `~/.sys-monitor/` holds no per-app rows.
+- With the setting off, `~/.monitor-lizard/` holds no per-app rows.
 
 ## Tests
 

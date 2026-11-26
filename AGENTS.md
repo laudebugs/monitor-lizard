@@ -6,7 +6,7 @@ This file holds what every session needs. Detail lives in `docs/agents/`, one fi
 
 ## What this project is
 
-Sys Monitor (crate and binary `sys-monitor`) is a local-first macOS security monitor for one person's Mac. It groups every process and network socket by app, flags what is not yours, and can stop your own processes after a confirmation. The repo holds a Rust collector and server (`src/`), a single-file web dashboard (`web/index.html`), and the docs.
+Monitor Lizard (crate and binary `monitor-lizard`) is a local-first macOS security monitor for one person's Mac. It groups every process and network socket by app, flags what is not yours, and can stop your own processes after a confirmation. The repo holds a Rust collector and server (`src/`), a single-file web dashboard (`web/index.html`), and the docs.
 
 Decisions are recorded as ADRs (architecture decision records) in `docs/decisions/`. Do not assume a decision that is not written there.
 
@@ -38,7 +38,7 @@ scripts/                            repo tooling (todo board, doc-index check, w
 .github/                            workflows, dependabot, PR and issue templates
 ```
 
-Cargo.toml  Cargo.lock              Rust crate `sys-monitor` (ADR 0002)
+Cargo.toml  Cargo.lock              Rust crate `monitor-lizard` (ADR 0002)
 src/                                collectors, grouping, rules, history, actions, local server
 web/index.html                      the dashboard (vanilla JS, no build step, no remote assets)
 

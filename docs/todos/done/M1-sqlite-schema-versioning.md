@@ -57,7 +57,7 @@ Add a migration mechanism to `src/history.rs`, so later todos can change existin
 
 ## Acceptance criteria
 
-- Opening a pre-existing `~/.sys-monitor/history.sqlite` keeps every row and sets `user_version` to 1.
+- Opening a pre-existing `~/.monitor-lizard/history.sqlite` keeps every row and sets `user_version` to 1.
 
 ## Tests
 

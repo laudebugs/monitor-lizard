@@ -30,7 +30,7 @@ Scan a fixed list of locations on the boot volume, label each item `safe`, `revi
 - Local snapshots through `tmutil listlocalsnapshots /` (count and dates).
 - Size is allocated bytes (`st_blocks * 512`), never follows symlinks, never crosses devices, has a total time budget of 20 s and runs at low priority.
 - `GET /api/storage` returns the cached scan; `?fresh=1` starts a new one and returns the previous result with `scanning: true`.
-- A `sys-monitor storage` command that prints the same JSON.
+- A `monitor-lizard storage` command that prints the same JSON.
 
 **Out of scope** (name the todo that covers it):
 
@@ -68,7 +68,7 @@ Scan a fixed list of locations on the boot volume, label each item `safe`, `revi
 
 ## Acceptance criteria
 
-- `sys-monitor storage` prints valid JSON in under 20 s on a Mac with a 100 GB developer folder.
+- `monitor-lizard storage` prints valid JSON in under 20 s on a Mac with a 100 GB developer folder.
 - No item under a user-content folder is ever labelled `safe`.
 - The monitor's own CPU stays under 25% of one core during a scan.
 

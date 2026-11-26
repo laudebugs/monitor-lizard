@@ -78,7 +78,7 @@ fn dispatch_with(h: &History, mut cfg: Settings, findings: &[Finding], now: u64,
             Err(_) => continue,
         }
         let (title, body) = if cfg.generic_text {
-            ("Sys Monitor".to_string(), "A finding needs your attention. Open the dashboard for details.".to_string())
+            ("Monitor Lizard".to_string(), "A finding needs your attention. Open the dashboard for details.".to_string())
         } else {
             (f.group.clone(), f.detail.clone())
         };
@@ -86,7 +86,7 @@ fn dispatch_with(h: &History, mut cfg: Settings, findings: &[Finding], now: u64,
             Ok(()) => {
                 let _ = h.mark_notified(&id, now);
             }
-            Err(e) => eprintln!("sys-monitor: notification failed: {e}"),
+            Err(e) => eprintln!("monitor-lizard: notification failed: {e}"),
         }
     }
     None
@@ -138,7 +138,7 @@ mod tests {
     }
 
     fn tmp_history(name: &str) -> History {
-        let dir = std::env::temp_dir().join(format!("sysmon-notify-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("monlizard-notify-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         History::at(&dir.join("h.db")).unwrap()
     }
