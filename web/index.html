@@ -126,7 +126,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
@@ -176,7 +176,7 @@ function paginate(list, key) {
    S.sorts[key] = { col, dir }: no entry means the default order. S.fil[name] holds a dropdown filter's value. */
 const fv = (name) => S.fil[name] || 'all';
 const setFil = (name, v) => rec({ fil: Object.assign({}, S.fil, { [name]: v }), page: {} });
-const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', page: {} }); };
+const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', pfilter: 'all', page: {} }); };
 const clearBtn = () => h('button', { class: 'btn sm', onClick: clearFilters }, 'Clear filters');
 const isEmpty = (v) => v == null || v === '';
 // Stable sort; empty values go last in both directions; numbers compare as numbers, text ignores case.
@@ -254,6 +254,7 @@ async function load(fresh) {
 }
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
+const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
 const toast = (t) => rec({ toast: t });
 const mute = (id) => { S.muted.add(id); localStorage.setItem('sysmon-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -284,6 +285,7 @@ function cards() {
   if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'pri', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
+  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'pri', () => rec({ view: 'persist', q: '', pfilter: 'new' })]] });
   return out;
 }
 
@@ -412,16 +414,43 @@ function listeners() {
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.' + (missed > 0 ? ' ' + missed + ' more listening sockets belong to processes that exited before they could be read.' : ''))];
 }
 
-const SOON = { network: ['Network', 'Every outbound connection by host, with reverse DNS, owner and first-seen date per app.'], persist: ['Persistence', 'Launch agents, daemons, login items and cron jobs, diffed against your baseline.'], history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
+
+// Same three-way signing classification as sigKind(g), reused rather than re-derived: only the
+// leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
+// it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
+const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
+const trustTag = (i) => { const t = psig(i); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok' }, t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : '')); };
+function persistence() {
+  const q = S.q.toLowerCase(), f = S.pfilter;
+  const all = S.pers;
+  const inFilter = (i, id) => id === 'all' || (id === 'new' ? i.is_new : i.scope === id);
+  const list = all.filter((i) => inFilter(i, f) && (!q || i.label.toLowerCase().includes(q) || i.program.toLowerCase().includes(q)));
+  const shown = sortRows(list, 'pers', { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen });
+  const pg = paginate(shown, 'pers');
+  const chips = [['all', 'All'], ['new', 'New'], ['user', 'User'], ['system', 'System']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ pfilter: id, page: {} }) }, l + ' ', all.filter((i) => inFilter(i, id)).length));
+  const cols = 'grid-template-columns:minmax(0,1.3fr) 110px 70px minmax(0,1.6fr) 100px 100px';
+  const table = h('section', { class: 'card tbl', style: 'min-width:0' },
+    sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }], cols, 'ell'),
+    pg.slice.map((i) => h('div', { class: 'tr ell', style: cols },
+      h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
+      h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
+      h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
+      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()))),
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No items match the current filters. ' : 'No startup items found.'), all.length ? clearBtn() : null), pg.pager);
+  return [h('div', { class: 'filters' }, chips), table];
+}
+
+const SOON = { network: ['Network', 'Every outbound connection by host, with reverse DNS, owner and first-seen date per app.'], history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
-const FILTERABLE = ['apps', 'listeners'];
-const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners' };
+const FILTERABLE = ['apps', 'listeners', 'persist'];
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence' };
 
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
-  const badge = { apps: pending && [pending, 'warn'], priv: failed && [failed, 'bad'] };
+  const newPers = S.pers.filter((i) => i.is_new).length;
+  const badge = { apps: pending && [pending, 'warn'], priv: failed && [failed, 'bad'], persist: newPers && [newPers, 'warn'] };
   $('nav').replaceChildren(...NAV.map(([id, label]) => h('button', { class: 'nav ' + (S.view === id ? 'on' : ''), onClick: () => rec({ view: id }) },
     h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' }), h('span', { class: 'grow' }, label), badge[id] ? h('span', { class: 'badge ' + badge[id][1] }, badge[id][0]) : null)));
   // createElement has no SVG namespace; set the icon markup after the fact.
@@ -434,6 +463,7 @@ function render() {
   else if (S.view === 'apps') c.replaceChildren(...apps());
   else if (S.view === 'priv') c.replaceChildren(...priv());
   else if (S.view === 'listeners') c.replaceChildren(...listeners());
+  else if (S.view === 'persist') c.replaceChildren(...persistence());
   else c.replaceChildren(h('section', { class: 'card', style: 'padding:28px;max-width:620px' }, h('h2', { style: 'margin:0 0 8px;font-size:16px' }, SOON[S.view][0]), h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, SOON[S.view][1] + ' Coming in a later phase.')));
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
@@ -448,8 +478,8 @@ function render() {
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); render(); load(); loadPriv(); loadSudo();
-setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000);
+applyTheme(); render(); load(); loadPriv(); loadSudo(); loadPers();
+setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000);
 </script>
 </body>
 </html>
