@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `M1` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), risk 7 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
