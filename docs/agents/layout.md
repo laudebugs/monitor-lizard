@@ -15,6 +15,7 @@
 | `src/persistence.rs` | Read-only scan of launch agents, launch daemons and cron; `is_new` marks items first seen after the learning period |
 | `src/actions.rs`, `src/server.rs` | Guarded Stop/Quit and the loopback HTTP server |
 | `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token |
+| `web/fonts/` | IBM Plex Sans, bundled (three static weights, subsetted, WOFF2), embedded and served by `src/server.rs`; see `THIRD-PARTY-NOTICES.md` |
 
 ## One home per concept
 
