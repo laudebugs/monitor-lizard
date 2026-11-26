@@ -60,7 +60,7 @@ See [prior art](../research/prior-art/README.md): the Objective-See tools cover 
 | C2 | Expand truncated lists; resizable app detail panel | none |
 | A11 | Rename to system-monitor | none; do last, it touches every file |
 
-Not yet written (IDs A9, A17 to A19 are free): the feedback baseline ("mark as expected"), the menu-bar app, enrichment (reverse DNS and ASN: reverse DNS tells a resolver which IPs you look up, so it needs an opt-in), and optional Endpoint Security.
+Not yet written (IDs A9, A17 to A19 are free): the feedback baseline ("mark as expected"), the menu-bar app ([A17](../todos/ready/A17-tauri-menu-bar-shell.md), proposed in [ADR 0004](../decisions/0004-tauri-menu-bar-shell.md)), enrichment (reverse DNS and ASN: reverse DNS tells a resolver which IPs you look up, so it needs an opt-in), and optional Endpoint Security.
 
 ## 6. Risks and open questions
 
