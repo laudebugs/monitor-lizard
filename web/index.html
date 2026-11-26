@@ -1059,12 +1059,15 @@ function downsample(points, max) {
   for (let i = 0; i < max; i++) out.push(points[Math.floor((i + 1) * points.length / max) - 1]);
   return out;
 }
+// The one place a sample index and a value become an SVG coordinate, shared by every chart below
+// so a fixed-viewBox chart (see spark()'s comment on why it's fixed) always maps the same way.
+const chartXY = (n, w, max, hgt) => ({ x: (i) => (i * w / n).toFixed(1), y: (v) => (hgt - Math.min(v, max) / max * hgt).toFixed(1) });
 function sparkPath(values, max, w, hgt) {
   const pts = values.map((v, i) => [i, v]).filter(([, v]) => v != null);
   if (!pts.length) return null;
-  const n = values.length - 1 || 1;
-  const line = pts.map(([i, v], k) => (k ? 'L' : 'M') + (i * w / n).toFixed(1) + ' ' + (hgt - Math.min(v, max) / max * hgt).toFixed(1)).join(' ');
-  return { line, area: line + ' L ' + (pts[pts.length - 1][0] * w / n).toFixed(1) + ' ' + hgt + ' L ' + (pts[0][0] * w / n).toFixed(1) + ' ' + hgt + ' Z' };
+  const { x, y } = chartXY(values.length - 1 || 1, w, max, hgt);
+  const line = pts.map(([i, v], k) => (k ? 'L' : 'M') + x(i) + ' ' + y(v)).join(' ');
+  return { line, area: line + ' L ' + x(pts[pts.length - 1][0]) + ' ' + hgt + ' L ' + x(pts[0][0]) + ' ' + hgt + ' Z' };
 }
 // viewBox stays a fixed 200x46 regardless of the element's real rendered width (preserveAspectRatio
 // "none" stretches it to fill), so the path math doesn't need the live width perfWindowed() measures
@@ -1104,7 +1107,7 @@ function stackedArea(bottom, top, max, hgt) {
   for (let i = 0; i < bottom.length; i++) { const b = bottom[i], t = top[i]; if (b != null && t != null) pts.push([i, b, t]); }
   const svg = h('svg', { class: 'spark big', viewBox: '0 0 ' + w + ' ' + hgt, preserveAspectRatio: 'none', role: 'img' });
   if (!pts.length) return svg;
-  const n = bottom.length - 1 || 1, x = (i) => (i * w / n).toFixed(1), y = (v) => (hgt - Math.min(v, max) / max * hgt).toFixed(1);
+  const { x, y } = chartXY(bottom.length - 1 || 1, w, max, hgt);
   const base = pts.map(([i, b], k) => (k ? 'L' : 'M') + x(i) + ' ' + y(b)).join(' ');
   const topLine = pts.map(([i, , t], k) => (k ? 'L' : 'M') + x(i) + ' ' + y(t)).join(' ');
   const baseBack = pts.slice().reverse().map(([i, b]) => 'L' + x(i) + ' ' + y(b)).join(' ');
@@ -1118,6 +1121,8 @@ function stackedArea(bottom, top, max, hgt) {
 // Colors a per-core load bar the same three-tier way the design calls for everywhere load is shown:
 // quiet under 65%, a warning up to 85%, bad above it -- never a fourth color, so this stays one scale.
 const loadColor = (pct) => (pct > 85 ? 'var(--bad)' : pct > 65 ? 'var(--warn)' : 'var(--acc)');
+// A colored square plus its series name and current value, for the legend under a multi-line chart.
+const legendDot = (color, text) => h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:' + color + ';margin-right:4px' }), text);
 function coreBars(label, cores) {
   // A definite flex-basis, not just flex:1: without it this div shrinks to its content's min
   // width inside the wrapping flex row, and the bar's percentage width inside it resolves against
@@ -1129,8 +1134,8 @@ function coreBars(label, cores) {
         h('div', { class: 'bar', style: 'flex:1' }, h('i', { style: 'width:' + Math.min(pct, 100) + '%;background:' + loadColor(pct) })),
         h('span', { class: 'small', style: 'width:36px;text-align:right;flex:none' }, pct == null ? '-' : Math.round(pct) + '%')))));
 }
-// The tab's own tile grid, memory/disk/network kept as unavailable placeholders until B6/B7 build
-// them, so this page is honest about what each tab currently covers rather than hiding the gap.
+// Only the CPU and GPU tiles pass a `go` handler below: they're the only two with a detail tab to
+// open into. Memory, Disk and Network still show live data here, just not yet a place to click through to.
 function perfOverviewTab_(win, last, stale, winLabel) {
   const f1 = (v) => v.toFixed(1), f0 = (v) => Math.round(v);
   const cpu = perfSeries(win, (s) => s.cpu.total_pct), cpuLast = rv(last && last.cpu.total_pct);
@@ -1156,8 +1161,9 @@ function perfOverviewTab_(win, last, stale, winLabel) {
   ];
   return h('div', { class: 'tiles' }, tiles);
 }
-// The CPU and GPU detail tab: a user/system stacked area, the three load averages, per-core bars
-// split into efficiency and performance groups, and the three GPU utilization lines.
+// Broken into cards one level more detailed than the Overview tile each came from (a single % and
+// a thin sparkline there), since that's the level of detail someone clicking through for "why is my
+// CPU/GPU busy" actually needs: the user/system split, not just total; per-core, not just an average.
 function perfCpuGpuTab_(win, last, winLabel) {
   const f0 = (v) => Math.round(v);
   const userS = perfSeries(win, (s) => s.cpu.user_pct), sysS = perfSeries(win, (s) => s.cpu.system_pct);
@@ -1176,8 +1182,8 @@ function perfCpuGpuTab_(win, last, winLabel) {
       totalLast == null ? h('span', { class: 'mut small' }, rReason(last && last.cpu.total_pct)) : h('span', { class: 'v', style: 'font-size:20px' }, f0(totalLast) + '%')),
     totalLast == null ? null : stackedArea(userS, sysS, 100, 90),
     h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px' },
-      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--acc);margin-right:4px' }), 'User ' + (userLast == null ? '-' : f0(userLast) + '%')),
-      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--ok);margin-right:4px' }), 'System ' + (sysLast == null ? '-' : f0(sysLast) + '%'))));
+      legendDot('var(--acc)', 'User ' + (userLast == null ? '-' : f0(userLast) + '%')),
+      legendDot('var(--ok)', 'System ' + (sysLast == null ? '-' : f0(sysLast) + '%'))));
   const loadRow = h('div', { style: 'display:flex;gap:24px;margin-bottom:14px' }, [['1 min', 'load1'], ['5 min', 'load5'], ['15 min', 'load15']].map(([l, k]) => {
     const v = rv(last && last[k]);
     return h('div', {}, h('div', { class: 'mut small' }, l), h('div', { style: 'font-size:20px;font-weight:600' }, v == null ? '-' : v.toFixed(2)));
@@ -1198,9 +1204,9 @@ function perfCpuGpuTab_(win, last, winLabel) {
       { values: deviceS, color: 'var(--fg)' }, { values: rendererS, color: 'var(--acc)' }, { values: tilerS, color: 'var(--ok)' },
     ], 100, 90),
     deviceLast == null ? null : h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px;flex-wrap:wrap' },
-      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--fg);margin-right:4px' }), 'Device ' + f0(deviceLast) + '%'),
-      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--acc);margin-right:4px' }), 'Renderer ' + (rv(last.gpu.renderer_pct) == null ? '-' : f0(rv(last.gpu.renderer_pct)) + '%')),
-      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--ok);margin-right:4px' }), 'Tiler ' + (rv(last.gpu.tiler_pct) == null ? '-' : f0(rv(last.gpu.tiler_pct)) + '%'))),
+      legendDot('var(--fg)', 'Device ' + f0(deviceLast) + '%'),
+      legendDot('var(--acc)', 'Renderer ' + (rv(last.gpu.renderer_pct) == null ? '-' : f0(rv(last.gpu.renderer_pct)) + '%')),
+      legendDot('var(--ok)', 'Tiler ' + (rv(last.gpu.tiler_pct) == null ? '-' : f0(rv(last.gpu.tiler_pct)) + '%'))),
     h('p', { class: 'mut small', style: 'margin:10px 0 0' }, 'Per-core frequency, GPU power and per-process GPU use are not measured on this Mac.'));
   return [cpuCard, loadRow, coreCard, gpuCard];
 }
