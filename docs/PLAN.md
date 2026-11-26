@@ -28,7 +28,7 @@ Unverified: Lynis, Fleet/Kolide, Vallum, Radio Silence, Murus, commercial EDRs.
 
 ## Phases
 1. **Inventory (done)**: ps + proc_pidpath + lsof + codesign, grouping, rules, CLI, dashboard with approve.
-2. **History (done)**: SQLite first-seen remote host per app, flagged for approved apps (60s learning window, 1h flag window); background recorder every 10s.
+2. **History + actions (done)**: SQLite first-seen remote host per app, flagged for approved apps (60s learning window, 1h flag window); background recorder every 10s.
 3. **Baselines**: first-seen remote host per app; learning period; Trust / Ignore / Investigate inbox.
 4. **Enrichment**: reverse DNS, ASN/owner.
 5. **Persistence**: LaunchAgents/Daemons, login items, cron, profiles; diff vs baseline.
@@ -45,3 +45,6 @@ Unverified: Lynis, Fleet/Kolide, Vallum, Radio Silence, Murus, commercial EDRs.
 
 ## Principles
 Read-only, local-only (127.0.0.1, Host and Origin checks), no telemetry, every finding explainable in one line.
+
+## Actions (done)
+Stop/Quit send SIGTERM or SIGKILL via `/api/kill`. Guards: loopback Host and Origin checks, a random per-run token in `X-Ownwatch-Token` on every write, own-user processes only, never launchd or ownwatch itself, max 200 pids, and an audit row in `~/.ownwatch/history.db` (`actions` table). The UI hides Stop for root processes.

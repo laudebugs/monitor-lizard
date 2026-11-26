@@ -1,60 +1,251 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>ownwatch</title>
 <style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--mut:#6b7280;--line:#e5e7eb;--card:#f7f7f8;--hi:#dc2626;--med:#d97706;--low:#6b7280;--ok:#16a34a}
-@media(prefers-color-scheme:dark){:root{--bg:#0e0f11;--fg:#e8e8ea;--mut:#9aa0a6;--line:#26282c;--card:#16181b;--hi:#f87171;--med:#fbbf24;--low:#9aa0a6;--ok:#4ade80}}
-*{box-sizing:border-box}body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--fg)}
-header{display:flex;gap:24px;align-items:baseline;padding:16px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-h1{font-size:16px;margin:0}.stat b{font-size:18px;font-variant-numeric:tabular-nums}.stat span{color:var(--mut);margin-left:4px}
-main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;padding:24px;max-width:1400px;margin:auto}
-@media(max-width:900px){main{grid-template-columns:1fr}}
-h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:24px 0 8px}h2:first-child{margin-top:0}
-.row{display:grid;grid-template-columns:minmax(0,1fr) 70px 70px 160px 90px;gap:12px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer}
-.row.head{color:var(--mut);font-size:12px;cursor:default}.row:not(.head):hover{background:var(--card)}
-.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.num{font-variant-numeric:tabular-nums;text-align:right}
-.tag{font-size:11px;padding:1px 6px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}.tag.ok{color:var(--ok)}.tag.bad{color:var(--hi);border-color:var(--hi)}
-.detail{background:var(--card);padding:10px 14px;border-bottom:1px solid var(--line);font:12px/1.5 ui-monospace,monospace;overflow-x:auto}
-.detail div{white-space:nowrap}button{font:inherit;font-size:12px;padding:2px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
-.f{padding:8px 0;border-bottom:1px solid var(--line)}.f small{display:block;color:var(--mut)}
-.sev{font-weight:600;font-size:11px;text-transform:uppercase;margin-right:6px}.high{color:var(--hi)}.medium{color:var(--med)}.low{color:var(--low)}
-</style></head><body>
-<header><h1>ownwatch</h1><div id="totals"></div><span id="at" style="color:var(--mut);margin-left:auto"></span></header>
-<main><section id="groups"></section><aside><h2>Findings</h2><div id="findings"></div><h2>Privilege requests (last 2h)</h2><div id="privs"></div><h2>sudo / su launches (live capture)</h2><div id="sudos"></div></aside></main>
+/* Fonts: IBM Plex Mono if installed, else the system monospace. No remote font loading (local-first). */
+:root{--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--font:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.shell{display:flex;flex-wrap:wrap;min-height:100vh}
+.side{flex:1 1 220px;max-width:236px;min-width:200px;background:var(--panel);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:18px}
+.main{flex:999 1 560px;min-width:0;padding:20px 28px 60px;display:flex;flex-direction:column;gap:20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;padding:0 8px}
+.logo{width:18px;height:18px;border:2px solid var(--acc);position:relative}.logo:after{content:"";position:absolute;inset:3px;background:var(--acc)}
+.nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
+.nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
+.grow{flex:1 1 auto;min-width:0}
+.badge{font-size:11px;min-width:22px;text-align:center;padding:2px 6px;background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
+.badge.warn{color:var(--warn);border-color:var(--warn)}.badge.bad{color:var(--bad);border-color:var(--bad)}
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.top h1{margin:0;font-size:20px;font-weight:600}
+.search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
+.search::placeholder{color:var(--mut)}
+.card{background:var(--panel);border:1px solid var(--line)}
+.tile{display:flex;flex-direction:column;gap:4px;text-align:left;padding:14px 16px;background:var(--panel);border:1px solid var(--line)}
+.tile:hover{border-color:var(--acc)}.tile .v{font-size:28px;font-weight:600;line-height:1.1}.tile .l{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}.tile .s{font-size:12px;color:var(--mut)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:13px;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--acc)}.btn.pri{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
+.btn.danger{background:transparent;color:var(--bad);border-color:var(--bad)}.btn.danger:hover{background:var(--bad);color:var(--badfg)}
+.btn.solid{background:var(--bad);color:var(--badfg);border-color:var(--bad)}.btn.sm{height:28px;padding:0 10px;font-size:12px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{border-color:var(--line)}
+.sec{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 8px;font-weight:500}
+.sev{width:9px;height:9px;flex:none;margin-top:5px}.sev.high{background:var(--bad)}.sev.medium{background:var(--warn)}.sev.low{background:var(--mut)}
+.item{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
+.item h3{margin:0 0 2px;font-size:14px;font-weight:600}.item p{margin:0;font-size:13px;color:var(--mut);line-height:1.45}
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;font-size:12px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+.tag.ok{color:var(--ok);border-color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.tag.warn{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+.tag.bad{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+.tbl{overflow-x:auto}
+.tr{display:grid;grid-template-columns:minmax(150px,1.6fr) 64px 64px minmax(150px,1.4fr) minmax(140px,1.2fr) 100px;gap:12px;align-items:center;min-height:46px;padding:0 16px;width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
+.tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
+button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.chip{height:30px;padding:0 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:13px}.chip:hover{color:var(--fg)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
+.drawer{flex:1 1 380px;max-width:460px;min-width:320px}
+.kv{display:grid;grid-template-columns:90px 1fr;gap:6px 12px;font-size:13px;padding:14px 16px;margin:0;border-top:1px solid var(--line)}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-all}
+.pr{display:grid;grid-template-columns:62px minmax(0,1fr) 54px 64px 64px;gap:8px;align-items:center;min-height:42px;padding:0 16px;border-top:1px solid var(--line);font-size:13px}
+.bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
+.modal{width:480px;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+.modal h2{margin:0;font-size:17px}
+.code{font-size:12px;background:var(--bg);border:1px solid var(--line);padding:8px 10px;word-break:break-all}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:var(--panel2);border:1px solid var(--acc);padding:10px 12px 10px 16px;font-size:13px;z-index:11;max-width:calc(100% - 32px)}
+.mut{color:var(--mut)}.small{font-size:12px}
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="side" aria-label="Sections"><div class="brand"><span class="logo"></span><span>ownwatch</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
+<div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
+<main class="main">
+<header class="top"><h1 id="title">Overview</h1><div class="grow"></div><input id="q" class="search" type="search" placeholder="Search apps, ports" aria-label="Search apps and ports"></header>
+<div id="content"></div>
+</main>
+</div>
+<div id="layer"></div>
 <script>
-const $=id=>document.getElementById(id),open=new Set();
-const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a))x==='class'?e.className=v:x.startsWith('on')?e.addEventListener(x.slice(2),v):e.setAttribute(x,v);e.append(...k.flat().filter(c=>c!=null));return e};
-async function approve(key){await fetch('/api/approve?key='+encodeURIComponent(key),{method:'POST'});load()}
-function sig(g){const s=g.signing;if(!s)return h('span');return s.apple?h('span',{class:'tag ok'},'apple'):s.signed?h('span',{class:'tag ok'},'signed '+(s.team||'')):h('span',{class:'tag bad'},'unsigned')}
-function render(s){
- $('totals').replaceChildren(...Object.entries(s.totals).map(([k,v])=>h('span',{class:'stat'},h('b',{},v),h('span',{},k))));
- $('at').textContent='updated '+new Date(s.at*1000).toLocaleTimeString();
- const cats=Map.groupBy(s.groups,g=>g.category),root=$('groups');root.replaceChildren();
- for(const[cat,gs]of cats){
-  const busy=gs.filter(g=>g.conns.length),idle=gs.filter(g=>!g.conns.length);
-  root.append(h('h2',{},`${cat} · ${gs.length} groups · ${gs.reduce((n,g)=>n+g.procs.length,0)} procs`));
-  root.append(h('div',{class:'row head'},h('div',{},'Group'),h('div',{class:'num'},'Procs'),h('div',{class:'num'},'Out'),h('div',{},'Listening'),h('div',{},'Trust')));
-  for(const g of busy){
-   const out=g.conns.filter(c=>c.direction==='outbound'),lp=[...new Set(g.conns.filter(c=>c.direction==='listen').map(c=>c.local_port+(c.exposed?'*':'')))];
-   root.append(h('div',{class:'row',onclick:()=>{open.has(g.key)?open.delete(g.key):open.add(g.key);render(s)}},
-    h('div',{class:'name',title:g.key},g.label,g.approved?h('span',{class:'tag ok',style:'margin-left:8px'},'approved'):null),
-    h('div',{class:'num'},g.procs.length),h('div',{class:'num'},out.length),h('div',{class:'name'},lp.join(', ')||'-'),sig(g)));
-   if(open.has(g.key))root.append(h('div',{class:'detail'},
-    g.approved?null:h('button',{onclick:()=>approve(g.key)},'Approve this app'),
-    h('div',{},g.key),...g.conns.map(c=>h('div',{},`${c.direction.padEnd(8)} ${c.proto} ${c.local_addr}:${c.local_port}${c.remote_addr?' -> '+c.remote_addr+':'+c.remote_port:''} [${c.scope}${c.exposed?', EXPOSED':''}]`))));
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+const h = (tag, attrs = {}, ...kids) => {
+  const e = tag === 'svg' ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v); else e.setAttribute(k, v === true ? '' : v);
   }
-  if(idle.length)root.append(h('div',{class:'row head'},h('div',{class:'name'},`+ ${idle.length} groups with no sockets: ${idle.slice(0,10).map(g=>g.label).join(', ')}…`)));
- }
- $('findings').replaceChildren(...s.findings.map(f=>h('div',{class:'f'},h('span',{class:'sev '+f.severity},f.severity),h('b',{},f.group),h('small',{},f.detail))));
+  e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
+  return e;
+};
+const S = { view: 'overview', sel: null, filter: 'all', q: '', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
+const base = (p) => String(p).split('/').pop();
+const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
+const apple = (g) => !!(g.signing && g.signing.apple);
+const status = (g) => (g.approved ? 'approved' : apple(g) ? 'macOS' : net(g) ? 'review' : 'idle');
+const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
+const rec = (m) => { Object.assign(S, m); render(); };
+
+async function api(path, method = 'GET') {
+  const r = await fetch(path, { method, headers: { 'X-Ownwatch-Token': TOKEN } });
+  if (!r.ok) throw new Error(await r.text());
+  return r;
 }
-async function load(){try{render(await (await fetch('/api/snapshot')).json())}catch(e){$('at').textContent='error: '+e}}
-async function loadPriv(){try{const p=await (await fetch('/api/privilege')).json();
- $('privs').replaceChildren(...(p||[]).slice(0,30).map(e=>h('div',{class:'f'},h('span',{class:'sev '+(e.ok?'low':'medium')},e.ok?'ok':'failed'),h('b',{},e.client.split('/').pop()),
-  h('small',{},e.right+(e.error?' ('+e.error+')':'')+' · '+e.time.slice(11,19)),h('small',{},'parent: '+(e.parent||'(exited)')))));
- if(!(p&&p.length))$('privs').replaceChildren(h('small',{},'none yet'))}catch(e){}}
-async function loadSudo(){try{const p=await (await fetch('/api/sudo')).json();
- $('sudos').replaceChildren(...(p.length?p:[null]).map(e=>e?h('div',{class:'f'},h('b',{},e.tool.split('/').pop()+' '+e.args.replace(/^\S*sudo\s*/,'').slice(0,80)),
-  h('small',{},new Date(e.ts*1000).toLocaleTimeString()+' · pid '+e.pid),
-  h('small',{},'via '+e.chain.map(x=>(x.command||x.exe).split(' ')[0].split('/').pop()).join(' ← '))):h('small',{},'none captured yet')))}catch(e){}}
-load();loadPriv();loadSudo();setInterval(loadSudo,10000);setInterval(load,10000);setInterval(loadPriv,30000);
-</script></body></html>
+async function load(fresh) {
+  try { rec({ snap: await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json() }); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
+  catch (e) { $('live').textContent = 'offline: ' + e.message; }
+}
+const loadPriv = async () => { try { rec({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
+const loadSudo = async () => { try { rec({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
+const toast = (t) => rec({ toast: t });
+const mute = (id) => { S.muted.add(id); localStorage.setItem('ow-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
+async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
+async function stop(sig) {
+  const m = S.modal; rec({ modal: null });
+  try {
+    const o = await (await api('/api/kill?sig=' + sig + '&pids=' + m.pids.join(','), 'POST')).json();
+    toast('Sent SIG' + sig + ' to ' + o.sent.length + ' process(es) of ' + m.label + (o.refused.length ? '. Refused ' + o.refused.length + ': ' + o.refused[0].reason : '.'));
+    setTimeout(() => load(true), 700);
+  } catch (e) { toast('Stop failed: ' + e.message); }
+}
+const askStop = (label, procs) => rec({ modal: { label, pids: procs.map((p) => p.pid), count: procs.length } });
+
+function cards() {
+  const g = S.snap.groups, f = S.snap.findings, out = [];
+  const grp = (label) => g.find((x) => x.label === label);
+  const add = (c) => { if (!S.muted.has(c.id)) out.push(c); };
+  for (const x of f) {
+    const G = grp(x.group);
+    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'pri', () => approve(G)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'debug-port' && G) add({ id: 'dbg:' + G.key, sev: 'high', title: G.label + ' has its debug port open', sub: x.detail, acts: [['Quit ' + G.label + '...', 'danger', () => askStop(G.label, G.procs.filter((p) => p.user !== 'root'))], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'unsigned-network' && G) add({ id: 'uns:' + G.key, sev: 'high', title: G.label + ' is unsigned and uses the network', sub: x.detail, acts: [['Details', 'pri', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'pri', () => rec({ view: 'apps', sel: G.key })], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
+  }
+  const pending = g.filter((x) => status(x) === 'review');
+  if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'pri', () => rec({ view: 'apps', filter: 'review' })]] });
+  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'pri', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
+  const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
+  if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
+  return out;
+}
+
+function overview() {
+  const s = S.snap, g = s.groups, c = cards();
+  const review = g.filter((x) => status(x) === 'review').length;
+  const lan = g.reduce((n, x) => n + new Set(x.conns.filter((k) => k.exposed).map((k) => k.local_port)).size, 0);
+  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  const tile = (l, v, sub, go, col) => h('button', { class: 'tile', onClick: go }, h('span', { class: 'l' }, l), h('span', { class: 'v', style: col ? 'color:var(--' + col + ')' : '' }, v), h('span', { class: 's' }, sub));
+  const talk = g.filter((x) => x.conns.some((k) => k.direction === 'outbound')).map((x) => [x.label, x.conns.filter((k) => k.direction === 'outbound').length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const max = talk.length ? talk[0][1] : 1;
+  return [
+    h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px' },
+      tile('Needs review', review, 'apps not yet approved', () => rec({ view: 'apps', filter: 'review' }), review ? 'warn' : 'ok'),
+      tile('Open to LAN', lan, 'ports on all interfaces', () => rec({ view: 'apps' })),
+      tile('Failed sudo', failed, 'last 2 hours', () => rec({ view: 'priv' }), failed ? 'bad' : ''),
+      tile('Outbound', s.totals.outbound, 'sockets right now', () => rec({ view: 'apps' }))),
+    h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:20px' },
+      h('section', { style: 'flex:999 1 520px;min-width:0' }, h('h2', { class: 'sec' }, 'Needs your attention'),
+        h('div', { class: 'card' }, c.length ? c.map((x) => h('div', { class: 'item' }, h('span', { class: 'sev ' + x.sev, title: x.sev }),
+          h('div', { class: 'grow' }, h('h3', {}, x.title), h('p', {}, x.sub), h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' }, x.acts.filter(Boolean).map((a) => h('button', { class: 'btn sm ' + a[1], onClick: a[2] }, a[0])))),
+          h('span', { class: 'tag ' + ({ high: 'bad', medium: 'warn' }[x.sev] || ''), style: 'align-self:flex-start' }, x.sev))) : h('div', { class: 'item' }, h('p', {}, 'Nothing needs attention. Everything on this Mac is accounted for.')))),
+      h('section', { style: 'flex:1 1 300px;min-width:0' }, h('h2', { class: 'sec' }, 'Top talkers (outbound sockets)'),
+        h('div', { class: 'card', style: 'padding:6px 16px' }, talk.map((t) => h('div', { style: 'padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px' },
+          h('div', { style: 'display:flex;justify-content:space-between;font-size:13px' }, h('span', {}, t[0]), h('span', { class: 'mut' }, t[1])), h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round(t[1] / max * 100) + '%' }))))))),
+  ];
+}
+
+function apps() {
+  const q = S.q.toLowerCase();
+  const all = S.snap.groups.filter((g) => g.conns.length);
+  const list = all.filter((g) => (S.filter === 'all' || status(g) === S.filter) && (!q || g.label.toLowerCase().includes(q) || g.conns.some((c) => String(c.local_port).includes(q) || (c.remote_addr || '').includes(q))));
+  const count = (f) => all.filter((g) => f === 'all' || status(g) === f).length;
+  const chips = [['all', 'All'], ['review', 'Needs review'], ['approved', 'Approved'], ['macOS', 'macOS']].map(([id, l]) => h('button', { class: 'chip ' + (S.filter === id ? 'on' : ''), onClick: () => rec({ filter: id }) }, l + ' ', count(id)));
+  const listen = (g) => [...new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port + (c.exposed ? '*' : '')))].join(', ') || '-';
+  const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
+  const table = h('section', { class: 'card tbl', style: 'flex:999 1 560px;min-width:0' },
+    h('div', { class: 'tr h' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Trust'), h('span', {}, 'Status')),
+    list.map((g) => h('button', { class: 'tr ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
+      h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
+      h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))))),
+    list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match.')));
+  const g = S.snap.groups.find((x) => x.key === S.sel);
+  return [h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px' }, chips), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, g ? drawer(g, listen(g), sig(g)) : null)];
+}
+
+function drawer(g, listen, sig) {
+  const st = status(g), flags = S.snap.findings.filter((f) => f.group === g.label);
+  const mine = g.procs.filter((p) => p.user !== 'root');
+  const outs = g.conns.filter((c) => c.direction === 'outbound');
+  return h('aside', { class: 'drawer card', 'aria-label': 'App detail' },
+    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, g.key.replace(/^(apple|dev|other):/, ''))),
+      h('span', { class: 'tag ' + tagOf(st) }, st), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
+    h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
+      !g.approved && !apple(g) ? h('button', { class: 'btn pri sm', onClick: () => approve(g) }, 'Approve app') : null,
+      mine.length ? h('button', { class: 'btn danger sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
+      h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
+    flags.length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
+    h('dl', { class: 'kv' }, h('dt', {}, 'Signing'), h('dd', {}, sig), h('dt', {}, 'Listening'), h('dd', {}, listen), h('dt', {}, 'Outbound'), h('dd', {}, outs.length + ' sockets to ' + new Set(outs.map((c) => c.remote_addr)).size + ' hosts')),
+    h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),
+      g.procs.slice(0, 12).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
+        h('span', { class: 'num' }, p.cpu.toFixed(1) + '%'), h('span', { class: 'num' }, Math.round(p.rss_kb / 1024) + 'M'),
+        p.user === 'root' ? h('span', { class: 'tag', title: 'ownwatch never signals root processes' }, 'root') : h('button', { class: 'btn danger sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
+      g.procs.length > 12 ? h('div', { class: 'pr mut small' }, '+ ' + (g.procs.length - 12) + ' more') : null),
+    h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Connections (' + g.conns.length + ')')),
+      g.conns.slice(0, 20).map((c) => h('div', { class: 'pr', style: 'grid-template-columns:70px minmax(0,1fr) auto' }, h('span', { class: 'tag' }, c.direction), h('span', { class: 'small', style: 'word-break:break-all' }, c.proto + ' ' + c.local_addr + ':' + c.local_port + (c.remote_addr ? ' -> ' + c.remote_addr + ':' + c.remote_port : '')), h('span', { class: 'mut small' }, c.scope + (c.exposed ? ', EXPOSED' : '')))),
+      g.conns.length > 20 ? h('div', { class: 'pr mut small' }, '+ ' + (g.conns.length - 20) + ' more') : null));
+}
+
+function priv() {
+  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  const T = 'grid-template-columns:90px 70px minmax(180px,1.4fr) minmax(220px,2fr);min-width:640px';
+  return [
+    failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. If the requester shows "(exited)", it was gone before it could be read. The live capture below records new ones with their parent chain.')))) : null,
+    h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
+    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, h('div', { class: 'tr h', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px' }, h('span', {}, 'Time'), h('span', {}, 'Command'), h('span', {}, 'Requester chain')),
+      S.sudo.length ? S.sudo.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while ownwatch is serving shows up here.'))),
+    h('h2', { class: 'sec' }, 'Authorization requests (system log)'),
+    h('div', { class: 'card tbl' }, h('div', { class: 'tr h', style: T }, h('span', {}, 'Time'), h('span', {}, 'Result'), h('span', {}, 'Right'), h('span', {}, 'Requester')),
+      S.priv.slice(0, 60).map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)'))))),
+  ];
+}
+
+const SOON = { network: ['Network', 'Every outbound connection by host, with reverse DNS, owner and first-seen date per app.'], listeners: ['Listeners', 'Every open port, who owns it, and whether it is reachable from your network.'], persist: ['Persistence', 'Launch agents, daemons, login items and cron jobs, diffed against your baseline.'], history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
+const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests' };
+
+function render() {
+  const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
+  const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
+  const badge = { apps: pending && [pending, 'warn'], priv: failed && [failed, 'bad'] };
+  $('nav').replaceChildren(...NAV.map(([id, label]) => h('button', { class: 'nav ' + (S.view === id ? 'on' : ''), onClick: () => rec({ view: id }) },
+    h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' }), h('span', { class: 'grow' }, label), badge[id] ? h('span', { class: 'badge ' + badge[id][1] }, badge[id][0]) : null)));
+  // createElement has no SVG namespace; set the icon markup after the fact.
+  document.querySelectorAll('#nav svg').forEach((svg, i) => { svg.innerHTML = '<path d="' + NAV[i][2] + '" stroke-linecap="round" stroke-linejoin="round"/>'; });
+  $('title').textContent = TITLES[S.view] || (SOON[S.view] || [''])[0];
+  const c = $('content');
+  if (!S.snap) c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...'));
+  else if (S.view === 'overview') c.replaceChildren(...overview());
+  else if (S.view === 'apps') c.replaceChildren(...apps());
+  else if (S.view === 'priv') c.replaceChildren(...priv());
+  else c.replaceChildren(h('section', { class: 'card', style: 'padding:28px;max-width:620px' }, h('h2', { style: 'margin:0 0 8px;font-size:16px' }, SOON[S.view][0]), h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, SOON[S.view][1] + ' Coming in a later phase.')));
+  const m = S.modal, layer = [];
+  if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
+    h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
+    h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
+    h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
+    h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn danger', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn solid', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
+  if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
+  $('layer').replaceChildren(...layer);
+}
+$('q').addEventListener('input', (e) => { S.q = e.target.value; if (S.view !== 'apps' && S.q) S.view = 'apps'; render(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
+render(); load(); loadPriv(); loadSudo();
+setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000);
+</script>
+</body>
+</html>
