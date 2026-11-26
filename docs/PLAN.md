@@ -48,3 +48,23 @@ Read-only, local-only (127.0.0.1, Host and Origin checks), no telemetry, every f
 
 ## Actions (done)
 Stop/Quit send SIGTERM or SIGKILL via `/api/kill`. Guards: loopback Host and Origin checks, a random per-run token in `X-Ownwatch-Token` on every write, own-user processes only, never launchd or ownwatch itself, max 200 pids, and an audit row in `~/.ownwatch/history.db` (`actions` table). The UI hides Stop for root processes.
+
+## Local classifier (research, 2026-11-26; unverified items marked)
+**Principle:** rules decide the label, the model only explains and ranks suggested actions. It can escalate toward caution, never downgrade a rule-based "suspicious", and never acts on its own. Every action still goes through the confirm dialog.
+
+**Default:** Qwen3-4B Q4_K_M (Apache-2.0, 2.5 GB) run as a `llama-server` subprocess (crash isolation, unloads when killed) with a flat JSON schema / GBNF grammar. HF: Qwen/Qwen3-4B-GGUF.
+**Fallback (8 GB Macs):** Qwen3-1.7B (Apache-2.0, Q8 1.83 GB). Alternative: Phi-4-mini (MIT; card warns it hallucinates names/URLs). Avoid gated repos (Gemma) as a default.
+**Feedback memory:** bge-small-en-v1.5 (MIT, 33M params) embeddings for similarity to apps you marked expected/suspicious. Not a standalone classifier. DeBERTa zero-shot gives a label only, no rationale.
+**No security-specific small model worth shipping was found.** Accuracy on process metadata is unproven: build a labelled test set from your own machine before trusting it.
+
+**Safety:** pin the HF commit SHA, verify SHA-256 after download and at load, manifest ships in the binary. Accept only GGUF/safetensors/ONNX, never pickle. Run inference in a subprocess with no network. Cap disk at ~3 GB with a delete button. Hub contact only for the explicit download; support offline pre-seeding.
+**Prompt injection:** process names and command lines are attacker-controlled. Truncate to 256 chars, strip control characters, put them in quoted data fields only (never the system prompt), constrain output to an enum schema. Show rule evidence next to model text, label it "AI-generated, unverified".
+
+**Input features:** exe_path_class, signed, team_id, notarized, parent, listening_ports, remote_host_count, first_seen_age_h, persistence, rule_label, rules_fired, user_baseline.
+**Output (enforced):** `{label: benign|unknown|suspicious, confidence: low|medium|high, actions: [approve|ignore|investigate|quit|force_quit|block_network], rationale <= 240 chars}`; code overrides `label` with `rule_label` when the rule is stricter.
+
+**UI:** label chip + confidence band (not a percentage) in the Apps table, sortable by uncertainty. Attention cards: rule label, one AI rationale line, at most one suggested action. Drawer: evidence first, then rules fired, then the model's text; raw name/command shown in a code box. If rules and model disagree or confidence is low: "Unsure, investigate", no quit suggestion. Confirm dialog defaults focus to Cancel; force quit and block network need a second step. "Mark as expected / suspicious" writes a local baseline keyed by team ID and path, with export and reset. First-run card shows model, size, licence, commit and SHA-256, a progress bar, and "Skip, rules only" (fully functional).
+
+**Phases:** (a) rule-only labels + label column in UI; (b) `ownwatch model install` with pinned manifest and checksum; (c) llama-server integration + rationale; (d) feedback baseline + bge-small similarity.
+**Risks:** prompt injection; confident wording giving false safety; unproven accuracy; download supply chain; memory pressure on 8 GB Macs; llama-cpp-2 is pre-1.0 (another reason to prefer the subprocess).
+**Unverified:** RAM/latency on M-series, GGUF sizes for Phi-4-mini/Gemma/DeBERTa, GGUF parser CVEs, Ollama/LM Studio/MLX, mistralrs JSON-schema support, the Hub's SHA-256 field name.
