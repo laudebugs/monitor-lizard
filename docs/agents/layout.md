@@ -17,7 +17,7 @@
 | `src/sampler.rs` | 2 s background sampler (CPU, memory, network, load, GPU, disk), 1-hour ring buffer, served at `/api/metrics?since=` |
 | `src/iokit.rs` | Cached IOKit service handles for GPU utilization (`IOAccelerator`) and disk throughput/capacity (`IOBlockStorageDriver`, `statfs`), no process spawning |
 | `src/procusage.rs` | Per-process CPU, memory and disk I/O via `proc_pid_rusage` every 5 s, keyed by (pid, start time); `ps`-derived fallback for another user's processes; `/api/processes?sort=&limit=` |
-| `src/classify.rs` | `Action`, `allowed_actions(label, group)`, and the bounded `Evidence` record for one group -- what the classifier agent (A8) is allowed to suggest and see |
+| `src/classify.rs` | `Action`, `allowed_actions(label, group)`, and the bounded `Evidence` record for one group -- what the classifier agent (A8) is allowed to suggest and see; `validate_verdict(rule_label, allowed, verdict) -> Verdict` clamps A8's raw reply to never escalate below the rule label and never suggest an action outside `allowed` |
 | `src/settings.rs` | `~/.sys-monitor/settings.json`: notification level, quiet hours, generic text, seeded |
 | `src/notify.rs` | Deduplicated macOS notifications for high findings via `osascript`, off by default |
 | `src/llm.rs` | One blocking call to a local llama-server with a JSON-schema response format, parsed into a `Verdict`; clamping against the rules is A10 |

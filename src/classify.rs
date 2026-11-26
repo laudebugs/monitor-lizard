@@ -6,7 +6,7 @@
 //! This module's name sits next to `rules::classify`, which is a different thing: that one decides
 //! a group's trust *label* from its signals; this one decides what the label *allows*, and builds
 //! the evidence record, once a label already exists.
-use crate::{history::History, model::{Direction, Group, Label}, persistence, snapshot};
+use crate::{history::History, llm, model::{Direction, Group, Label}, persistence, snapshot};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -54,9 +54,59 @@ fn allowed_actions_for(label: Label, group: &Group, is_signalable: impl Fn(u32) 
 
 /// Cut to a prompt-safe length and strip control characters (a process can name itself almost
 /// anything), so one group's data can never blow out the token budget or inject raw control bytes.
-fn cap(s: &str) -> String {
+fn cap(s: &str) -> String { cap_len(s, 256) }
+
+fn cap_len(s: &str, n: usize) -> String {
     let clean: String = s.chars().filter(|c| !c.is_control()).collect();
-    clean.chars().take(256).collect()
+    clean.chars().take(n).collect()
+}
+
+// Same figure `llm.rs` already enforces on length alone; not imported from there (it's private),
+// and this module's own cap -- length and control characters both -- should hold regardless of
+// whatever partial cleaning a particular model or server did or didn't do upstream.
+const RATIONALE_MAX: usize = 240;
+
+/// The agent's suggestion once it has been checked against the rules: never the model's raw reply.
+/// Kept distinct from `llm::Verdict` (what the model actually said, still untrusted) on purpose --
+/// a value of this type can only come from `validate_verdict`, so nothing downstream can display or
+/// act on a verdict that skipped the checks below. Markup in `rationale` is left as plain text, not
+/// escaped: this module has no notion of a display surface, so escaping it here would be guessing
+/// at a format whatever shows it may not even use.
+// Not yet called outside its own tests: a type whose only constructor is a validating function is
+// meant to exist before anything is allowed to build one by hand.
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Verdict {
+    pub label: Label,
+    pub confidence: llm::Confidence,
+    pub actions: Vec<Action>,
+    pub rationale: String,
+}
+
+/// Turns a raw, untrusted reply (or the lack of one) into a `Verdict` that can never exceed what
+/// the rules already decided: `label` can only move toward `Suspicious` from `rule_label`, never
+/// away from it, and every action is first filtered to `allowed` -- the same list `allowed_actions`
+/// built from `rule_label`, passed in rather than recomputed here so this function stays pure and
+/// ignorant of how to reach a `Group`. A reply that failed to arrive or failed to parse
+/// (`Err(LlmError::Unavailable(_) | LlmError::Invalid(_))`) is treated as no suggestion at all: the
+/// rule label stands alone, actions fall back to whatever of `Investigate` the rules themselves
+/// already allow (never inserted if the rules didn't allow it, so this fallback can't be the one
+/// case that violates the "never outside `allowed`" guarantee either).
+#[allow(dead_code)] // not yet called outside its own tests below; see the note on Verdict above
+pub fn validate_verdict(rule_label: Label, allowed: &[Action], verdict: Result<llm::Verdict, llm::LlmError>) -> Verdict {
+    let Ok(raw) = verdict else {
+        let actions = if allowed.contains(&Action::Investigate) { vec![Action::Investigate] } else { vec![] };
+        return Verdict { label: rule_label, confidence: llm::Confidence::Low, actions, rationale: String::new() };
+    };
+    let label = rule_label.max(raw.label); // Label's declared order (Trusted < Unknown < Suspicious) is its severity order
+    // Order-preserving, not just adjacent-duplicate removal (Vec::dedup): the model's own reply
+    // order isn't something to rely on being free of repeats in any particular pattern.
+    let mut actions: Vec<Action> = Vec::new();
+    for a in raw.actions {
+        if allowed.contains(&a) && !actions.contains(&a) { actions.push(a); }
+    }
+    if actions.is_empty() && allowed.contains(&Action::Investigate) { actions.push(Action::Investigate); }
+    Verdict { label, confidence: raw.confidence, actions, rationale: cap_len(&raw.rationale, RATIONALE_MAX) }
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -132,6 +182,89 @@ mod tests {
     fn group(approved: bool, procs: Vec<Proc>, conns: Vec<Conn>) -> Group {
         Group { key: "k".into(), label: "X".into(), category: "Apps".into(), procs, conns,
                 signing: Some(Signing::default()), approved, trust: Label::Unknown, rules_fired: vec![] }
+    }
+
+    fn raw(label: Label, actions: Vec<Action>, rationale: &str) -> Result<llm::Verdict, llm::LlmError> {
+        Ok(llm::Verdict { label, confidence: llm::Confidence::High, actions, rationale: rationale.into() })
+    }
+
+    #[test]
+    fn model_says_trusted_for_a_suspicious_rule_label_is_clamped_to_suspicious() {
+        let v = validate_verdict(Label::Suspicious, &[Action::Investigate], raw(Label::Trusted, vec![Action::Investigate], "fine"));
+        assert_eq!(v.label, Label::Suspicious);
+    }
+
+    #[test]
+    fn model_says_suspicious_for_a_trusted_rule_label_is_kept_escalation_is_allowed() {
+        let v = validate_verdict(Label::Trusted, &[Action::Ignore], raw(Label::Suspicious, vec![Action::Ignore], "escalating"));
+        assert_eq!(v.label, Label::Suspicious);
+    }
+
+    #[test]
+    fn an_action_outside_the_allowed_set_is_dropped_and_investigate_fills_in_if_still_allowed() {
+        let allowed = [Action::Investigate, Action::Quit];
+        let v = validate_verdict(Label::Unknown, &allowed, raw(Label::Unknown, vec![Action::Approve, Action::ForceQuit], "x"));
+        assert_eq!(v.actions, vec![Action::Investigate], "both suggested actions were outside `allowed`; Investigate fills the gap because it IS allowed here");
+    }
+
+    #[test]
+    fn every_surviving_action_is_itself_one_of_the_allowed_actions() {
+        let allowed = [Action::Investigate, Action::Quit];
+        let v = validate_verdict(Label::Unknown, &allowed, raw(Label::Unknown, vec![Action::Approve, Action::Quit, Action::ForceQuit], "x"));
+        assert!(v.actions.iter().all(|a| allowed.contains(a)));
+        assert_eq!(v.actions, vec![Action::Quit]);
+    }
+
+    #[test]
+    fn no_allowed_action_survives_and_investigate_itself_is_not_allowed_actions_is_left_empty() {
+        // Trusted-and-approved only ever allows Ignore (see allowed_actions_for); Investigate is
+        // never in it, so the fallback must not insert an action the rules never allowed, even
+        // though the edge-case table's other rows show Investigate filling the gap when it IS allowed.
+        let allowed = [Action::Ignore];
+        let v = validate_verdict(Label::Trusted, &allowed, raw(Label::Trusted, vec![Action::Quit], "x"));
+        assert!(v.actions.is_empty());
+    }
+
+    #[test]
+    fn a_rationale_over_240_characters_or_with_control_characters_is_truncated_and_cleaned() {
+        let long = "a\nb\x07".to_string() + &"x".repeat(1000);
+        let v = validate_verdict(Label::Unknown, &[Action::Investigate], raw(Label::Unknown, vec![Action::Investigate], &long));
+        assert_eq!(v.rationale.chars().count(), 240);
+        assert!(!v.rationale.contains('\n') && !v.rationale.contains('\x07'));
+    }
+
+    #[test]
+    fn rationale_markup_is_left_as_plain_text_unescaped() {
+        let v = validate_verdict(Label::Unknown, &[Action::Investigate], raw(Label::Unknown, vec![Action::Investigate], "<script>alert(1)</script>"));
+        assert_eq!(v.rationale, "<script>alert(1)</script>");
+    }
+
+    #[test]
+    fn a8_unavailable_or_invalid_falls_back_to_the_rule_label_alone_with_investigate_as_the_sole_action() {
+        let allowed = [Action::Investigate, Action::Quit, Action::ForceQuit];
+        for err in [llm::LlmError::Unavailable("down".into()), llm::LlmError::Invalid("bad json".into()), llm::LlmError::Timeout] {
+            let v = validate_verdict(Label::Suspicious, &allowed, Err(err));
+            assert_eq!(v.label, Label::Suspicious);
+            assert_eq!(v.actions, vec![Action::Investigate]);
+            assert_eq!(v.rationale, "");
+        }
+    }
+
+    #[test]
+    fn a8_unavailable_with_investigate_not_allowed_leaves_actions_empty_not_a_disallowed_one() {
+        // Trusted-and-approved's allowed set is [Ignore] alone (see allowed_actions_for); this is
+        // the same "don't insert what wasn't allowed" guarantee as the Ok-but-filtered-empty case,
+        // exercised directly on the Err path rather than implied by it.
+        let v = validate_verdict(Label::Trusted, &[Action::Ignore], Err(llm::LlmError::Unavailable("down".into())));
+        assert_eq!(v.label, Label::Trusted);
+        assert!(v.actions.is_empty());
+    }
+
+    #[test]
+    fn duplicate_actions_from_the_model_are_not_duplicated_in_the_verdict() {
+        let allowed = [Action::Investigate, Action::Quit];
+        let v = validate_verdict(Label::Unknown, &allowed, raw(Label::Unknown, vec![Action::Quit, Action::Quit, Action::Investigate], "x"));
+        assert_eq!(v.actions, vec![Action::Quit, Action::Investigate]);
     }
 
     #[test]
