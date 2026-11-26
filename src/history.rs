@@ -1180,7 +1180,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let db = dir.join("h.db");
         let mut h = History::at(&db).unwrap();
-        h.record_persistence(&["/x"], 1).unwrap(); // a write, so the -wal exists
+        h.record_persistence(&[Observed { path: "/x", fingerprint: "f", schedule: "" }], &["/".into()], 1).unwrap(); // a write, so the -wal exists
         for suffix in ["", "-wal", "-shm"] {
             let p = PathBuf::from(format!("{}{suffix}", db.display()));
             assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600, "{}", p.display());
