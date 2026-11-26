@@ -7,7 +7,7 @@
 | `make check` | `check-docs` + `check-code` |
 | `make check-docs` | `scripts/check-todos.mjs` (board consistency), `scripts/check-doc-indexes.mjs` (every doc is indexed) |
 | `make check-code` | `cargo check --locked --all-targets` with warnings as errors. Clippy, duplication (`.jscpd.json` is ready: `npx jscpd .`) and size budgets are not wired yet |
-| `make test` | `cargo test --locked` (macOS only), then `node --test tests/web/*.test.mjs` for the dashboard's logic (URL hash state). Node 22 or newer. Use the glob: `node --test tests/web` (a directory) fails on Node 24. The tests lift a marked block out of `web/index.html` and do not cover layout |
+| `make test` | `cargo test --locked` (macOS only), then `node --test tests/web/*.test.mjs` for the dashboard's logic (URL hash state, table export). Node 22 or newer. Use the glob: `node --test tests/web` (a directory) fails on Node 24. The tests lift a marked block out of `web/index.html` and do not cover layout |
 | `make fmt` | `cargo fmt`. Not in `check`: see the 2026-11-26 note in `AGENTS.md` |
 | `make todos` | Prints the derived todo board |
 | `make doctor` | Verifies required tools are installed |
