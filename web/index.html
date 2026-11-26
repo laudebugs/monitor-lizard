@@ -637,14 +637,14 @@ function persistence() {
   const shown = sortRows(list, 'pers', { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen });
   const pg = paginate(shown, 'pers');
   const chips = [['all', 'All'], ['new', 'New'], ['user', 'User'], ['system', 'System']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ pfilter: id, page: {} }) }, l + ' ', all.filter((i) => inFilter(i, id)).length));
-  const cols = 'grid-template-columns:minmax(0,1.3fr) 110px 70px minmax(0,1.6fr) 100px 100px 120px';
+  const cols = 'grid-template-columns:minmax(0,1.3fr) 110px 70px minmax(0,1.6fr) 100px 100px 190px';
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }, { label: '' }], cols, 'ell'),
     pg.slice.map((i) => h('div', { class: 'tr ell', style: cols },
-      h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.expected ? expectedTag() : null, i.label),
+      h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
-      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', {}, markBtn('startup', i.path, i.label)))),
+      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn('startup', i.path, i.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No items match the current filters. ' : 'No startup items found.'), all.length ? clearBtn() : null), pg.pager);
   return [h('div', { class: 'filters' }, chips), table];
 }
@@ -678,13 +678,13 @@ function network() {
   const shown = sortRows(list, 'net', { app: (r) => r.g.label, remote: (r) => r.remote, scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen });
   const pg = paginate(shown, 'net');
   const chips = [['all', 'All'], ['public', 'Public'], ['lan', 'LAN'], ['new', 'New']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ nfilter: id, page: {} }) }, l + ' ', all.filter((r) => inFilter(r, id)).length));
-  const cols = 'grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1fr) 80px 90px 110px 120px';
+  const cols = 'grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1fr) 80px 90px 110px 190px';
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }, { label: '' }], cols, 'ell'),
     pg.slice.map((r) => h('div', { class: 'tr ell', style: cols },
-      h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'mut small', title: r.remote, style: 'display:flex;align-items:center;gap:6px' }, hostExpected(r) ? expectedTag() : null, r.remote),
+      h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'mut small', title: r.remote }, r.remote),
       h('span', { class: 'mut small' }, r.ports.join(', ')), h('span', {}, h('span', { class: 'tag' }, r.scope)),
-      h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'), h('span', {}, markBtn('host', netKey(r.g.key, r.remote), r.remote + ' for ' + r.g.label)))),
+      h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'), h('span', { style: 'display:flex;align-items:center;gap:6px' }, hostExpected(r) ? expectedTag() : null, markBtn('host', netKey(r.g.key, r.remote), r.remote + ' for ' + r.g.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No connections match the current filters. ' : 'No outbound connections right now.'), all.length ? clearBtn() : null), pg.pager);
   return [h('div', { class: 'filters' }, chips), table,
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')];

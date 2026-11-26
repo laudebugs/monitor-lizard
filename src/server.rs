@@ -105,8 +105,14 @@ pub fn serve(port: u16) {
                 }
             }
             (Method::Get, "/api/baseline") => json_resp(serde_json::json!({ "entries": baseline::load().entries(), "notice": baseline::notice() }).to_string()),
-            (Method::Post, "/api/approve") if write_ok => baseline_change(query, true),
-            (Method::Post, "/api/unapprove") if write_ok => baseline_change(query, false),
+            (Method::Post, "/api/approve" | "/api/unapprove") if write_ok => {
+                let res = baseline_change(query, path == "/api/approve");
+                // The startup-item list is cached for a minute; without this the row would keep its old state after the click.
+                if res.status_code().0 == 200 && query_param(query, "kind").as_deref() == Some("startup") {
+                    *pers.lock().unwrap() = Some(serde_json::to_string(&persistence::take()).unwrap_or_default());
+                }
+                res
+            }
             (Method::Post, "/api/kill") if write_ok => {
                 match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {
                     Ok((pids, sig)) => {
