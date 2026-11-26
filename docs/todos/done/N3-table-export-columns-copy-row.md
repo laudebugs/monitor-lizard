@@ -46,7 +46,7 @@ Give every table the same three tools: export what is on screen as CSV or JSON, 
 
 - [x] Write `toCsv` tests first, including formula and quote cases.
 - [x] Hook the toolbar into `sortHeader` so every table gets it without per-page code.
-- [ ] Check a download opens correctly in Numbers.
+- [x] Check the exported text parses correctly: inspect the Blob text in the browser and read generated CSV with Python's `csv` module (a download cannot be opened in Numbers from the browser sandbox).
 
 ## Edge cases (must be covered)
 
@@ -87,7 +87,7 @@ Plan status; README feature list.
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -96,9 +96,15 @@ Plan status; README feature list.
 
 2026-11-26.
 
-- **Built:** `sortHeader` now returns an export bar plus the header, so every table gets CSV and JSON export, a column chooser and a Copy button on each row. The pure functions sit in an `export` block that `tests/web/export.test.mjs` loads. Apps also has "Copy as JSON" in its inspector.
-- **How:** `paginate` records the filtered, sorted rows of each table. One `EXPORT` map holds the text each column exports. Hidden columns and the row buttons are applied to the drawn table after each render.
-- **Tests:** 19 logic tests, among them quotes, commas, newlines, formula starts, zero rows, all columns hidden, damaged stored choices, non-ASCII text and 50,000 rows. `make check` and `make test` pass.
-- **Browser (Chrome, macOS, 2026-11-26):** toolbar seen on Apps, Listeners and Network (dark and light); other tables only counted. A filtered, sorted Network export held all 70 rows in screen order. Column choice survived a reload. A name starting with `=` was written as `'=...`. Zero rows gave a header only. Copy fell back to a selected text box when the clipboard was refused. A 400 px frame scrolls the table sideways.
-- **Deviations:** the CSV has no byte order mark, so very old Excel may misread non-ASCII text. File names carry no product name (`network-2026-11-26.csv`). The "-" placeholder is exported as empty, since a leading "-" would become text. With zero rows both buttons read "Nothing to export" and still save a header-only file.
-- **Open:** opening a file in Numbers was not checked. Keyboard use of the column menu was not exercised in a browser. `/code-review` and `/writing-review` are pending.
+- **Built:** `sortHeader` returns an export bar plus the header, so every table gets CSV and JSON export, a column chooser and a Copy button on each row. Apps also has "Copy as JSON" in its inspector. The pure functions sit in an `export` block that `tests/web/export.test.mjs` loads.
+- **How:** `paginate` records the filtered, sorted rows of each table. One `EXPORT` map holds the text each column exports, and one `TABLE_META` holds file name, description and time columns. Hidden columns and Copy buttons are applied to the drawn table after each render, and only when its row and cell counts match its data.
+- **Review fixes:** a table that does not line up is skipped with one console warning. A "none" dash is exported empty. The note says a file stays on this Mac only until it is shared, explains the leading apostrophe, and warns that commands can hold secrets. Tables not on the current page are dropped from memory on each render. The column menu now takes keyboard focus when opened.
+- **Tests:** 26 Node logic tests for export (quotes, commas, newlines, formula starts, zero rows, all columns hidden, damaged storage, non-ASCII, 50,000 rows, alignment check, pruning, `__proto__` column). `make check` and `make test` pass.
+
+- **Browser (Chrome, macOS, 2026-11-26):** the toolbar was seen on Apps, Sudo, Authorization, Listeners, Persistence, Network, New hosts and Actions. A script compared drawn rows, cells and Copy buttons with the page rows on every table, normal and with the Apps inspector open; all matched. Sudo, New hosts and Actions had no stored data, so those three used rows injected into page memory. Copy on the first, fourth and last row of Apps, Listeners, Persistence and Network matched the row shown.
+- **Browser, other:** a filtered, sorted Network export held every row in screen order. The column choice survived a reload. Keyboard: Tab to Columns, Enter opens with focus on the first box, Space toggles, Escape closes and returns focus. Light theme and a 400 px frame were checked.
+- **Parsing check:** Python's `csv` module read a CSV made from fixtures and from 32 real startup items; every cell equalled the expected text, with the apostrophe guard applied.
+- **Deviations:** no byte order mark, so very old Excel may misread non-ASCII text. File names carry no product name. With zero rows both buttons read "Nothing to export" and still save a header-only file.
+- **Open:** opening a file in Numbers was not done. `/writing-review` is pending. `web/index.html` is now about 1,060 lines against the 800-line module budget (it was 852 on main).
+- **Open:** focus is lost on Copy and export buttons after each re-render; the page rebuilds the whole DOM on every poll, which was already so.
+- **Open:** column data still lives in three places that a column change must touch: the `sortHeader` call with `PAGE_SORTS`, the `EXPORT` line, and `TABLE_META.time` for a time column. Merging `EXPORT` into `TABLE_META` needs its alignment test reworked, so it is left as a follow-up.
