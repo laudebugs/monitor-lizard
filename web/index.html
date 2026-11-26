@@ -49,6 +49,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .tile.na{border-style:dashed}
 .tile.stale{opacity:.6}
 .spark{display:block;width:100%;height:46px;margin-top:auto}
+.spark.big{height:90px;margin-top:0}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 /* Nothing on this page animates today, but this page polls and redraws every 2s indefinitely, so
    any transition added here later is exactly the kind of persistent motion this media query exists
@@ -169,7 +170,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -1084,13 +1085,53 @@ function perfWindowed() {
   const w = document.querySelector('.spark')?.clientWidth || 200;
   return S.perfWin === '1h' ? downsample(win, Math.max(10, Math.round(w / 2))) : win;
 }
-// Trailing underscore: this view function would otherwise shadow the global window.performance.
-function performanceView_() {
-  const win = perfWindowed(), last = S.metrics[S.metrics.length - 1];
-  // No new sample in a while: distinct from Unavailable (a sample came back and said so) -- this is
-  // the opposite, no fresh sample to report on at all, so the tiles shown are old news.
-  const stale = !!last && (Date.now() / 1000 - last.ts) > 8;
-  const winLabel = S.perfWin === '1h' ? 'hour' : '5 min';
+// A plain line chart (no fill) for one or more series sharing one y-axis, taller than the tile
+// spark() so per-core bars and the stacked area below it have somewhere to sit; the viewBox stays
+// fixed and lets the svg stretch the same way spark() does, for the same reason (see spark()).
+function linesChart(series, max, hgt) {
+  const w = 600;
+  const svg = h('svg', { class: 'spark big', viewBox: '0 0 ' + w + ' ' + hgt, preserveAspectRatio: 'none', role: 'img' });
+  svg.innerHTML = series.map(({ values, color }) => {
+    const path = sparkPath(values, max || 1, w, hgt);
+    return path ? '<path d="' + path.line + '" fill="none" stroke="' + color + '" stroke-width="1.6" vector-effect="non-scaling-stroke"></path>' : '';
+  }).join('');
+  return svg;
+}
+// A two-layer stacked area (bottom, then bottom+top) for user/system CPU%: each layer keeps its
+// own running total rather than being drawn independently, so the visible top edge is the real sum.
+function stackedArea(bottom, top, max, hgt) {
+  const w = 600, pts = [];
+  for (let i = 0; i < bottom.length; i++) { const b = bottom[i], t = top[i]; if (b != null && t != null) pts.push([i, b, t]); }
+  const svg = h('svg', { class: 'spark big', viewBox: '0 0 ' + w + ' ' + hgt, preserveAspectRatio: 'none', role: 'img' });
+  if (!pts.length) return svg;
+  const n = bottom.length - 1 || 1, x = (i) => (i * w / n).toFixed(1), y = (v) => (hgt - Math.min(v, max) / max * hgt).toFixed(1);
+  const base = pts.map(([i, b], k) => (k ? 'L' : 'M') + x(i) + ' ' + y(b)).join(' ');
+  const topLine = pts.map(([i, , t], k) => (k ? 'L' : 'M') + x(i) + ' ' + y(t)).join(' ');
+  const baseBack = pts.slice().reverse().map(([i, b]) => 'L' + x(i) + ' ' + y(b)).join(' ');
+  const areaBottom = 'M' + x(pts[0][0]) + ' ' + hgt + ' ' + base.slice(2) + ' L' + x(pts[pts.length - 1][0]) + ' ' + hgt + ' Z';
+  const areaTop = topLine + ' ' + baseBack + ' Z';
+  svg.innerHTML = '<path d="' + areaBottom + '" fill="var(--acc)" fill-opacity="0.25"></path>' +
+    '<path d="' + areaTop + '" fill="var(--ok)" fill-opacity="0.25"></path>' +
+    '<path d="' + topLine + '" fill="none" stroke="var(--fg)" stroke-width="1.2" vector-effect="non-scaling-stroke"></path>';
+  return svg;
+}
+// Colors a per-core load bar the same three-tier way the design calls for everywhere load is shown:
+// quiet under 65%, a warning up to 85%, bad above it -- never a fourth color, so this stays one scale.
+const loadColor = (pct) => (pct > 85 ? 'var(--bad)' : pct > 65 ? 'var(--warn)' : 'var(--acc)');
+function coreBars(label, cores) {
+  // A definite flex-basis, not just flex:1: without it this div shrinks to its content's min
+  // width inside the wrapping flex row, and the bar's percentage width inside it resolves against
+  // that near-zero width instead of a real one (first hit by the bars rendering invisibly here).
+  return h('div', { style: 'flex:1 1 260px;min-width:220px' }, h('div', { class: 'small mut', style: 'margin-bottom:6px' }, label + ' (' + cores.length + ')'),
+    h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, cores.map(([idx, pct]) =>
+      h('div', { style: 'display:flex;align-items:center;gap:8px' },
+        h('span', { class: 'mut small', style: 'width:52px;flex:none' }, 'Core ' + idx),
+        h('div', { class: 'bar', style: 'flex:1' }, h('i', { style: 'width:' + Math.min(pct, 100) + '%;background:' + loadColor(pct) })),
+        h('span', { class: 'small', style: 'width:36px;text-align:right;flex:none' }, pct == null ? '-' : Math.round(pct) + '%')))));
+}
+// The tab's own tile grid, memory/disk/network kept as unavailable placeholders until B6/B7 build
+// them, so this page is honest about what each tab currently covers rather than hiding the gap.
+function perfOverviewTab_(win, last, stale, winLabel) {
   const f1 = (v) => v.toFixed(1), f0 = (v) => Math.round(v);
   const cpu = perfSeries(win, (s) => s.cpu.total_pct), cpuLast = rv(last && last.cpu.total_pct);
   const gpu = perfSeries(win, (s) => s.gpu.device_pct), gpuLast = rv(last && last.gpu.device_pct);
@@ -1101,25 +1142,84 @@ function performanceView_() {
   const memReason = () => { const m = last && last.memory; if (!m) return 'not sampled yet'; return rReason(rv(m.app_bytes) == null ? m.app_bytes : rv(m.wired_bytes) == null ? m.wired_bytes : m.compressed_bytes); };
   // Each tile passes its own reason thunk rather than being looked up by its label string, so
   // renaming a label can't silently break which reason it reports.
-  const tile = (label, values, lastVal, max, fmt, sub, aria, reason) => {
+  const tile = (label, values, lastVal, max, fmt, sub, aria, reason, go) => {
     if (lastVal == null) return h('div', { class: 'tile na' }, h('span', { class: 'l' }, label), h('span', { class: 'v mut' }, 'Unavailable'), h('span', { class: 's' }, reason()));
-    return h('div', { class: 'tile' + (stale ? ' stale' : '') }, h('span', { class: 'l' }, h('span', {}, label), stale ? h('span', { class: 'tag warn', title: 'No new sample in a while' }, 'stale') : null), h('span', { class: 'v' }, fmt(lastVal)), h('span', { class: 's' }, sub), spark(values, max, aria));
+    return h(go ? 'button' : 'div', { class: 'tile' + (stale ? ' stale' : ''), onClick: go }, h('span', { class: 'l' }, h('span', {}, label), stale ? h('span', { class: 'tag warn', title: 'No new sample in a while' }, 'stale') : null), h('span', { class: 'v' }, fmt(lastVal)), h('span', { class: 's' }, sub), spark(values, max, aria));
   };
   const tiles = [
-    tile('CPU', cpu, cpuLast, 100, (v) => f0(v) + '%', 'total, last ' + winLabel, 'CPU utilization, now ' + f0(cpuLast || 0) + '%', () => rReason(last && last.cpu.total_pct)),
-    tile('GPU', gpu, gpuLast, 100, (v) => f0(v) + '%', 'device utilization', 'GPU utilization, now ' + f0(gpuLast || 0) + '%', () => rReason(last && last.gpu.device_pct)),
+    tile('CPU', cpu, cpuLast, 100, (v) => f0(v) + '%', 'total, last ' + winLabel, 'CPU utilization, now ' + f0(cpuLast || 0) + '%', () => rReason(last && last.cpu.total_pct), () => rec({ perfTab: 'cpugpu' })),
+    tile('GPU', gpu, gpuLast, 100, (v) => f0(v) + '%', 'device utilization', 'GPU utilization, now ' + f0(gpuLast || 0) + '%', () => rReason(last && last.gpu.device_pct), () => rec({ perfTab: 'cpugpu' })),
     tile('Memory', memUsed, memLast, memTotal || 1, (v) => f1(v / 1e9) + ' GB', 'used' + (memTotal ? ' of ' + f1(memTotal / 1e9) + ' GB' : ''), 'Memory used, now ' + f1((memLast || 0) / 1e9) + ' gigabytes', memReason),
     tile('Disk', disk, diskLast, Math.max(1, ...disk.filter((v) => v != null), 1e6), (v) => f1(v / 1e6) + ' MB/s', 'read now', 'Disk read throughput, now ' + f1((diskLast || 0) / 1e6) + ' megabytes per second', () => rReason(last && last.disk.read_bytes_per_sec)),
     tile('Network', net, netLast, Math.max(1, ...net.filter((v) => v != null), 1e6), (v) => f1(v / 1e6) + ' MB/s', 'down now', 'Network download, now ' + f1((netLast || 0) / 1e6) + ' megabytes per second', () => rReason(last && last.network.down_bytes_per_sec)),
     h('div', { class: 'tile na' }, h('span', { class: 'l' }, h('span', {}, 'Power and thermals'), h('span', { class: 'tag' }, 'needs administrator')), h('span', { class: 'v mut' }, 'Unavailable'), h('span', { class: 's' }, 'powermetrics needs administrator rights on this Mac; never shown as 0 W.')),
   ];
+  return h('div', { class: 'tiles' }, tiles);
+}
+// The CPU and GPU detail tab: a user/system stacked area, the three load averages, per-core bars
+// split into efficiency and performance groups, and the three GPU utilization lines.
+function perfCpuGpuTab_(win, last, winLabel) {
+  const f0 = (v) => Math.round(v);
+  const userS = perfSeries(win, (s) => s.cpu.user_pct), sysS = perfSeries(win, (s) => s.cpu.system_pct);
+  const totalLast = rv(last && last.cpu.total_pct), userLast = rv(last && last.cpu.user_pct), sysLast = rv(last && last.cpu.system_pct);
+  const deviceS = perfSeries(win, (s) => s.gpu.device_pct), rendererS = perfSeries(win, (s) => s.gpu.renderer_pct), tilerS = perfSeries(win, (s) => s.gpu.tiler_pct);
+  const deviceLast = rv(last && last.gpu.device_pct);
+  const cores = rv(last && last.cpu.per_core_pct), effN = rv(last && last.cpu.eff_cores), perfN = rv(last && last.cpu.perf_cores);
+  // The counts come from hw.perflevel0/1 (confirmed on this Mac's IORegistry: logical CPU indices
+  // run efficiency cores first, then performance -- the same order Apple Silicon uses generally),
+  // so the split is by count, not a hardcoded 6+2; if the counts don't add up to the core list this
+  // Mac actually reported, cores are shown ungrouped rather than guessing a split that doesn't fit.
+  const grouped = cores != null && effN != null && perfN != null && effN + perfN === cores.length;
+  const cpuCard = h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px' },
+    h('div', { style: 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px' },
+      h('h3', { class: 'sec', style: 'margin:0' }, 'CPU: user + system'),
+      totalLast == null ? h('span', { class: 'mut small' }, rReason(last && last.cpu.total_pct)) : h('span', { class: 'v', style: 'font-size:20px' }, f0(totalLast) + '%')),
+    totalLast == null ? null : stackedArea(userS, sysS, 100, 90),
+    h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px' },
+      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--acc);margin-right:4px' }), 'User ' + (userLast == null ? '-' : f0(userLast) + '%')),
+      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--ok);margin-right:4px' }), 'System ' + (sysLast == null ? '-' : f0(sysLast) + '%'))));
+  const loadRow = h('div', { style: 'display:flex;gap:24px;margin-bottom:14px' }, [['1 min', 'load1'], ['5 min', 'load5'], ['15 min', 'load15']].map(([l, k]) => {
+    const v = rv(last && last[k]);
+    return h('div', {}, h('div', { class: 'mut small' }, l), h('div', { style: 'font-size:20px;font-weight:600' }, v == null ? '-' : v.toFixed(2)));
+  }));
+  const coreCard = h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px' },
+    h('h3', { class: 'sec', style: 'margin:0 0 4px' }, 'Per-core load'),
+    cores == null ? h('p', { class: 'mut small' }, rReason(last && last.cpu.per_core_pct)) :
+      grouped ? h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px' },
+          coreBars('Efficiency', cores.slice(0, effN).map((v, i) => [i, v])),
+          coreBars('Performance', cores.slice(effN).map((v, i) => [effN + i, v])))
+        : coreBars('All cores', cores.map((v, i) => [i, v])),
+    h('p', { class: 'mut small', style: 'margin:10px 0 0' }, grouped ? 'Grouping assumes efficiency cores are the first ' + effN + ' logical CPUs reported by the kernel, confirmed on this Mac’s IORegistry but not re-checked on every machine.' : 'Core counts from this Mac did not add up to a confirmed efficiency/performance split, so cores are shown in kernel index order.'));
+  const gpuCard = h('section', { class: 'card', style: 'padding:16px' },
+    h('div', { style: 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px' },
+      h('h3', { class: 'sec', style: 'margin:0' }, 'GPU'),
+      deviceLast == null ? h('span', { class: 'mut small' }, rReason(last && last.gpu.device_pct)) : h('span', { class: 'v', style: 'font-size:20px' }, f0(deviceLast) + '%')),
+    deviceLast == null ? null : linesChart([
+      { values: deviceS, color: 'var(--fg)' }, { values: rendererS, color: 'var(--acc)' }, { values: tilerS, color: 'var(--ok)' },
+    ], 100, 90),
+    deviceLast == null ? null : h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px;flex-wrap:wrap' },
+      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--fg);margin-right:4px' }), 'Device ' + f0(deviceLast) + '%'),
+      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--acc);margin-right:4px' }), 'Renderer ' + (rv(last.gpu.renderer_pct) == null ? '-' : f0(rv(last.gpu.renderer_pct)) + '%')),
+      h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:var(--ok);margin-right:4px' }), 'Tiler ' + (rv(last.gpu.tiler_pct) == null ? '-' : f0(rv(last.gpu.tiler_pct)) + '%'))),
+    h('p', { class: 'mut small', style: 'margin:10px 0 0' }, 'Per-core frequency, GPU power and per-process GPU use are not measured on this Mac.'));
+  return [cpuCard, loadRow, coreCard, gpuCard];
+}
+// Trailing underscore: this view function would otherwise shadow the global window.performance.
+function performanceView_() {
+  const win = perfWindowed(), last = S.metrics[S.metrics.length - 1];
+  // No new sample in a while: distinct from Unavailable (a sample came back and said so) -- this is
+  // the opposite, no fresh sample to report on at all, so the tiles shown are old news.
+  const stale = !!last && (Date.now() / 1000 - last.ts) > 8;
+  const winLabel = S.perfWin === '1h' ? 'hour' : '5 min';
+  const tabs = [['overview', 'Overview'], ['cpugpu', 'CPU and GPU']];
   return [
     h('div', { class: 'filters' },
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Performance tab' }, tabs.map(([id, l]) => h('button', { class: S.perfTab === id ? 'chip on' : 'chip', style: 'height:34px', onClick: () => rec({ perfTab: id }) }, l))),
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Time window' }, [['5m', 'Last 5 min'], ['1h', 'Last hour']].map(([v, l]) => h('button', { class: S.perfWin === v ? 'chip on' : 'chip', style: 'height:34px', onClick: () => rec({ perfWin: v }) }, l))),
       h('span', { class: 'grow' }),
       h('span', { class: 'small mut' }, last ? (S.perfLive ? 'live, every 2 s' : 'paused') : 'collecting the first sample...'),
       h('button', { class: 'btn sm', onClick: () => rec({ perfLive: !S.perfLive }) }, S.perfLive ? 'Pause' : 'Resume')),
-    h('div', { class: 'tiles' }, tiles),
+    S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : perfOverviewTab_(win, last, stale, winLabel),
   ];
 }
 
