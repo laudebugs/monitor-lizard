@@ -8,6 +8,11 @@ const LEARNING_SECS: u64 = 60;
 /// How long a first-seen host stays flagged.
 pub const FLAG_WINDOW_SECS: u64 = 3600;
 
+#[derive(serde::Serialize, Debug)]
+pub struct SeenRow { pub group_key: String, pub remote: String, pub first_seen: u64, pub last_seen: u64, pub hits: u64 }
+#[derive(serde::Serialize, Debug)]
+pub struct ActionRow { pub ts: u64, pub sig: String, pub sent: String, pub refused: String }
+
 pub struct History(Connection);
 
 fn path() -> PathBuf { PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".ownwatch/history.db") }
@@ -21,8 +26,34 @@ impl History {
             group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
             last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
             CREATE TABLE IF NOT EXISTS sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);")?;
         Ok(Self(c))
+    }
+
+    /// Upsert startup items; returns (path -> first_seen, earliest first_seen across all items).
+    pub fn record_persistence(&mut self, items: &[crate::persistence::Item], now: u64) -> rusqlite::Result<(std::collections::HashMap<String, u64>, u64)> {
+        let tx = self.0.transaction()?;
+        for it in items {
+            tx.execute("INSERT INTO persistence(path,first_seen,last_seen) VALUES(?1,?2,?2) ON CONFLICT(path) DO UPDATE SET last_seen=?2", params![it.path, now as i64])?;
+        }
+        tx.commit()?;
+        let mut st = self.0.prepare("SELECT path, first_seen FROM persistence")?;
+        let rows: Vec<(String, i64)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        let earliest = rows.iter().map(|r| r.1).min().unwrap_or(now as i64) as u64;
+        Ok((rows.into_iter().map(|(p, t)| (p, t as u64)).collect(), earliest))
+    }
+
+    pub fn seen_rows(&self, limit: usize) -> rusqlite::Result<Vec<SeenRow>> {
+        let mut st = self.0.prepare("SELECT group_key,remote,first_seen,last_seen,hits FROM seen ORDER BY first_seen DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(SeenRow { group_key: r.get(0)?, remote: r.get(1)?, first_seen: r.get::<_, i64>(2)? as u64, last_seen: r.get::<_, i64>(3)? as u64, hits: r.get::<_, i64>(4)? as u64 }))?;
+        rows.collect()
+    }
+
+    pub fn recent_actions(&self, limit: usize) -> rusqlite::Result<Vec<ActionRow>> {
+        let mut st = self.0.prepare("SELECT ts,sig,sent,refused FROM actions ORDER BY id DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(ActionRow { ts: r.get::<_, i64>(0)? as u64, sig: r.get(1)?, sent: r.get(2)?, refused: r.get(3)? }))?;
+        rows.collect()
     }
 
     /// Audit trail of every Stop/Quit the dashboard performed.

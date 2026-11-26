@@ -1,4 +1,4 @@
-use crate::{actions, baseline, history::History, privilege, snapshot, watcher};
+use crate::{actions, baseline, history::History, persistence, privilege, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -35,9 +35,10 @@ pub fn serve(port: u16) {
     println!("ownwatch -> http://{addr}");
     let secret = token();
     let page = PAGE.replace("__TOKEN__", &secret);
-    let (snap, privs): (Cache, Cache) = (Default::default(), Default::default());
+    let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
+    refresh(&pers, Duration::from_secs(60), persistence::take);
     thread::spawn(|| {
         let h = History::open().ok();
         watcher::watch(|e| { if let Some(h) = &h { let _ = h.record_sudo(&e); } })
@@ -59,6 +60,15 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/snapshot") if query == "fresh=1" => json_resp(serde_json::to_string(&snapshot::take()).unwrap_or_default()),
             (Method::Get, "/api/snapshot") => cached(&snap),
             (Method::Get, "/api/privilege") => cached(&privs),
+            (Method::Get, "/api/persistence") => cached(&pers),
+            (Method::Get, "/api/history") => {
+                let h = History::open();
+                let body = serde_json::json!({
+                    "seen": h.as_ref().ok().and_then(|h| h.seen_rows(2000).ok()).unwrap_or_default(),
+                    "actions": h.as_ref().ok().and_then(|h| h.recent_actions(200).ok()).unwrap_or_default(),
+                });
+                json_resp(body.to_string())
+            }
             (Method::Get, "/api/sudo") => json_resp(History::open().and_then(|h| h.recent_sudo(50)).map(|v| serde_json::to_string(&v).unwrap_or_default()).unwrap_or_else(|_| "[]".into())),
             (Method::Post, "/api/approve") => {
                 let key = query_param(query, "key").unwrap_or_default();
