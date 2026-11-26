@@ -48,8 +48,17 @@ pub enum Severity { High, Medium, Low }
 #[derive(Serialize, Debug)]
 pub struct Finding { pub severity: Severity, pub group: String, pub group_key: String, pub rule: &'static str, pub detail: String }
 
+impl Finding {
+    /// Stable across polls: the same group and rule is the same finding even when its detail text changes.
+    pub fn id(&self) -> String { format!("{}:{}", self.group_key, self.rule) }
+}
+
 #[derive(Serialize, Debug)]
 pub struct Totals { pub processes: usize, pub connections: usize, pub groups: usize, pub listening: usize, pub outbound: usize, pub findings: usize }
 
 #[derive(Serialize, Debug)]
-pub struct Snapshot { pub at: u64, pub groups: Vec<Group>, pub findings: Vec<Finding>, pub totals: Totals }
+pub struct Snapshot {
+    pub at: u64, pub groups: Vec<Group>, pub findings: Vec<Finding>, pub totals: Totals,
+    /// Findings the user marked as expected: still shown, but not counted, notified or used for labels.
+    pub expected_findings: Vec<Finding>,
+}

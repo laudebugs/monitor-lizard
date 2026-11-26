@@ -18,6 +18,9 @@ const FIFTEEN_MIN_RETENTION_SECS: u64 = 30 * 86400;
 
 #[derive(serde::Serialize, Debug)]
 pub struct SeenRow { pub group_key: String, pub remote: String, pub first_seen: u64, pub last_seen: u64, pub hits: u64 }
+/// One time the user marked or unmarked something as expected; `marked` is false for an unmark.
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct BaselineChangeRow { pub ts: u64, pub kind: String, pub key: String, pub marked: bool }
 #[derive(serde::Serialize, Debug)]
 pub struct ActionRow { pub ts: u64, pub sig: String, pub sent: String, pub refused: String }
 
@@ -51,6 +54,7 @@ impl History {
             CREATE TABLE IF NOT EXISTS persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS notified(finding_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS baseline_changes(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, marked INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS samples(res TEXT NOT NULL, metric TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL, PRIMARY KEY(res, metric, ts)) WITHOUT ROWID;")?;
         Ok(Self(c))
     }
@@ -91,6 +95,18 @@ impl History {
         self.0.execute("INSERT INTO actions(ts,sig,sent,refused) VALUES(?1,?2,?3,?4)",
             params![ts as i64, sig, format!("{sent:?}"), refused])?;
         Ok(())
+    }
+
+    /// Audit trail of every mark or unmark as expected. The actions table holds only pids, so it cannot say this.
+    pub fn record_baseline_change(&self, ts: u64, kind: &str, key: &str, marked: bool) -> rusqlite::Result<()> {
+        self.0.execute("INSERT INTO baseline_changes(ts,kind,key,marked) VALUES(?1,?2,?3,?4)", params![ts as i64, kind, key, marked])?;
+        Ok(())
+    }
+
+    pub fn recent_baseline_changes(&self, limit: usize) -> rusqlite::Result<Vec<BaselineChangeRow>> {
+        let mut st = self.0.prepare("SELECT ts,kind,key,marked FROM baseline_changes ORDER BY id DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(BaselineChangeRow { ts: r.get::<_, i64>(0)? as u64, kind: r.get(1)?, key: r.get(2)?, marked: r.get(3)? }))?;
+        rows.collect()
     }
 
     pub fn record_sudo(&self, e: &crate::watcher::SudoEvent) -> rusqlite::Result<()> {
@@ -340,6 +356,18 @@ mod tests {
         assert!(!h.notified_recently("other:rule", 1000 + 100, 86400).unwrap(), "a different finding is unaffected");
         h.mark_notified("k:rule", 1000 + 86400 + 1).unwrap(); // re-marking an existing row updates it, not errors
         assert!(h.notified_recently("k:rule", 1000 + 86400 + 50, 86400).unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn baseline_changes_are_recorded_newest_first_with_their_direction() {
+        let (h, dir) = tmp_history("baseline-changes");
+        h.record_baseline_change(10, "host", "k|1.2.3.4", true).unwrap();
+        h.record_baseline_change(20, "host", "k|1.2.3.4", false).unwrap();
+        let rows = h.recent_baseline_changes(10).unwrap();
+        assert_eq!(rows, vec![
+            BaselineChangeRow { ts: 20, kind: "host".into(), key: "k|1.2.3.4".into(), marked: false },
+            BaselineChangeRow { ts: 10, kind: "host".into(), key: "k|1.2.3.4".into(), marked: true }]);
         let _ = std::fs::remove_dir_all(dir);
     }
 

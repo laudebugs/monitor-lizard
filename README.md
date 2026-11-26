@@ -4,7 +4,7 @@ Local-first macOS monitor that groups every process and network socket by app an
 
     cargo run --release              # grouped snapshot + findings
     cargo run --release -- serve          # dashboard at http://127.0.0.1:4747 (Stop/Quit need the per-run token the page carries)
-    cargo run --release -- approve "/Applications/Notion.app"
+    cargo run --release -- approve "/Applications/Notion.app"   # also: host:<app key>|<address>, startup:<plist path>, finding:<app key>:<rule>
     cargo run --release -- json      # full snapshot as JSON
     cargo run --release -- privilege 60   # sudo/admin authorization requests, last 60 min
     cargo run --release -- watch          # live: catch every sudo/su launch with its parent chain
@@ -12,6 +12,8 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo test
 
 State (baseline and history) lives in `~/.monitor-lizard/`; a one-time migration copies whichever of `~/.sys-monitor/` or `~/.ownwatch/` is found, the first time it finds no new folder. Turning on the `metrics_history` setting adds downsampled CPU/memory history to that same `history.db` (1 minute resolution for 48 hours, 15 minutes for 30 days; never per-process) -- off by default. Measured by filling both tiers to their full retention (23,048 rows: 2880 one-minute buckets plus 2880 fifteen-minute buckets, 4 metric columns each) and checking the resulting file size directly: about 753 KB after `VACUUM` (812 KB before it). The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
+
+Marking an item as expected (the dashboard's "Mark expected" button, or `approve`) records it in `baseline.json` and in the history database, and stops it counting as new. A marked host or startup item keeps its row with an "expected" chip, and "Unmark" brings it back. The History page lists every mark and unmark.
 
 ## Commands
 

@@ -1,4 +1,4 @@
-use crate::{actions, baseline, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
+use crate::{actions, baseline::{self, Kind}, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -16,6 +16,7 @@ const MONO_SEMIBOLD: &[u8] = include_bytes!("../web/fonts/IBMPlexMono-SemiBold.w
 /// How many rows `/api/history` returns: newest first, enough for the History page.
 const SEEN_LIMIT: usize = 2000;
 const ACTION_LIMIT: usize = 200;
+const BASELINE_CHANGE_LIMIT: usize = 200;
 
 type Cache = Arc<Mutex<Option<String>>>;
 
@@ -89,8 +90,8 @@ pub fn serve(port: u16) {
                 let rows = processes.read().map(|r| r.clone()).unwrap_or_default();
                 json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
             }
-            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?))) {
-                Ok((seen, actions)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions }).to_string()),
+            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?))) {
+                Ok((seen, actions, baseline_changes)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes }).to_string()),
                 // An unreadable database must not look like "no history".
                 Err(e) => Response::from_string(format!("history unavailable: {e}")).with_status_code(500).boxed(),
             }
@@ -103,10 +104,9 @@ pub fn serve(port: u16) {
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
             }
-            (Method::Post, "/api/approve") => {
-                let key = query_param(query, "key").unwrap_or_default();
-                if write_ok && !key.is_empty() && baseline::approve(&key).is_ok() { Response::from_string("ok").boxed() } else { forbidden() }
-            }
+            (Method::Get, "/api/baseline") => json_resp(serde_json::json!({ "entries": baseline::load().entries(), "notice": baseline::notice() }).to_string()),
+            (Method::Post, "/api/approve") if write_ok => baseline_change(query, true),
+            (Method::Post, "/api/unapprove") if write_ok => baseline_change(query, false),
             (Method::Post, "/api/kill") if write_ok => {
                 match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {
                     Ok((pids, sig)) => {
@@ -131,6 +131,19 @@ pub fn serve(port: u16) {
             _ => Response::from_string("not found").with_status_code(404).boxed(),
         };
         let _ = req.respond(res);
+    }
+}
+
+/// Marks or unmarks one item: `kind` is `app` (the default, as before kinds existed), `host`, `startup` or `finding`.
+fn baseline_change(query: &str, mark: bool) -> tiny_http::ResponseBox {
+    let bad = |msg: String| Response::from_string(msg).with_status_code(400).boxed();
+    let kind_name = query_param(query, "kind").unwrap_or_else(|| "app".into());
+    let Some(kind) = Kind::parse(&kind_name) else { return bad(format!("unknown kind {kind_name:?}: use app, host, startup or finding")) };
+    let key = query_param(query, "key").unwrap_or_default();
+    if let Err(e) = baseline::validate(kind, &key) { return bad(e); }
+    match baseline::change(kind, &key, mark) {
+        Ok(_) => Response::from_string("ok").boxed(),
+        Err(e) => Response::from_string(e).with_status_code(500).boxed(),
     }
 }
 

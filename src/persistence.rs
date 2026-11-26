@@ -1,6 +1,6 @@
 //! Startup items: launch agents/daemons and cron. Read-only. A new item appearing after the first scan
 //! is the classic sign of something installing itself, so we remember first-seen times.
-use crate::{collect, history::{History, LEARNING_SECS}, model::Signing};
+use crate::{baseline::{self, Kind}, collect, history::{History, LEARNING_SECS}, model::Signing};
 use serde::Serialize;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,6 +11,8 @@ const NEW_WINDOW_SECS: u64 = 7 * 24 * 3600;
 pub struct Item {
     pub path: String, pub scope: &'static str, pub kind: &'static str, pub label: String, pub program: String,
     pub run_at_load: bool, pub keep_alive: bool, pub signing: Option<Signing>, pub first_seen: u64, pub is_new: bool,
+    /// The user marked this startup item as expected; it is then never `is_new`.
+    pub expected: bool,
 }
 
 pub fn item_from_json(path: &str, scope: &'static str, kind: &'static str, v: &serde_json::Value) -> Item {
@@ -18,7 +20,7 @@ pub fn item_from_json(path: &str, scope: &'static str, kind: &'static str, v: &s
     let keep_alive = match &v["KeepAlive"] { serde_json::Value::Bool(b) => *b, serde_json::Value::Object(_) => true, _ => false };
     Item {
         path: path.into(), scope, kind, label: v["Label"].as_str().unwrap_or(path.rsplit('/').next().unwrap_or(path)).into(),
-        program, run_at_load: v["RunAtLoad"].as_bool().unwrap_or(false), keep_alive, signing: None, first_seen: 0, is_new: false,
+        program, run_at_load: v["RunAtLoad"].as_bool().unwrap_or(false), keep_alive, signing: None, first_seen: 0, is_new: false, expected: false,
     }
 }
 
@@ -30,7 +32,7 @@ pub fn item_from_cron(line: &str) -> Option<Item> {
               else { l.split_whitespace().skip(5).collect::<Vec<_>>().join(" ") };
     if cmd.is_empty() { return None; }
     Some(Item { path: format!("crontab:{l}"), scope: "user", kind: "cron", label: cmd.chars().take(80).collect(), program: first_word(&cmd),
-        run_at_load: l.starts_with("@reboot"), keep_alive: false, signing: None, first_seen: 0, is_new: false })
+        run_at_load: l.starts_with("@reboot"), keep_alive: false, signing: None, first_seen: 0, is_new: false, expected: false })
 }
 
 /// The program of a cron command: a quoted path may contain spaces, otherwise the first word.
@@ -79,6 +81,7 @@ pub fn take() -> Vec<Item> {
         }
     });
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let base = baseline::load();
     let recorded = History::open().and_then(|mut h| {
         let paths: Vec<&str> = items.iter().map(|i| i.path.as_str()).collect();
         h.record_persistence(&paths, now)
@@ -86,12 +89,13 @@ pub fn take() -> Vec<Item> {
     match recorded {
         Ok((first, earliest)) => for it in &mut items {
             it.first_seen = first.get(&it.path).copied().unwrap_or(now);
-            it.is_new = is_new(it.first_seen, earliest, now);
+            it.expected = base.has(Kind::Startup, &it.path);
+            it.is_new = is_new(it.first_seen, earliest, now) && !it.expected;
         },
         // Fail loudly: without history nothing can be called new, and silence would look like "all clear".
         Err(e) => {
             eprintln!("monitor-lizard: could not record startup items, so none can be marked new: {e}");
-            for it in &mut items { it.first_seen = now; }
+            for it in &mut items { it.first_seen = now; it.expected = base.has(Kind::Startup, &it.path); }
         }
     }
     items.sort_by(|a, b| b.is_new.cmp(&a.is_new).then(a.scope.cmp(b.scope)).then(a.label.cmp(&b.label)));
