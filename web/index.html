@@ -126,7 +126,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
@@ -255,7 +255,7 @@ async function load(fresh) {
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
-const loadHist = async () => { try { quiet({ seen: ((await (await api('/api/history')).json()) || {}).seen || [] }); } catch (e) {} };
+const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [] }); } catch (e) {} };
 const toast = (t) => rec({ toast: t });
 const mute = (id) => { S.muted.add(id); localStorage.setItem('sysmon-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -481,11 +481,43 @@ function network() {
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')];
 }
 
-const SOON = { history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
+
+const labelOf = (key) => { const g = S.snap && S.snap.groups.find((x) => x.key === key); return g ? g.label : base(key.replace(/^(apple|dev|other):/, '')); };
+function jsonOr(s, fallback) { try { return JSON.parse(s); } catch (e) { return fallback; } }
+function history() {
+  const q = S.q.toLowerCase();
+  const hosts = [...S.seen].sort((a, b) => b.first_seen - a.first_seen)
+    .filter((s) => !q || labelOf(s.group_key).toLowerCase().includes(q) || s.remote.toLowerCase().includes(q));
+  const hp = paginate(hosts, 'hist');
+  const hostCols = 'grid-template-columns:140px minmax(0,1fr) minmax(0,1.2fr) 70px';
+  const hostsTable = h('section', { class: 'card tbl', style: 'margin-bottom:20px' },
+    sortHeader('hist', [{ label: 'When' }, { label: 'App' }, { label: 'Host' }, { label: 'Hits', cls: 'num' }], hostCols),
+    hp.slice.length ? hp.slice.map((s) => h('div', { class: 'tr', style: hostCols + ';cursor:default' },
+      h('span', { class: 'mut small' }, new Date(s.first_seen * 1000).toLocaleString()), h('span', { style: 'font-weight:500' }, labelOf(s.group_key)),
+      h('span', { class: 'mut small', style: 'word-break:break-all' }, s.remote), h('span', { class: 'num' }, s.hits)))
+      : h('div', { class: 'item' }, h('p', {}, hosts.length || !S.seen.length ? 'No new hosts recorded yet.' : 'No hosts match the search.')), hp.pager);
+  const acts = [...S.acts].sort((a, b) => b.ts - a.ts)
+    .filter((a) => !q || a.sig.toLowerCase().includes(q) || a.sent.includes(q) || a.refused.toLowerCase().includes(q));
+  const ap = paginate(acts, 'act');
+  const actCols = 'grid-template-columns:140px 70px minmax(0,1fr) minmax(0,1.4fr)';
+  const refusedText = (a) => {
+    const r = jsonOr(a.refused, []);
+    return r.length ? r.length + ' refused: ' + r[0].reason + (r.length > 1 ? ', ...' : '') : '-';
+  };
+  const actsTable = h('section', { class: 'card tbl' },
+    sortHeader('act', [{ label: 'When' }, { label: 'Signal' }, { label: 'Sent' }, { label: 'Refused' }], actCols),
+    ap.slice.length ? ap.slice.map((a) => { const sent = jsonOr(a.sent, []); return h('div', { class: 'tr', style: actCols + ';cursor:default' },
+      h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag' }, a.sig)),
+      h('span', { class: 'small' }, sent.length ? sent.length + ' pid(s): ' + sent.join(', ') : '-'), h('span', { class: 'mut small' }, refusedText(a))); })
+      : h('div', { class: 'item' }, h('p', {}, 'No Stop/Quit actions recorded yet.')), ap.pager);
+  return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable];
+}
+
+const SOON = {};
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
-const FILTERABLE = ['apps', 'listeners', 'persist', 'network'];
-const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network' };
+const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history'];
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History' };
 
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
@@ -506,6 +538,7 @@ function render() {
   else if (S.view === 'listeners') c.replaceChildren(...listeners());
   else if (S.view === 'persist') c.replaceChildren(...persistence());
   else if (S.view === 'network') c.replaceChildren(...network());
+  else if (S.view === 'history') c.replaceChildren(...history());
   else c.replaceChildren(h('section', { class: 'card', style: 'padding:28px;max-width:620px' }, h('h2', { style: 'margin:0 0 8px;font-size:16px' }, SOON[S.view][0]), h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, SOON[S.view][1] + ' Coming in a later phase.')));
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
