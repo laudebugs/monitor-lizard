@@ -36,6 +36,8 @@
 
 - Each step runs in its own transaction. A failing step rolls back and `open()` returns the error.
 - The first time an unversioned database is migrated, `history.db.bak` is written next to it (once; never overwritten).
+- Step 1 relies on `IF NOT EXISTS`, so an old database with a table that lacks a column is not repaired. Fix that with a later step, not by editing step 1.
+- Opening takes an exclusive lock on `history.db.lock`, so one process at a time reads the version, makes the backup and migrates.
 - A database whose version is higher than the list is refused untouched. Downgrades are not supported.
 - A new table that nothing alters later can still be a `CREATE TABLE IF NOT EXISTS` inside a new step.
 - Test a step on a database built at the previous version, as the `a_step_added_later_...` test does.

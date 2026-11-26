@@ -9,7 +9,7 @@
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/m1-sqlite-schema-versioning` |
 | PR title | `feat(history): version the database schema and run ordered migrations` |
-| Size | S (under 200 changed lines) |
+| Size | M (200-400) |
 | PR | — |
 
 ## Goal
@@ -82,7 +82,7 @@ make test
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose (pending, owner runs it)
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -91,18 +91,18 @@ make test
 
 2026-11-26.
 
-**Built.** `src/history.rs` has a `MIGRATIONS` list and `migrate()`, called from `History::at` before the WAL switch. `PRAGMA user_version` counts applied steps. Step 1 is the full current schema, including the `samples` table from the metrics-history todo, written with `IF NOT EXISTS`.
+**Built.** `src/history.rs` has a `MIGRATIONS` list and `migrate()`, called from `History::at` before the WAL switch. `PRAGMA user_version` counts applied steps. Step 1 is the full current schema, including the `samples` table, written with `IF NOT EXISTS`. The metrics-history todo had added WAL mode and `samples` but no version mechanism.
 
-**What was already there.** The metrics-history todo added WAL mode and the `samples` table but no version mechanism, so this todo built the only one. Step 1 covers `samples` too.
+**Behaviour.** Each step runs in an immediate transaction and rolls back on failure. A database with a higher version is refused before any change, journal mode included. Opening takes an exclusive lock on `history.db.lock`, so one process at a time reads the version, backs up and migrates. A busy timeout of 10 seconds backs the wait.
 
-**Behaviour.** Each step runs in an immediate transaction and re-checks the version after taking the lock, so a second opener waits and then skips the step. A failing step rolls back. A database with a higher version is refused with a message, before any change, including the journal mode. A busy timeout of 10 seconds backs the wait.
+**Backup.** An unversioned file with tables is copied once to `history.db.bak` with `VACUUM INTO`, which captures data still in the write-ahead log. The copy is created owner-only (0600), checked to hold the version read before migrating, and moved into place. A guard removes a half-written copy, and the next open removes stale ones. A new data folder is created 0700.
 
-**Backup.** An unversioned file that already holds tables is copied once to `history.db.bak` with `VACUUM INTO`, which captures data still in the write-ahead log. The copy goes to a unique name and is linked into place, so two openers cannot write the same file.
+**Open errors.** Callers that used to ignore a failed open now log it once per process, with the data path. `serve`, `watch` and `sudo-log` say so at startup, and `/api/sudo` returns the same 500 as `/api/history`.
 
-**Tests.** 7 new tests in `history::tests` cover the todo's five edge cases, a later step on an old database, and a four-thread race. The suite passes: 145 run, 2 ignored, after merging the rename.
+**Tests.** 14 new tests in `history::tests`, including a run with two real child processes. The process test also passes with the lock removed, because the immediate transaction already protects the migration. So the lock itself is proven by a separate test that a second holder is excluded, threads included. The suite passes after merging the rename.
 
-**Real run.** An online copy of the real `history.db` in a scratch home, opened by the debug binary: version 0 became 1, `seen` (1,024 rows) and `persistence` (37 rows) were unchanged, and the backup held the same rows at version 0. The real data folder was not touched.
+**Real run.** An online copy of the real `history.db` in a scratch home: version 0 became 1 and `seen` (1,043 rows) and `persistence` (37 rows) were unchanged. The backup held the same rows at version 0 with mode 0600. Setting the copy to version 9 made `sudo-log` print the error with the path. The real data folder was not touched.
 
-**Deviations.** The todo says `history.sqlite` and `history.sqlite.bak`; the file is `history.db`, so the backup is `history.db.bak`. I drafted `migrate()` before writing the tests, so the tests were not seen failing first. The "two processes" case is tested with threads, not separate processes.
+**Deviations.** The todo says `history.sqlite`; the file is `history.db`, so the backup is `history.db.bak`. I drafted `migrate()` before the tests, so they were not seen failing first. The change grew to about 450 lines after review, so the size label is M.
 
-**Open.** `/code-review` and `/writing-review` are for the owner's session. A failed backup link reports `InvalidPath`, which is a loose error type. Downgrades are unsupported by design.
+**Open.** `/writing-review` is for the owner's session. Step 1 does not repair an old table that lacks a column. Downgrades are unsupported by design. A failing open in the metrics writer is reported once, then retried quietly.
