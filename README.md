@@ -11,7 +11,11 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo run --release -- sudo-log 20    # stored sudo/su launches
     cargo test
 
-Baseline lives in `~/.ownwatch/baseline.json`. See docs/PLAN.md.
+Baseline lives in `~/.ownwatch/baseline.json`. The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
+
+## Working on this repo
+
+Rules for people and AI agents are in [AGENTS.md](AGENTS.md). Work comes from the todo board (`make todos`), one todo per branch and pull request, each in its own git worktree. Run `make check` before pushing; CI runs the same targets and one `gate` check. Docs live in [docs/](docs/README.md). Structure adopted from the owner's `scaffold` template.
 
 ## Status and safety
 
