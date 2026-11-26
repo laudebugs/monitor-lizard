@@ -10,21 +10,22 @@ pub fn evaluate(groups: &[Group]) -> Vec<Finding> {
     let mut out = Vec::new();
     for g in groups {
         let apple = g.signing.as_ref().is_some_and(|s| s.apple);
-        let f = |severity, rule, detail: String| Finding { severity, group: g.label.clone(), group_key: g.key.clone(), rule, detail };
+        let f = |severity, rule, detail: String, evidence: String| Finding::new(severity, g.label.clone(), g.key.clone(), rule, detail, evidence);
         if g.conns.iter().any(|c| c.exposed) {
             let p = ports(g, |c| c.exposed);
-            out.push(if apple { f(Severity::Low, "exposed-listener-apple", format!("Apple service reachable from LAN: {p}")) }
-                     else { f(Severity::High, "exposed-listener", format!("Listening on all interfaces: {p}")) });
+            let evidence = p.replace(", ", ",");
+            out.push(if apple { f(Severity::Low, "exposed-listener-apple", format!("Apple service reachable from LAN: {p}"), evidence) }
+                     else { f(Severity::High, "exposed-listener", format!("Listening on all interfaces: {p}"), evidence) });
         }
         let net = g.conns.iter().any(|c| c.scope != Scope::Loopback);
         if net && g.signing.as_ref().is_some_and(|s| !s.signed) {
-            out.push(f(Severity::High, "unsigned-network", "Unsigned binary talking to the network".into()));
+            out.push(f(Severity::High, "unsigned-network", "Unsigned binary talking to the network".into(), String::new()));
         }
         if net && !g.approved && !apple {
-            out.push(f(Severity::Medium, "unreviewed", "Network activity from a group you haven't approved yet".into()));
+            out.push(f(Severity::Medium, "unreviewed", "Network activity from a group you haven't approved yet".into(), String::new()));
         }
         if g.conns.iter().any(|c| c.local_port == 9222 && c.direction == Direction::Listen) {
-            out.push(f(Severity::Medium, "debug-port", "Remote-debugging port 9222 open: any local process can drive this browser".into()));
+            out.push(f(Severity::Medium, "debug-port", "Remote-debugging port 9222 open: any local process can drive this browser".into(), String::new()));
         }
     }
     out.sort_by_key(|f| f.severity);
@@ -65,12 +66,12 @@ mod tests {
     fn grp(approved: bool, signing: Option<(bool, bool)>, conns: Vec<Conn>) -> Group {
         Group { key: "/Applications/X.app".into(), label: "X".into(), category: "Apps".into(), procs: vec![], conns,
             signing: signing.map(|(signed, apple)| Signing { signed, team: None, authority: None, apple }), approved,
-            trust: Label::Unknown, rules_fired: vec![] }
+            trust: Label::Unknown, rules_fired: vec![], expected_hosts: vec![] }
     }
     fn net() -> Vec<Conn> { vec![conn(Direction::Outbound, Scope::Public, false, 50000)] }
     fn label(g: &Group, extra: &[&'static str]) -> (Label, Vec<&'static str>) {
         let mut findings = evaluate(std::slice::from_ref(g));
-        for r in extra { findings.push(Finding { severity: Severity::Medium, group: g.label.clone(), group_key: g.key.clone(), rule: r, detail: String::new() }); }
+        for r in extra { findings.push(Finding::new(Severity::Medium, g.label.clone(), g.key.clone(), r, String::new(), String::new())); }
         classify(g, &findings)
     }
 
@@ -130,7 +131,7 @@ mod tests {
     #[test]
     fn findings_of_other_groups_do_not_leak_into_a_label() {
         let g = grp(true, Some((true, false)), net());
-        let other = Finding { severity: Severity::High, group: "Y".into(), group_key: "/Applications/Y.app".into(), rule: "unsigned-network", detail: String::new() };
+        let other = Finding::new(Severity::High, "Y".into(), "/Applications/Y.app".into(), "unsigned-network", String::new(), String::new());
         assert_eq!(classify(&g, &[other]).0, Label::Trusted);
     }
 }

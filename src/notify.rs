@@ -27,14 +27,6 @@ fn send(title: &str, body: &str) -> Result<(), String> {
     }
 }
 
-/// What "the same finding" means for dedupe: a group and the rule that fired, not the detail text,
-/// which can change between polls (a host list growing, say) without being a new finding. Collides
-/// only if a group_key itself ever contained a literal `:rule-name` suffix matching a real rule,
-/// which group_key never does (it is always a filesystem path or an `apple:`/`dev:`/`other:` key).
-fn finding_id(f: &Finding) -> String {
-    format!("{}:{}", f.group_key, f.rule)
-}
-
 // SAFETY: tm is a plain value type, valid zeroed; localtime_r writes into it and never reads
 // from it first, so an all-zero starting value cannot be observed as a real time.
 fn local_minutes_since_midnight(unix_ts: u64) -> u16 {
@@ -57,7 +49,7 @@ fn dispatch_with(h: &History, mut cfg: Settings, findings: &[Finding], now: u64,
 
     if !cfg.seeded {
         for f in findings {
-            let _ = h.mark_notified(&finding_id(f), now);
+            let _ = h.mark_notified(&f.id(), now);
         }
         cfg.seeded = true;
         return Some(cfg);
@@ -71,7 +63,7 @@ fn dispatch_with(h: &History, mut cfg: Settings, findings: &[Finding], now: u64,
         if cfg.notifications == Level::High && f.severity != Severity::High {
             continue;
         }
-        let id = finding_id(f);
+        let id = f.id();
         match h.notified_recently(&id, now, DEDUPE_SECS) {
             Ok(true) => continue,
             Ok(false) => {}
@@ -113,7 +105,7 @@ mod tests {
     use super::*;
 
     fn finding(group_key: &str, rule: &'static str, severity: Severity) -> Finding {
-        Finding { severity, group: group_key.into(), group_key: group_key.into(), rule, detail: "detail".into() }
+        Finding::new(severity, group_key.into(), group_key.into(), rule, "detail".into(), String::new())
     }
 
     #[test]
@@ -121,7 +113,7 @@ mod tests {
         let a = finding("k", "rule", Severity::High);
         let mut b = finding("k", "rule", Severity::High);
         b.detail = "a completely different detail string".into();
-        assert_eq!(finding_id(&a), finding_id(&b), "the same group+rule is the same finding even if detail text changes between polls");
+        assert_eq!(a.id(), b.id(), "the same group+rule is the same finding even if detail text changes between polls");
     }
 
     #[test]

@@ -169,7 +169,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -581,7 +581,8 @@ function setHidden(key, list) {
   HIDDEN[key] = list;
   try { localStorage.setItem(COLS_STORE + key, JSON.stringify(list)); } catch (e) { /* the choice then lasts until reload */ }
 }
-const exportCols = (key, header) => header.map((c) => {
+// An action column (buttons, not data) is part of the drawn table but is never exported or offered in the column chooser.
+const exportCols = (key, header) => header.filter((c) => !c.action).map((c) => {
   const id = colId(c);
   return { id, label: c.label, get: (EXPORT[key] && EXPORT[key][id]) || (() => null), time: ((TABLE_META[key] || {}).time || []).includes(id) };
 });
@@ -724,7 +725,25 @@ async function load(fresh) {
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
-const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [] }); } catch (e) {} };
+const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [] }); } catch (e) {} };
+const expectedTag = () => h('span', { class: 'tag', title: 'You marked this as expected' }, 'expected');
+// params is one of { key } (the server's own key for a finding or startup item) or { app, addr } for a host:
+// the page never builds baseline keys. kind is app, host, startup or finding; the server audits each change first.
+async function markOne(kind, params, on) {
+  const q = new URLSearchParams(Object.assign({ kind }, params)).toString();
+  await api('/api/' + (on ? 'approve' : 'unapprove') + '?' + q, 'POST');
+}
+async function mark(calls, on, what) {
+  try {
+    for (const [kind, params] of calls) await markOne(kind, params, on);
+    toast((on ? 'Marked ' : 'Unmarked ') + what + (on ? ' as expected.' : '. It can be reported again.'));
+    await Promise.all([load(true), loadPers(), loadHist()]);
+  } catch (e) { toast('Could not ' + (on ? 'mark' : 'unmark') + ': ' + e.message); }
+}
+const markBtn = (calls, expected, what, cls) => h('button', { class: 'btn sm ' + (cls || ''), onClick: () => mark(calls, !expected, what) }, expected ? 'Unmark' : 'Mark expected');
+// The calls that mark or unmark a finding: its own key for open ports, one host call per host for new hosts.
+const findingCalls = (f) => (f.mark_key ? [['finding', { key: f.mark_key }]] : f.rule === 'new-remote' ? f.evidence.split(',').map((a) => ['host', { app: f.group_key, addr: a }]) : []);
+const findingScope = (f) => (f.rule === 'new-remote' ? 'these hosts: ' : 'these ports: ') + f.evidence.split(',').join(', ');
 const loadSettings = async () => { try { quiet({ settings: await (await api('/api/settings')).json() }); } catch (e) {} };
 // `since` is the newest ts already held; the server returns only what's newer, so a tab backgrounded
 // for a while still gets exactly its gap in one request, not a burst of polls for the time it missed.
@@ -768,10 +787,10 @@ function cards() {
   const add = (c) => { if (!S.muted.has(c.id)) out.push(c); };
   for (const x of f) {
     const G = grp(x.group);
-    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'btn-acc', () => approve(G)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
+    if (x.rule === 'exposed-listener' && G) add({ id: 'exp:' + G.key, sev: 'high', title: G.label + ' listens on ports open to your network', sub: x.detail + '. Anyone on your Wi-Fi can reach these.', acts: [!G.approved && ['Approve ' + G.label, 'btn-acc', () => approve(G)], x.mark_key && ['Mark these ports expected', '', () => mark(findingCalls(x), true, 'the open ports of ' + G.label)], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
     if (x.rule === 'debug-port' && G) add({ id: 'dbg:' + G.key, sev: 'high', title: G.label + ' has its debug port open', sub: x.detail, acts: [['Quit ' + G.label + '...', 'btn-danger quiet', () => askStop(G.label, G.procs.filter((p) => p.user !== 'root'))], ['Details', '', () => rec({ view: 'apps', sel: G.key })]] });
     if (x.rule === 'unsigned-network' && G) add({ id: 'uns:' + G.key, sev: 'high', title: G.label + ' is unsigned and uses the network', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })]] });
-    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
+    if (x.rule === 'new-remote' && G) add({ id: 'new:' + G.key + x.detail, sev: 'medium', title: G.label + ' contacted new hosts', sub: x.detail, acts: [['Details', 'btn-acc', () => rec({ view: 'apps', sel: G.key })], ['Mark these hosts expected', '', () => mark(findingCalls(x), true, 'the new hosts of ' + G.label)], ['Mute', '', () => mute('new:' + G.key + x.detail)]] });
   }
   const pending = g.filter((x) => status(x) === 'review');
   if (pending.length) add({ id: 'review', sev: 'medium', title: pending.length + ' apps use the network but are not approved', sub: pending.map((x) => x.label).join(', '), acts: [['Review apps', 'btn-acc', () => rec({ view: 'apps', filter: 'review' })]] });
@@ -779,7 +798,7 @@ function cards() {
   if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'btn-acc', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
-  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })]] });
+  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })], ['Mark expected', '', () => mark([['startup', { key: i.path }]], true, i.label)]] });
   return out;
 }
 
@@ -791,20 +810,27 @@ function overview() {
   const tile = (l, v, sub, go, col) => h('button', { class: 'tile', onClick: go }, h('span', { class: 'l' }, l), h('span', { class: 'v', style: col ? 'color:var(--' + col + ')' : '' }, v), h('span', { class: 's' }, sub));
   const talk = g.filter((x) => x.conns.some((k) => k.direction === 'outbound')).map((x) => [x.label, x.conns.filter((k) => k.direction === 'outbound').length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const max = talk.length ? talk[0][1] : 1;
+  const expectedF = s.expected_findings || [];
+  const banner = s.baseline_notice && !S.noticeHidden ? h('div', { class: 'card item', role: 'alert', style: 'margin-bottom:14px;flex-wrap:wrap' }, h('span', { class: 'tag bad', style: 'flex:none;max-width:none;align-self:flex-start' }, 'BASELINE'), h('div', { class: 'grow', style: 'min-width:min(100%,240px)' }, h('h3', {}, 'Your expected-items list has a problem'), h('p', { style: 'overflow-wrap:anywhere' }, s.baseline_notice)), h('button', { class: 'btn sm', onClick: () => rec({ noticeHidden: true }) }, 'Dismiss')) : null;
+  const markedSection = expectedF.length ? h('details', { class: 'card', style: 'margin-top:20px;padding:10px 16px' }, h('summary', { style: 'cursor:pointer;font-weight:500' }, 'Marked as expected (' + expectedF.length + ')'),
+    expectedF.map((f) => h('div', { class: 'item' }, h('span', { class: 'tag', style: 'flex:none;max-width:none;align-self:flex-start' }, 'expected'), h('div', { class: 'grow', style: 'min-width:0;overflow-wrap:anywhere' }, h('h3', {}, f.group + ': ' + (RULE_TEXT[f.rule] || f.rule)), h('p', {}, 'Applies only to ' + findingScope(f) + '. Anything new is reported again.')),
+      h('button', { class: 'btn sm', onClick: () => mark(findingCalls(f), false, f.group + ' (' + f.rule + ')') }, 'Unmark')))) : null;
   return [
+    banner,
     h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px' },
       tile('Needs review', review, 'apps not yet approved', () => rec({ view: 'apps', filter: 'review' }), review ? 'warn' : 'ok'),
       tile('Open to LAN', lan, 'ports on all interfaces', () => rec({ view: 'apps' })),
       tile('Failed sudo', failed, 'last 2 hours', () => rec({ view: 'priv' }), failed ? 'bad' : ''),
       tile('Outbound', s.totals.outbound, 'sockets right now', () => rec({ view: 'apps' }))),
     h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:20px' },
-      h('section', { style: 'flex:999 1 520px;min-width:0' }, h('h2', { class: 'sec' }, 'Needs your attention'),
+      h('section', { style: 'flex:999 1 520px;min-width:0' }, h('h2', { class: 'sec' }, 'Needs your attention' + (expectedF.length ? ' (' + expectedF.length + ' marked expected, listed below)' : '')),
         h('div', { class: 'card' }, c.length ? c.map((x) => h('div', { class: 'item' }, h('span', { class: 'sev ' + x.sev, title: x.sev }),
           h('div', { class: 'grow' }, h('h3', {}, x.title), h('p', {}, x.sub), h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' }, x.acts.filter(Boolean).map((a) => h('button', { class: 'btn sm ' + a[1], onClick: a[2] }, a[0])))),
           h('span', { class: 'tag ' + ({ high: 'bad', medium: 'warn' }[x.sev] || ''), style: 'align-self:flex-start' }, x.sev))) : h('div', { class: 'item' }, h('p', {}, 'Nothing needs attention. Everything on this Mac is accounted for.')))),
       h('section', { style: 'flex:1 1 300px;min-width:0' }, h('h2', { class: 'sec' }, 'Top talkers (outbound sockets)'),
         h('div', { class: 'card', style: 'padding:6px 16px' }, talk.map((t) => h('div', { style: 'padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px' },
           h('div', { style: 'display:flex;justify-content:space-between;font-size:13px' }, h('span', {}, t[0]), h('span', { class: 'mut' }, t[1])), h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round(t[1] / max * 100) + '%' }))))))),
+    markedSection,
   ];
 }
 
@@ -922,14 +948,14 @@ function persistence() {
   const shown = sortRows(list, 'pers', { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen });
   const pg = paginate(shown, 'pers');
   const chips = [['all', 'All'], ['new', 'New'], ['user', 'User'], ['system', 'System']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ pfilter: id, page: {} }) }, l + ' ', all.filter((i) => inFilter(i, id)).length));
-  const cols = 'grid-template-columns:minmax(0,1.3fr) 110px 70px minmax(0,1.6fr) 100px 100px';
+  const cols = 'grid-template-columns:minmax(0,1.3fr) 110px 70px minmax(0,1.6fr) 100px 100px 190px';
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
-    sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }], cols, 'ell'),
+    sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((i) => h('div', { class: 'tr ell', style: cols },
       h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
-      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()))),
+      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.path }]], i.expected, i.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No items match the current filters. ' : 'No startup items found.'), all.length ? clearBtn() : null), pg.pager);
   return [h('div', { class: 'filters' }, chips), table];
 }
@@ -956,19 +982,20 @@ function network() {
   // baked into the base order (as listeners() does for its reach tiers) so it survives filtering
   // and is what sortRows falls back to once no column header is actively sorted.
   all.sort((a, b) => (b.first_seen ?? -1) - (a.first_seen ?? -1) || b.sockets - a.sockets);
-  const isNew = (r) => r.g.approved && r.first_seen != null && now - r.first_seen < 3600;
+  const hostExpected = (r) => (r.g.expected_hosts || []).includes(r.remote);
+  const isNew = (r) => r.g.approved && r.first_seen != null && now - r.first_seen < 3600 && !hostExpected(r);
   const inFilter = (r, id) => id === 'all' || (id === 'new' ? isNew(r) : r.scope === id);
   const list = all.filter((r) => inFilter(r, f) && (!q || r.g.label.toLowerCase().includes(q) || r.remote.toLowerCase().includes(q)));
   const shown = sortRows(list, 'net', { app: (r) => r.g.label, remote: (r) => r.remote, scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen });
   const pg = paginate(shown, 'net');
   const chips = [['all', 'All'], ['public', 'Public'], ['lan', 'LAN'], ['new', 'New']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ nfilter: id, page: {} }) }, l + ' ', all.filter((r) => inFilter(r, id)).length));
-  const cols = 'grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1fr) 80px 90px 110px';
+  const cols = 'grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1fr) 80px 90px 110px 190px';
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
-    sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }], cols, 'ell'),
+    sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((r) => h('div', { class: 'tr ell', style: cols },
       h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'mut small', title: r.remote }, r.remote),
       h('span', { class: 'mut small' }, r.ports.join(', ')), h('span', {}, h('span', { class: 'tag' }, r.scope)),
-      h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'))),
+      h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'), h('span', { style: 'display:flex;align-items:center;gap:6px' }, hostExpected(r) ? expectedTag() : null, markBtn([['host', { app: r.g.key, addr: r.remote }]], hostExpected(r), r.remote + ' for ' + r.g.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No connections match the current filters. ' : 'No outbound connections right now.'), all.length ? clearBtn() : null), pg.pager);
   return [h('div', { class: 'filters' }, chips), table,
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')];
@@ -1006,7 +1033,15 @@ function historyView() {
       h('span', { class: 'mut small' }, new Date(a.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag', title: a.sig }, a.sig)),
       h('span', { class: 'small' }, sent.length ? sent.length + ' pid(s): ' + sent.join(', ') : '-'), h('span', { class: 'mut small' }, refusedText(a))); })
       : h('div', { class: 'item' }, h('p', {}, allActs.length ? 'No actions match the search. ' : 'No Stop/Quit actions recorded yet.'), allActs.length ? clearBtn() : null), ap.pager);
-  return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable];
+  const bp = paginate([...S.baseChanges], 'bc');
+  const bcCols = 'grid-template-columns:140px 90px 80px minmax(0,1fr)';
+  const changesTable = h('section', { class: 'card tbl' },
+    h('div', { class: 'tr h', style: bcCols }, ['When', 'Change', 'Kind', 'Item'].map((l) => h('span', {}, l))),
+    bp.slice.length ? bp.slice.map((c) => h('div', { class: 'tr', style: bcCols + ';cursor:default' },
+      h('span', { class: 'mut small' }, new Date(c.ts * 1000).toLocaleString()), h('span', {}, h('span', { class: 'tag ' + (c.note ? 'bad' : '') , title: c.note || '' }, c.note ? 'not saved' : c.marked ? 'expected' : 'unmarked')),
+      h('span', { class: 'mut small' }, c.kind), h('span', { class: 'mut small', style: 'word-break:break-all' }, c.key)))
+      : h('div', { class: 'item' }, h('p', {}, 'Nothing marked as expected yet.')), bp.pager);
+  return [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable, h('h2', { class: 'sec' }, 'Marked as expected'), changesTable];
 }
 
 // A Reading<T> from the Rust side serializes as {value: T}, {unavailable: "reason"} or the bare

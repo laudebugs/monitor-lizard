@@ -164,8 +164,8 @@
     },
     {
       "appears_in": "Apps",
-      "command": "monitor-lizard approve <group-key>...",
-      "description": "Adds each group to the baseline of expected apps, so it is no longer reported as new.",
+      "command": "monitor-lizard approve <key>...",
+      "description": "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path> or finding:<app key>:<rule>#<ports>.",
       "example": null,
       "id": "sm-approve",
       "safety": "changes files",
@@ -174,9 +174,9 @@
         "approve",
         "expected"
       ],
-      "title": "Mark app groups as expected",
+      "title": "Mark items as expected",
       "topic": "monitor-lizard",
-      "undo": "Remove the key from the baseline file in ~/.monitor-lizard/."
+      "undo": "Press Unmark on the item in the dashboard, or remove its entry from baseline.json in ~/.monitor-lizard/."
     },
     {
       "appears_in": "Guide",

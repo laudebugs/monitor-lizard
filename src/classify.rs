@@ -181,7 +181,7 @@ mod tests {
     }
     fn group(approved: bool, procs: Vec<Proc>, conns: Vec<Conn>) -> Group {
         Group { key: "k".into(), label: "X".into(), category: "Apps".into(), procs, conns,
-                signing: Some(Signing::default()), approved, trust: Label::Unknown, rules_fired: vec![] }
+                signing: Some(Signing::default()), approved, trust: Label::Unknown, rules_fired: vec![], expected_hosts: vec![] }
     }
 
     fn raw(label: Label, actions: Vec<Action>, rationale: &str) -> Result<llm::Verdict, llm::LlmError> {

@@ -1,4 +1,4 @@
-use crate::{actions, baseline, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
+use crate::{actions, baseline::{self, Kind}, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -16,6 +16,7 @@ const MONO_SEMIBOLD: &[u8] = include_bytes!("../web/fonts/IBMPlexMono-SemiBold.w
 /// How many rows `/api/history` returns: newest first, enough for the History page.
 const SEEN_LIMIT: usize = 2000;
 const ACTION_LIMIT: usize = 200;
+const BASELINE_CHANGE_LIMIT: usize = 200;
 
 type Cache = Arc<Mutex<Option<String>>>;
 
@@ -91,8 +92,8 @@ pub fn serve(port: u16) {
                 let rows = processes.read().map(|r| r.clone()).unwrap_or_default();
                 json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
             }
-            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?))) {
-                Ok((seen, actions)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions }).to_string()),
+            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?))) {
+                Ok((seen, actions, baseline_changes)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes }).to_string()),
                 // An unreadable database must not look like "no history".
                 Err(e) => Response::from_string(history::unavailable(&e)).with_status_code(500).boxed(),
             }
@@ -108,9 +109,13 @@ pub fn serve(port: u16) {
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
             }
-            (Method::Post, "/api/approve") => {
-                let key = query_param(query, "key").unwrap_or_default();
-                if write_ok && !key.is_empty() && baseline::approve(&key).is_ok() { Response::from_string("ok").boxed() } else { forbidden() }
+            (Method::Get, "/api/baseline") => { let (b, notice) = baseline::peek(); json_resp(serde_json::json!({ "entries": b.entries(), "notice": notice }).to_string()) }
+            (Method::Post, "/api/approve" | "/api/unapprove") if write_ok => match apply_change(query, path == "/api/approve") {
+                Ok(c) => {
+                    if c.needs_startup_rescan() { refresh_startup_cache(&pers, &c.key, c.mark); }
+                    Response::from_string(if c.changed { "ok" } else { "unchanged" }).boxed()
+                }
+                Err((code, msg)) => Response::from_string(msg).with_status_code(code).boxed(),
             }
             (Method::Post, "/api/kill") if write_ok => {
                 match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {
@@ -139,6 +144,43 @@ pub fn serve(port: u16) {
     }
 }
 
+/// The outcome of a mark or unmark request that passed validation.
+struct Change { kind: Kind, key: String, mark: bool, changed: bool }
+
+impl Change {
+    /// Only a real change to a startup item can alter the cached list, so a repeated request costs nothing.
+    fn needs_startup_rescan(&self) -> bool { self.changed && self.kind == Kind::Startup }
+}
+
+/// Marks or unmarks one item: `kind` is `app` (the default, as before kinds existed), `host`, `startup`
+/// or `finding`. A host is given as `app` and `addr` (or a ready `key`), so the page never builds keys.
+fn apply_change(query: &str, mark: bool) -> Result<Change, (u16, String)> {
+    let kind_name = query_param(query, "kind").unwrap_or_else(|| "app".into());
+    let Some(kind) = Kind::parse(&kind_name) else { return Err((400, format!("unknown kind {kind_name:?}: use app, host, startup or finding"))) };
+    let key = match (kind, query_param(query, "app"), query_param(query, "addr")) {
+        (Kind::Host, Some(app), Some(addr)) => baseline::host_key(&app, &addr),
+        _ => query_param(query, "key").unwrap_or_default(),
+    };
+    match baseline::change(kind, &key, mark) {
+        Ok(changed) => Ok(Change { kind, key, mark, changed }),
+        Err(baseline::ChangeError::Rejected(m)) => Err((400, m)),
+        Err(baseline::ChangeError::Failed(m)) => Err((500, m)),
+    }
+}
+
+/// Updates the cached startup list at once so the next read shows the change, then rescans in the
+/// background to correct anything the patch cannot know (such as an item becoming new again).
+fn refresh_startup_cache(cache: &Cache, path: &str, expected: bool) {
+    if let Some(json) = cache.lock().unwrap().as_mut() { *json = persistence::patch_expected(json, path, expected); }
+    static RESCANNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if RESCANNING.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
+    let cache = cache.clone();
+    thread::spawn(move || {
+        *cache.lock().unwrap() = Some(serde_json::to_string(&persistence::take()).unwrap_or_default());
+        RESCANNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
 fn urldecode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::new();
@@ -155,7 +197,23 @@ fn urldecode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::PAGE;
+    use super::*;
+
+    #[test]
+    fn a_repeated_mark_triggers_no_startup_rescan_and_a_real_one_does() {
+        let c = |kind, changed| Change { kind, key: "/p.plist".into(), mark: true, changed };
+        assert!(!c(Kind::Startup, false).needs_startup_rescan(), "a no-op must not scan");
+        assert!(c(Kind::Startup, true).needs_startup_rescan());
+        assert!(!c(Kind::Host, true).needs_startup_rescan(), "other kinds never touch the startup list");
+    }
+
+    #[test]
+    fn requests_with_a_bad_kind_or_key_are_400_before_anything_changes() {
+        assert_eq!(apply_change("kind=planet&key=x", true).err().map(|e| e.0), Some(400));
+        assert_eq!(apply_change("kind=host&key=nopipe", true).err().map(|e| e.0), Some(400));
+        assert_eq!(apply_change("kind=app&key=", true).err().map(|e| e.0), Some(400));
+        assert_eq!(apply_change("kind=finding&key=%2FA.app%3Aunsigned-network%23x", true).err().map(|e| e.0), Some(400));
+    }
 
     /// A data: URI in an attribute may not contain a raw double quote or angle bracket: the first quote
     /// ends the attribute and the rest of the SVG is parsed as page markup, leaving stray text on screen.

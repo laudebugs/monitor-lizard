@@ -35,7 +35,7 @@ pub fn build(procs: Vec<Proc>, conns: Vec<Conn>, approved: &HashSet<String>) -> 
         let key = id.key.clone();
         groups.entry(key.clone()).or_insert_with(|| Group {
             approved: approved.contains(&id.key), key: id.key, label: id.label, category: id.category.into(),
-            procs: vec![], conns: vec![], signing: None, trust: Label::Unknown, rules_fired: vec![],
+            procs: vec![], conns: vec![], signing: None, trust: Label::Unknown, rules_fired: vec![], expected_hosts: vec![],
         });
         key
     };

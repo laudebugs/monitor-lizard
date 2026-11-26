@@ -143,7 +143,8 @@ test('every table column the page draws has an export value', () => {
   let seen = 0;
   for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
     seen++;
-    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?/g)].map((x) => X.colId({ sort: x[2], label: x[1] }));
+    // Action columns hold buttons, not data, and are never exported.
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ sort: x[2], label: x[1] }));
     assert.deepEqual([...(have[mm[1]] || [])].sort(), ids.sort(), 'table ' + mm[1]);
   }
   assert.equal(seen, 8);
@@ -173,7 +174,8 @@ test('real refusals and ports keep the on-screen text', () => {
 
 test('a column id that equals another column time-twin name would collide in JSON', () => {
   for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
-    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?/g)].map((x) => X.colId({ sort: x[2], label: x[1] }));
+    // Action columns hold buttons, not data, and are never exported.
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ sort: x[2], label: x[1] }));
     for (const id of ids) assert.ok(!ids.includes(id + '_iso'), mm[1] + ': ' + id);
     assert.equal(new Set(ids).size, ids.length, mm[1] + ' has duplicate ids');
   }
