@@ -725,7 +725,8 @@ async function load(fresh) {
 }
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
-const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
+// The reply is { items, changes }. Items that are no longer found stay in the data but not on this page, which lists what is installed now.
+const loadPers = async () => { try { const d = await (await api('/api/persistence')).json(); quiet({ pers: (Array.isArray(d) ? d : (d && d.items) || []).filter((i) => !i.removed_at) }); } catch (e) {} };
 const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [] }); } catch (e) {} };
 const expectedTag = () => h('span', { class: 'tag', title: 'You marked this as expected' }, 'expected');
 // params is one of { key } (the server's own key for a finding or startup item) or { app, addr } for a host:
@@ -799,7 +800,7 @@ function cards() {
   if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'btn-acc', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
-  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })], ['Mark expected', '', () => mark([['startup', { key: i.path }]], true, i.label)]] });
+  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })], ['Mark expected', '', () => mark([['startup', { key: i.mark_key }]], true, i.label)]] });
   return out;
 }
 
@@ -827,7 +828,7 @@ function overview() {
       h('section', { style: 'flex:999 1 520px;min-width:0' }, h('h2', { class: 'sec' }, 'Needs your attention' + (expectedF.length ? ' (' + expectedF.length + ' marked expected, listed below)' : '')),
         h('div', { class: 'card' }, c.length ? c.map((x) => h('div', { class: 'item' }, h('span', { class: 'sev ' + x.sev, title: x.sev }),
           h('div', { class: 'grow' }, h('h3', {}, x.title), h('p', {}, x.sub), h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' }, x.acts.filter(Boolean).map((a) => h('button', { class: 'btn sm ' + a[1], onClick: a[2] }, a[0])))),
-          h('span', { class: 'tag ' + ({ high: 'bad', medium: 'warn' }[x.sev] || ''), style: 'align-self:flex-start' }, x.sev))) : h('div', { class: 'item' }, h('p', {}, 'Nothing needs attention. Everything on this Mac is accounted for.')))),
+          h('span', { class: 'tag ' + ({ high: 'bad', medium: 'warn' }[x.sev] || ''), style: 'flex:none;max-width:none;align-self:flex-start' }, x.sev))) : h('div', { class: 'item' }, h('p', {}, 'Nothing needs attention. Everything on this Mac is accounted for.')))),
       h('section', { style: 'flex:1 1 300px;min-width:0' }, h('h2', { class: 'sec' }, 'Top talkers (outbound sockets)'),
         h('div', { class: 'card', style: 'padding:6px 16px' }, talk.map((t) => h('div', { style: 'padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px' },
           h('div', { style: 'display:flex;justify-content:space-between;font-size:13px' }, h('span', {}, t[0]), h('span', { class: 'mut' }, t[1])), h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round(t[1] / max * 100) + '%' }))))))),
@@ -903,7 +904,7 @@ function priv() {
     h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
       dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
     h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
-      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
+      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', style: 'min-width:0;overflow-wrap:anywhere' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', style: 'min-width:0;overflow-wrap:anywhere' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
   ];
 }
 
@@ -940,7 +941,7 @@ function listeners() {
 // leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
 // it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
 const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
-const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : ''); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
+const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing && i.signing.team ? ' ' + i.signing.team : ''); return t === null ? (i.trust_note ? h('span', { class: 'mut', title: i.trust_note }, i.program_missing ? 'Program missing' : 'Not checked') : h('span', { class: 'mut' }, '-')) : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter;
   const all = S.pers;
@@ -956,7 +957,7 @@ function persistence() {
       h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
-      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.path }]], i.expected, i.label)))),
+      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.mark_key }]], i.expected, i.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No items match the current filters. ' : 'No startup items found.'), all.length ? clearBtn() : null), pg.pager);
   return [h('div', { class: 'filters' }, chips), table];
 }

@@ -184,7 +184,7 @@
     {
       "appears_in": "Apps",
       "command": "monitor-lizard approve <key>...",
-      "description": "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path> or finding:<app key>:<rule>#<ports>.",
+      "description": "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path>#<fingerprint> (as the dashboard sends it; a startup entry that is only the path matches any version of that item, and exists only if you wrote it by hand) or finding:<app key>:<rule>#<ports>.",
       "example": null,
       "id": "sm-approve",
       "safety": "changes files",

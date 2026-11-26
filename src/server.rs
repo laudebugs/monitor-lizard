@@ -51,7 +51,10 @@ pub fn serve(port: u16) {
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
-    refresh(&pers, Duration::from_secs(60), persistence::take);
+    {
+        let pers = pers.clone();
+        thread::spawn(move || loop { persistence::refresh_cache(&pers); thread::sleep(Duration::from_secs(60)); });
+    }
     // Say at startup if the history cannot be opened (for instance a database from a newer build), instead of showing empty pages.
     drop(history::open_or_report());
     let storage_cache: Arc<storage::Cache> = Default::default();
@@ -173,13 +176,13 @@ fn apply_change(query: &str, mark: bool) -> Result<Change, (u16, String)> {
 
 /// Updates the cached startup list at once so the next read shows the change, then rescans in the
 /// background to correct anything the patch cannot know (such as an item becoming new again).
-fn refresh_startup_cache(cache: &Cache, path: &str, expected: bool) {
-    if let Some(json) = cache.lock().unwrap().as_mut() { *json = persistence::patch_expected(json, path, expected); }
+fn refresh_startup_cache(cache: &Cache, key: &str, expected: bool) {
+    if let Some(json) = cache.lock().unwrap().as_mut() { *json = persistence::patch_expected(json, key, expected); }
     static RESCANNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if RESCANNING.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
     let cache = cache.clone();
     thread::spawn(move || {
-        *cache.lock().unwrap() = Some(serde_json::to_string(&persistence::take()).unwrap_or_default());
+        persistence::refresh_cache(&cache);
         RESCANNING.store(false, std::sync::atomic::Ordering::SeqCst);
     });
 }

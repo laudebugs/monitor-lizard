@@ -31,7 +31,7 @@ As of 2026-11-26 (spike A17a, branch `spike/a17-tauri-menu-bar-shell`). Ran on m
 | 6a | Developer ID identity on this Mac? | Yes: `security find-identity -v -p codesigning` lists 3 valid identities, two "Developer ID Application" (same hash twice) and one "Apple Distribution". Name and team ID are left out here. | VERIFIED (ran) |
 | 6b | What signing and notarization need and cost | Apple Developer Program, 99 USD per year; includes certificates and an Apple-verified Developer ID. Only the Account Holder creates Developer ID certificates. Tauri signs with `APPLE_SIGNING_IDENTITY` (or `bundle.macOS.signingIdentity`) and notarizes when `APPLE_API_ISSUER`/`APPLE_API_KEY`/`APPLE_API_KEY_PATH` or `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID` are set. CI needs the certificate as a base64 `.p12` (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`). | VERIFIED for cost and Tauri steps (pages read through a fetch tool, which summarises: treat as secondary); Apple's notarization page body did not load, so hardened runtime, timestamp, `notarytool` and stapling are UNVERIFIED (general knowledge) |
 | 6c | Unsigned app? | Tauri's docs: on Apple silicon "code-signing is required for all apps from the Internet"; ad-hoc signing (`-`) does not stop macOS requiring the user to allow the app in Privacy & Security; a free account cannot notarize and the app "will still show up as not verified". The default `cargo tauri build` here produced an ad-hoc, linker-signed bundle. | VERIFIED (Tauri page); Gatekeeper wording is Tauri's, not Apple's |
-| 7 | FDA to the bundle reads `~/Library/Mail`? | See the steps below. For a baseline, the spike binary run from this agent's session got `Operation not permitted` on `ls ~/Library/Mail`. | PENDING |
+| 7 | FDA to the bundle reads `~/Library/Mail`? | See the steps below. The owner ran the checklist 2026-11-26: an ad-hoc signature does not survive a rebuild, a stable Developer ID identity does. | VERIFIED (owner ran it) |
 | 8 | Size, idle memory, CPU | See the table below. | VERIFIED (ran) |
 
 ## Measurements (question 8)
@@ -57,21 +57,49 @@ The `.app` bundle is 8.8 MiB. Memory is about 19 times the headless server (133 
 
 ## Full Disk Access test (question 7), steps for the owner
 
-Result: **PENDING**. Needs a human; macOS only grants it in System Settings.
+Result: **DONE, 2026-11-26.** Ran by the owner at the keyboard, with an agent driving the terminal commands and reading the probe file between each manual System Settings step (granting FDA and signing with a private Developer ID key stayed the owner's own actions throughout). Outcomes:
 
-```sh
-cd src-tauri && cargo tauri build --bundles app
-open "target/release/bundle/macos/Sys Monitor.app"      # dashboard opens; note the tray title
-```
+| Build | Re-added to Full Disk Access? | Result |
+|---|---|---|
+| First build (default `cargo tauri build`, ad-hoc signed) | Yes (fresh grant) | `Ok(ReadDir(...))` -- pass |
+| Ad-hoc rebuild (new code hash, still ad-hoc signed) | No | `Operation not permitted` -- **grant lost** |
+| First Developer ID build (new identity, never granted) | No | `Operation not permitted` -- expected: this identity was never added |
+| Same Developer ID build | Yes (fresh grant) | `Ok(ReadDir(...))` -- pass |
+| **Rebuild, same Developer ID identity, new code hash** | **No** | **`Ok(ReadDir(...))` -- grant kept** |
 
-1. Open System Settings, Privacy & Security, Full Disk Access. Remove Terminal (or the app that runs your shell) from the list for this test, or run the test from a Terminal that has no FDA.
-2. Baseline: in that Terminal run `ls ~/Library/Mail`. Expect `Operation not permitted`.
-3. Click the `+` in Full Disk Access, add `Sys Monitor.app`, switch it on, then quit and reopen the app (FDA is read at launch).
-4. The spike has no Mail reader, so add a throwaway `let r = std::fs::read_dir("/Users/<you>/Library/Mail")` to `src-tauri/src/main.rs` that writes `ok` or the error to `$TMPDIR/fda.txt` at startup, rebuild the bundle, relaunch (step 3), and read the file. Expect `ok` with the grant and `Operation not permitted` without.
-5. Rebuild the bundle (new ad-hoc signature, different code hash) and relaunch without re-adding it. Record whether FDA still applies. This shows whether an unsigned or ad-hoc bundle keeps its grant across rebuilds, which is what the ADR claims a stable identity gives. Then repeat with `codesign --force --options runtime --sign "<your Developer ID Application identity>"` on the bundle (do this yourself; the spike did not sign).
-6. Record all three outcomes (first grant, ad-hoc rebuild, Developer ID rebuild) in ADR 0004.
+The question the ADR's gate actually turns on is the last row: once a Developer-ID-signed build holds a grant, does a later rebuild with the *same* identity keep it without re-adding. It does. An ad-hoc signature does not survive a rebuild at all; a stable Developer ID identity does. Recorded in [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md), which is now Accepted.
 
-Expectation, not evidence: TCC keys a grant to the bundle identifier plus its code requirement, so a Developer ID signature should keep the grant across rebuilds and an ad-hoc one should not. UNVERIFIED.
+### Checklist (as run; kept for the next time this needs re-checking, e.g. after a Tauri or macOS upgrade)
+
+- [x] **0. Open a Terminal with no FDA.** In System Settings, Privacy & Security, Full Disk Access, remove the Terminal app you use for this (or use a different terminal that was never added). This has to come before the baseline check, or step 1 passes for the wrong reason.
+- [x] **1. Baseline.** In that Terminal: `ls ~/Library/Mail`. Expect `Operation not permitted`. If it lists files, FDA is still on for this Terminal somehow — stop and fix that first.
+- [x] **2. Add the throwaway Mail-read probe**, since the spike has no Mail reader yet. In `/Users/laudebugs/git/spike-a17-tauri-menu-bar-shell/src-tauri/src/main.rs`, near the top of `fn main()`, add:
+  ```rust
+  let home = std::env::var("HOME").unwrap_or_default();
+  let r = std::fs::read_dir(format!("{home}/Library/Mail"));
+  let _ = std::fs::write(format!("{}/fda.txt", std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into())), format!("{r:?}"));
+  ```
+  This only reads a directory listing and writes one line to a scratch temp file; it does not read mail content.
+- [x] **3. First build and grant (ad-hoc).**
+  ```sh
+  cd /Users/laudebugs/git/spike-a17-tauri-menu-bar-shell/src-tauri
+  cargo tauri build --bundles app
+  open "target/release/bundle/macos/Sys Monitor.app"
+  ```
+  Quit the app. In Full Disk Access, click `+`, add `Sys Monitor.app` from that `target/release/bundle/macos/` path, switch it on. Relaunch (FDA is read at launch). Read `$TMPDIR/fda.txt` (or `/tmp/fda.txt`): expect `Ok(ReadDir(...))`, not `Operation not permitted`.
+- [x] **4. Ad-hoc rebuild.** Touch a comment in `main.rs` (changes the code hash without changing behavior), rebuild (same command), relaunch **without re-adding it to Full Disk Access**. Read `fda.txt` again -- this one came back `Operation not permitted`.
+- [x] **5a. First Developer ID build.** Sign the bundle:
+  ```sh
+  codesign --force --options runtime --sign "Developer ID Application: <your name> (<team id>)" \
+    "target/release/bundle/macos/Sys Monitor.app"
+  codesign --verify --deep --strict "target/release/bundle/macos/Sys Monitor.app"   # confirms the signature took
+  ```
+  (`security find-identity -v -p codesigning` shows the exact identity string to use.) This is a **new** identity to TCC, so relaunching without adding it fails (`Operation not permitted`) -- expected, not yet meaningful on its own.
+- [x] **5b. Grant the Developer ID build, then rebuild with the same identity.** Add this signed `Sys Monitor.app` to Full Disk Access fresh, toggle on, relaunch, confirm `fda.txt` reads `Ok(ReadDir(...))`. Then touch another comment, rebuild, **re-sign with the same identity string**, relaunch **without re-adding it**. Read `fda.txt` once more -- this is the step that actually tests "does a stable Developer ID identity survive a rebuild", and it does.
+- [x] **6. Clean up.** Remove `Sys Monitor.app` from Full Disk Access (or leave it, owner's call), add your real Terminal back if you removed it, revert the `main.rs` probe (`git checkout -- src-tauri/src/main.rs` on the spike branch), and delete `$TMPDIR/fda.txt`.
+- [x] **7. Record all outcomes** in [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md) and flip its acceptance gate. Done: Accepted.
+
+Confirmed, not just expected: TCC keys a grant to the bundle identifier plus its code requirement (signing identity), so a Developer ID signature keeps the grant across a rebuild and an ad-hoc one does not.
 
 ## Surprises
 
@@ -81,6 +109,8 @@ Expectation, not evidence: TCC keys a grant to the bundle identifier plus its co
 ## Recommendation
 
 **Amend ADR 0004 (keep it Proposed, do not accept yet). Build the shell only if the Full Disk Access test passes.** The shell is feasible and cheap to build. The in-process server, loopback page, guards, tray title and tooltip, Accessory policy and bundle (8.8 MiB) all worked with a small change to `server.rs`, and no `invoke` command or capability was needed. The costs are 99 USD a year, a signing and notarization release job, and about 130 MB resident against 7 MB. The owner already holds a Developer ID identity, which lowers the entry cost. The one benefit that cannot be bought another way is a stable identity for Full Disk Access, and it is still PENDING. The ADR should therefore record these results, mark that claim as untested, and make acceptance depend on the FDA test (step 5 above). Reject it if an ad-hoc or Developer ID rebuild does not keep the grant, because the tray alone does not justify the cost. Also amend two ADR statements: the webview needs no capability, and `withGlobalTauri` must be checked so the external page has no `invoke` path.
+
+**Update, 2026-11-26, later the same day:** the FDA test ran (see the checklist section above). The Developer ID identity does keep the grant across a rebuild; an ad-hoc signature does not. ADR 0004 is now Accepted on that basis.
 
 ## Sources
 

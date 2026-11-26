@@ -22,8 +22,9 @@ fn main() {
                 println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| h.command.split_whitespace().next().unwrap_or(&h.exe).to_string()).collect::<Vec<_>>().join(" <- "));
             }
         },
-        Some("persistence") => for i in persistence::take() {
-            println!("{}{:<12} {:<7} {} -> {}", if i.is_new { "NEW " } else { "    " }, i.kind, i.scope, i.label, i.program);
+        Some("persistence") => for i in persistence::take().items {
+            let state = if i.removed_at.is_some() { "GONE" } else if i.is_new { "NEW " } else { "    " };
+            println!("{state}{:<12} {:<7} {} -> {}", i.kind, i.scope, i.label, i.program);
         },
         Some("storage") => println!("{}", storage::to_json(Some(&storage::scan()), false, true)),
         Some("metrics") => println!("{}", serde_json::to_string_pretty(&sampler::one_shot()).unwrap()),
