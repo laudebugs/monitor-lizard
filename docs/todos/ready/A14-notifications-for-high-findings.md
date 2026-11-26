@@ -26,7 +26,7 @@ Tell the owner when something high-severity appears, without a window open: a na
 **In scope:**
 
 - `src/notify.rs`: `notify(title, body)` via `osascript` with the text passed as arguments (`on run argv`), never interpolated into the script.
-- Settings in `~/.ownwatch/settings.json`: `notifications` = off | high | all (default off), quiet hours, `generic_text` (default true).
+- Settings in `~/.sys-monitor/settings.json`: `notifications` = off | high | all (default off), quiet hours, `generic_text` (default true).
 - Dedupe table `notified(finding_id, ts)` in the history database; findings present when notifications are first enabled are seeded as seen.
 - A Settings control in the dashboard using the existing custom dropdown.
 

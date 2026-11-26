@@ -58,7 +58,7 @@ Add GPU device, renderer and tiler utilization and disk throughput, operations a
 
 ## Acceptance criteria
 
-- GPU and disk values appear in `ownwatch metrics` and `/api/metrics`.
+- GPU and disk values appear in `sys-monitor metrics` and `/api/metrics`.
 - The loop spawns no child processes (assert with a test double or by inspection).
 
 ## Tests

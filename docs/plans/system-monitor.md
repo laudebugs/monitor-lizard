@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `6ecc2f1`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [prior art](../research/prior-art/README.md), [local classifier](../research/local-classifier/README.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [A1](../todos/done/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/done/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/done/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md), [C1](../todos/done/C1-table-sort-and-filter.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md). The classifier agent's technical design is [classifier-agent](classifier-agent.md). Table UI: C1 (done), [C2](../todos/ongoing/C2-expand-processes-resizable-drawer.md) (expand and resize, in review as #13).
+- **Todos:** [A1](../todos/done/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/done/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/done/A6-rule-based-labels.md), [A11](../todos/done/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md), [C1](../todos/done/C1-table-sort-and-filter.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md). The classifier agent's technical design is [classifier-agent](classifier-agent.md). Table UI: C1 (done), C2 (done).
 
 ## 1. Goal
 
@@ -33,7 +33,7 @@ See [prior art](../research/prior-art/README.md): the Objective-See tools cover 
 - **D2.** The UI is a static page on loopback, no remote assets.
 - **D3.** Writes are guarded: per-run token, loopback Host and Origin, own-user processes only, audited.
 - **D4.** Rules decide the label; a model, if added, only explains and ranks suggested actions, never downgrades a rule's "suspicious", and never acts. See [local classifier](../research/local-classifier/README.md).
-- **D5.** State lives in `~/.ownwatch/` (baseline JSON, history SQLite) until [A11](../todos/ready/A11-rename-to-system-monitor.md) renames it with a migration.
+- **D5.** State lives in `~/.sys-monitor/` (baseline JSON, history SQLite), migrated once from `~/.ownwatch/` ([A11](../todos/done/A11-rename-to-system-monitor.md)).
 - **D7.** The classifier is a bounded call from Rust to a local llama-server; buildanagent is used for evals only, not at runtime: [ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) (accepted 2026-11-26), [research](../research/buildanagent-adoption/README.md).
 - **D6.** "New" means first seen after a learning period (60 s after the very first scan of that kind), flagged for a bounded window (1 h for hosts, 7 days for startup items), so the first run is not a wall of alerts.
 
@@ -67,4 +67,4 @@ Not yet written (IDs A9, A17 to A19 are free): the feedback baseline ("mark as e
 2. "Not mine" needs a trust model (signature, path, install source) to avoid false positives; A6 is the first step.
 3. The UI has only been smoke-tested in a simulated DOM; layout checks are pending a real browser.
 4. Branch protection and pinned actions are not set up (see [ci-and-release.md](../agents/ci-and-release.md)).
-5. Open: the final product name (the crate is `ownwatch`, the repository `system-monitor`).
+5. Resolved: the product is Sys Monitor, the crate and binary `sys-monitor`, the repository `laudebugs/sys-monitor` ([A11](../todos/done/A11-rename-to-system-monitor.md)).

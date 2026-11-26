@@ -1,4 +1,4 @@
-# ownwatch
+# Sys Monitor
 
 Local-first macOS monitor that groups every process and network socket by app and flags anything that is not yours.
 
@@ -11,7 +11,7 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo run --release -- sudo-log 20    # stored sudo/su launches
     cargo test
 
-Baseline lives in `~/.ownwatch/baseline.json`. The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
+State (baseline and history) lives in `~/.sys-monitor/`; a one-time migration copies `~/.ownwatch/` the first time it finds no new folder. The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
 
 ## Working on this repo
 

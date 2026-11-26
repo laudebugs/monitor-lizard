@@ -28,7 +28,7 @@ Add one sampler thread that every 2 s reads CPU (total, per core, user and syste
 
 - `src/sampler.rs`: `Reading<T> = Value(T) | Unavailable(&'static str) | Restricted`, `Sample`, the thread, `Arc<RwLock<VecDeque<Sample>>>` of 1800 entries.
 - CPU via `host_processor_info` ticks; load via `getloadavg`; memory via `host_statistics64` and `sysctl` (`hw.memsize`, `vm.swapusage`, `kern.memorystatus_vm_pressure_level`, `kern.memorystatus_level`); performance and efficiency core counts via `sysctl hw.perflevel*`; network via `sysctl NET_RT_IFLIST2` or `getifaddrs`.
-- `GET /api/metrics?since=<ts>` returning samples newer than `ts`, and `ownwatch metrics` printing one sample.
+- `GET /api/metrics?since=<ts>` returning samples newer than `ts`, and `sys-monitor metrics` printing one sample.
 - The monitor's own CPU use recorded in each sample (`self_cpu_pct`).
 
 **Out of scope** (name the todo that covers it):
@@ -68,7 +68,7 @@ Add one sampler thread that every 2 s reads CPU (total, per core, user and syste
 
 ## Acceptance criteria
 
-- `ownwatch metrics` prints plausible CPU, memory, pressure and network values on this Mac.
+- `sys-monitor metrics` prints plausible CPU, memory, pressure and network values on this Mac.
 - `/api/metrics?since=` returns only newer samples.
 - Measured self CPU use is recorded and under 2% on this Mac, or the todo says why not.
 

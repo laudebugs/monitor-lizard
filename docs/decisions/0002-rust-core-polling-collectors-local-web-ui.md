@@ -23,6 +23,8 @@ The project began as a TypeScript prototype and moved to Rust on the owner's req
 - A Tauri menu-bar app can wrap the same server and page later without changing this decision.
 - Renaming the crate and data folder to match the repository name is a separate todo.
 
+**Amended 2026-11-26 (todo A11):** the crate is `sys-monitor` and state lives in `~/.sys-monitor/`, migrated once from `~/.ownwatch/`. The product and repository are both named Sys Monitor / `sys-monitor`.
+
 ## Alternatives considered
 
 - Keep the TypeScript prototype: faster to write, but a long-running security daemon is better as a single static binary, and the owner chose Rust.

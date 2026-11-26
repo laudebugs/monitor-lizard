@@ -15,7 +15,7 @@ pub struct ActionRow { pub ts: u64, pub sig: String, pub sent: String, pub refus
 
 pub struct History(Connection);
 
-fn path() -> PathBuf { PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".ownwatch/history.db") }
+fn path() -> PathBuf { crate::paths::data_dir().join("history.db") }
 
 impl History {
     pub fn open() -> rusqlite::Result<Self> { Self::at(&path()) }

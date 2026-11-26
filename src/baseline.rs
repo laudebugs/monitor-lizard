@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::{fs, path::PathBuf};
 
 fn file() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".ownwatch/baseline.json")
+    crate::paths::data_dir().join("baseline.json")
 }
 pub fn load() -> HashSet<String> {
     fs::read_to_string(file()).ok().and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()).unwrap_or_default().into_iter().collect()
