@@ -112,7 +112,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 /* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
 /* Clipping keeps the sticky header working; a table wider than its card needs real scrolling and loses the sticky header. */
 @media(min-width:1101px){.tbl{overflow-x:clip}.tbl.xscroll{overflow-x:auto}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
-.tr{display:grid;grid-template-columns:minmax(80px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px;--gap:12px;--pl:16px;--pr:16px;gap:var(--gap);align-items:center;min-height:46px;padding:0 var(--pr) 0 var(--pl);width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
+.tr{display:grid;grid-template-columns:minmax(120px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px;--gap:12px;--pl:16px;--pr:16px;gap:var(--gap);align-items:center;min-height:46px;padding:0 var(--pr) 0 var(--pl);width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
 .tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
 button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -618,7 +618,7 @@ function exportBar(key, header) {
 }
 // Hidden columns and the row buttons are applied to the drawn table after each render, so every table gets
 // both from its sortHeader call and no page draws them itself.
-const GRID_DEFAULT = 'minmax(80px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px';
+const GRID_DEFAULT = 'minmax(120px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px';
 // The first call keeps the row's original grid, so a later pass (a window resize) never trims it twice.
 function tracksOf(el) {
   if (el.dataset.grid == null) { const m = /grid-template-columns:\s*([^;]+)/.exec(el.getAttribute('style') || ''); el.dataset.grid = m ? m[1].trim() : GRID_DEFAULT; }
@@ -965,7 +965,7 @@ function persistence() {
   const shown = sortRows(list, 'pers', { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen });
   const pg = paginate(shown, 'pers');
   const chips = [['all', 'All'], ['new', 'New'], ['user', 'User'], ['system', 'System']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ pfilter: id, page: {} }) }, l + ' ', all.filter((i) => inFilter(i, id)).length));
-  const cols = 'grid-template-columns:minmax(80px,1.3fr) 110px 70px minmax(80px,1.6fr) 100px 100px 190px';
+  const cols = 'grid-template-columns:minmax(120px,1.3fr) 110px 70px minmax(80px,1.6fr) 100px 100px 190px';
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((i) => h('div', { class: 'tr ell', style: cols },
@@ -1006,7 +1006,7 @@ function network() {
   const shown = sortRows(list, 'net', { app: (r) => r.g.label, remote: (r) => r.remote, scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen });
   const pg = paginate(shown, 'net');
   const chips = [['all', 'All'], ['public', 'Public'], ['lan', 'LAN'], ['new', 'New']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ nfilter: id, page: {} }) }, l + ' ', all.filter((r) => inFilter(r, id)).length));
-  const cols = 'grid-template-columns:minmax(80px,1.1fr) minmax(80px,1.3fr) minmax(80px,1fr) 80px 90px 110px 190px';
+  const cols = 'grid-template-columns:minmax(120px,1.1fr) minmax(80px,1.3fr) minmax(80px,1fr) 80px 90px 110px 190px';
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((r) => h('div', { class: 'tr ell', style: cols },

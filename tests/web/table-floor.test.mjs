@@ -30,9 +30,9 @@ test('floor: a row minimum is the sum of its fixed widths and the first argument
   assert.equal(tracksMin(split('minmax(0,1fr) 60px')), 60);
 });
 
-test('floor: the Network row cannot be narrower than 4 fixed tracks, 3 flexible minimums, gaps and padding', () => {
+test('floor: the Network row cannot be narrower than 4 fixed tracks, 3 flexible minimums (one of 120 px), gaps and padding', () => {
   const net = grids.find((g) => g.includes('190px') && g.includes('90px 110px'));
-  assert.equal(tracksMin(split(net)), 80 + 90 + 110 + 190 + 3 * MIN_FLEX);
+  assert.equal(tracksMin(split(net)), 80 + 90 + 110 + 190 + 120 + 2 * MIN_FLEX);
   // 6 gaps of 12 px and 16 + 64 px of padding come from the CSS rule for .tbl.floor>.tr
   assert.match(html, /\.tbl\.floor>\.tr\{min-width:calc\(var\(--tracks-min\) \+ \(var\(--cols\) - 1\) \* var\(--gap\) \+ var\(--pl\) \+ var\(--pr\)\)\}/);
   assert.match(html, /\.has-copy>\.tr\{--pr:64px\}/);
