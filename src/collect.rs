@@ -108,20 +108,31 @@ pub fn parse_lsof(out: &str) -> Vec<Conn> {
 }
 
 // ---------- code signing ----------
-static CACHE: OnceLock<Mutex<HashMap<String, Signing>>> = OnceLock::new();
+/// Results by program path and the file's modified time, so a replaced program is read again and an
+/// unchanged one never runs `codesign` twice.
+type SigningCache = Mutex<HashMap<String, (Option<std::time::SystemTime>, Signing)>>;
+static CACHE: OnceLock<SigningCache> = OnceLock::new();
+
+fn cached_signing(cache: &SigningCache, path: &str, modified: Option<std::time::SystemTime>, compute: impl FnOnce() -> Signing) -> Signing {
+    if let Some((m, s)) = cache.lock().unwrap().get(path) { if *m == modified { return s.clone(); } }
+    let s = compute();
+    cache.lock().unwrap().insert(path.into(), (modified, s.clone()));
+    s
+}
 
 pub fn signing_of(path: &str) -> Signing {
-    let cache = CACHE.get_or_init(Default::default);
-    if let Some(s) = cache.lock().unwrap().get(path) { return s.clone(); }
+    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    cached_signing(CACHE.get_or_init(Default::default), path, modified, || read_signing(path))
+}
+
+fn read_signing(path: &str) -> Signing {
     let out = run("codesign", &["-dv", "--verbose=2", path]);
     let field = |k: &str| out.lines().find_map(|l| l.strip_prefix(k)).map(str::to_string);
     let team = field("TeamIdentifier=").filter(|t| t != "not set");
     let authority = field("Authority=");
     let signed = authority.is_some() || out.contains("Signature size");
     let apple = !out.contains("not signed") && (out.contains("Software Signing") || out.contains("Apple Root CA")) && team.is_none();
-    let s = Signing { signed: signed && !out.contains("not signed"), team, authority, apple };
-    cache.lock().unwrap().insert(path.into(), s.clone());
-    s
+    Signing { signed: signed && !out.contains("not signed"), team, authority, apple }
 }
 
 #[cfg(test)]
@@ -147,5 +158,17 @@ mod tests {
         assert_eq!(scope_of("172.20.0.1"), Scope::Lan);
         assert_eq!(scope_of("172.32.0.1"), Scope::Public);
         assert_eq!(scope_of("[fe80::1]"), Scope::Lan);
+    }
+    #[test]
+    fn codesign_runs_once_per_path_and_modified_time() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let cache = SigningCache::default();
+        let calls = std::cell::Cell::new(0);
+        let read = |t| cached_signing(&cache, "/p", t, || { calls.set(calls.get() + 1); Signing::default() });
+        let t1 = Some(UNIX_EPOCH + Duration::from_secs(10));
+        read(t1); read(t1); read(t1);
+        assert_eq!(calls.get(), 1, "an unchanged program is not read again");
+        read(Some(UNIX_EPOCH + Duration::from_secs(11)));
+        assert_eq!(calls.get(), 2, "a replaced program is");
     }
 }

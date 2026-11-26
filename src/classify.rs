@@ -163,7 +163,7 @@ pub fn evidence(group_key: &str) -> Option<Evidence> {
     let snap = snapshot::take();
     let g = snap.groups.iter().find(|g| g.key == group_key)?;
     let first_seen_age_secs = crate::history::open_or_report().and_then(|h| h.first_seen(group_key).ok().flatten()).map(|fs| snap.at.saturating_sub(fs));
-    let persistent = persistence::take().iter().any(|i| g.procs.iter().any(|p| p.exe == i.program) || i.program.starts_with(&g.key));
+    let persistent = persistence::take().items.iter().filter(|i| i.removed_at.is_none()).any(|i| g.procs.iter().any(|p| p.exe == i.program) || i.program.starts_with(&g.key));
     Some(build_evidence(g, first_seen_age_secs, persistent))
 }
 
