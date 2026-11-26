@@ -39,7 +39,7 @@ fn main() {
                     None => eprintln!("no such group: {key}"),
                 }
             }
-            None => eprintln!("usage: sys-monitor classify <group-key>"),
+            None => eprintln!("usage: monitor-lizard classify <group-key>"),
         },
         Some("llm-classify") => match (args.next(), args.next()) {
             (Some(key), port) => {
@@ -54,7 +54,7 @@ fn main() {
                     None => eprintln!("no such group: {key}"),
                 }
             }
-            (None, _) => eprintln!("usage: sys-monitor llm-classify <group-key> [port=8090]"),
+            (None, _) => eprintln!("usage: monitor-lizard llm-classify <group-key> [port=8090]"),
         },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
