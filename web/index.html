@@ -799,6 +799,12 @@ function crumb() {
   return parts.map((p, i) => [i ? h('span', { 'aria-hidden': 'true' }, '\u203A') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, p.text) : h('a', { href: p.href }, p.text)]);
 }
 
+/* view-items:begin */
+// Element.replaceChildren turns a null argument into the text "null" (h() filters nullish children, replaceChildren does not),
+// so a view may list a conditional section as `cond ? h(...) : null` and every view goes through here.
+const viewItems = (items) => items.filter((x) => x != null && x !== false);
+/* view-items:end */
+
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
@@ -814,14 +820,14 @@ function render() {
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (!S.snap) c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...'));
-  else if (S.view === 'overview') c.replaceChildren(...overview());
-  else if (S.view === 'apps') c.replaceChildren(...apps());
-  else if (S.view === 'priv') c.replaceChildren(...priv());
-  else if (S.view === 'listeners') c.replaceChildren(...listeners());
-  else if (S.view === 'persist') c.replaceChildren(...persistence());
-  else if (S.view === 'performance') c.replaceChildren(...performanceView_());
-  else if (S.view === 'network') c.replaceChildren(...network());
-  else if (S.view === 'history') c.replaceChildren(...historyView());
+  else if (S.view === 'overview') c.replaceChildren(...viewItems(overview()));
+  else if (S.view === 'apps') c.replaceChildren(...viewItems(apps()));
+  else if (S.view === 'priv') c.replaceChildren(...viewItems(priv()));
+  else if (S.view === 'listeners') c.replaceChildren(...viewItems(listeners()));
+  else if (S.view === 'persist') c.replaceChildren(...viewItems(persistence()));
+  else if (S.view === 'performance') c.replaceChildren(...viewItems(performanceView_()));
+  else if (S.view === 'network') c.replaceChildren(...viewItems(network()));
+  else if (S.view === 'history') c.replaceChildren(...viewItems(historyView()));
   else c.replaceChildren(h('p', { class: 'mut' }, 'Unknown view.')); // every NAV id has a branch above; this only guards a future NAV entry added without one
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
