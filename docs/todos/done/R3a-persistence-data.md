@@ -45,7 +45,7 @@ Collect what the redesigned Persistence page needs and the scanner does not prov
 
 ## Steps
 
-- [x] Write the fingerprint and diff tests first.
+- [x] Write the fingerprint and diff tests (written together with the code, not first).
 - [x] Add migration 2 and the writers.
 - [x] Expose the fields and the `changes` list.
 
@@ -85,9 +85,9 @@ make test
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -96,20 +96,20 @@ make test
 
 2026-11-26.
 
-**Built.** Each startup item now has a schedule, a fingerprint, `removed_at` and `unreadable`. The fingerprint is a SHA-256 of the plist bytes and the program's signing identity. No timestamps go in. The hash uses the system's CommonCrypto, so there is no new dependency.
+**Built.** Each startup item has a schedule, a fingerprint, `removed_at`, `unreadable`, `mark_key` and `trust_note`. The fingerprint is a SHA-256 (the `sha2` crate, 0.11.1, MIT or Apache-2.0, no default features) of the plist bytes and the program's signing identity. No timestamps go in.
 
-**Storage.** The todo says migration 2, but M1 and A9 already used it, so this is migration step 3. It adds five columns in one transaction: the three asked for, plus `changed_at` and `change_kind` for the change list. A row is written only when an item is new, changed, removed or restored.
+**Storage.** This is migration step 3, because M1 and A9 used 2. It adds five columns in one transaction: `fingerprint`, `removed_at`, `schedule`, `changed_at` and `restored_at`. A row is written only when an item is new, changed, removed or restored. A removed row is deleted 90 days after removal.
 
-**Changes.** The baseline date is the end of the learning period after the first scan. Before it, `changes` is empty. Items marked expected leave the list. A folder that could not be read never marks its items removed.
+**Marks.** A startup mark is `startup:<path>#<fingerprint>`. An item is expected only while its fingerprint matches, so a marked item whose program is replaced is reported again as changed, with `was_expected` and `is_new` set. A bare path entry matches any version and is legacy.
 
-**Deviation.** `/api/persistence` returned a bare array, so an additive `changes` field was impossible. It now returns `{items, changes}`. `loadPers` in `web/index.html` reads `items` and hides removed items, so the page looks as before. `classify.rs` and `main.rs` also changed to read `items`.
+**Changes.** The baseline date is the first scan plus the learning period. `changes` holds the last 30 days, at most 200 entries, newest first, with a `truncated` flag. An item that came back different is `changed` with `restored`. An added item that was edited says `changed_since_added`.
 
-**Codesign.** Results are cached per program path and modified time, so a replaced program is read again and an unchanged one is not.
+**Safety.** Plists are opened without blocking and must be regular files of at most 8 MiB. The same bytes are hashed and given to plutil on stdin. Scans run one at a time behind a lock, and each carries a number. A folder that could not be read never marks items removed.
 
-**Tests.** New Rust tests cover the fingerprint, the diff, the migration and the cache; 207 pass. I wrote the code and tests together, so I did not watch them fail first.
+**Deviation.** The endpoint returned a bare array, so it now returns `{items, changes}`. The current page reads `items` and hides removed items until R3b shows them. It sends `mark_key` and shows "Not checked" or "Program missing" instead of a dash.
 
-**Real run.** On a scratch home with a version 2 database, the new columns appeared and old rows survived. Editing a plist showed `changed`. Deleting one set `removed_at` and kept it in the response. A broken plist stayed listed with plutil's reason.
+**Cache merge.** The code-signing cache in `collect.rs` now keys on modified time, so one cache serves everything. A link to an ordinary plist is followed, because Homebrew installs such links.
 
-**Browser.** The existing Persistence page showed 33 rows in dark and light, and removed items were hidden. I did not check other widths.
+**Tests.** The fingerprint and diff tests were written with the code, not first. They cover migration from version 2, the mark-then-change case with an unsigned program, a pipe, an oversized file, the caps, pruning, two threads, and a scan through scratch folders.
 
-**Open.** `/code-review` and `/writing-review` are for the owner's session. R3b must surface removed items and `changes`.
+**Open.** `/writing-review` is for the owner's session. R3b must show removed items and `changes`.

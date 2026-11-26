@@ -1,23 +1,32 @@
 //! Startup items: launch agents/daemons and cron. Read-only. A new item appearing after the first scan
 //! is the classic sign of something installing itself, so we remember first-seen times, and a
 //! fingerprint of each item so an edit is noticed too.
-use crate::{baseline::{self, Kind}, collect, history::{self, History, Observed, PersistRow, LEARNING_SECS}, model::Signing};
+use crate::{baseline::{self, Baseline, Kind}, collect, history::{self, ChangeKind, History, Observed, PersistRow, LEARNING_SECS}, model::Signing};
 use serde::Serialize;
-use std::collections::HashMap;
-use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
+use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const NEW_WINDOW_SECS: u64 = 7 * 24 * 3600;
-/// A plist larger than this is not read into memory; real ones are a few hundred bytes.
+/// A plist larger than this is not read; real ones are a few hundred bytes.
 const MAX_PLIST_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Item {
     pub path: String, pub scope: &'static str, pub kind: &'static str, pub label: String, pub program: String,
-    pub run_at_load: bool, pub keep_alive: bool, pub signing: Option<Signing>, pub first_seen: u64, pub is_new: bool,
-    /// The user marked this startup item as expected; it is then never `is_new`.
+    pub run_at_load: bool, pub keep_alive: bool, pub signing: Option<Signing>, pub first_seen: u64,
+    /// New since the baseline, or an item the user marked expected that has since changed.
+    pub is_new: bool,
+    /// The user marked this exact version of the item (same fingerprint) as expected.
     pub expected: bool,
+    /// The user marked an earlier version as expected, and the item has changed since: it needs a look again.
+    pub was_expected: bool,
+    /// The key to mark this version as expected (or to unmark it, when `expected`). The server's
+    /// baseline stores it, so the page never builds keys.
+    pub mark_key: String,
     /// `StartInterval` in seconds, when the plist has one.
     pub start_interval: Option<u64>,
     /// When it runs, in words: "at load, kept alive, every 3600s", a cron expression, or "on demand".
@@ -30,6 +39,8 @@ pub struct Item {
     pub unreadable: Option<String>,
     /// The program path is absolute and nothing exists there.
     pub program_missing: bool,
+    /// Why there is no signing result ("not checked", "program missing"); never read as signed.
+    pub trust_note: Option<String>,
     /// Hash of the plist bytes alone: the part of the fingerprint known before signing is read.
     #[serde(skip)]
     content_hash: String,
@@ -37,21 +48,27 @@ pub struct Item {
 
 /// What `take` returns and `/api/persistence` serves.
 #[derive(Serialize, Debug, Default)]
-pub struct Scan { pub items: Vec<Item>, pub changes: Vec<ChangeEntry> }
+pub struct Scan {
+    pub items: Vec<Item>,
+    /// Added, changed, restored or removed since the baseline: the last 30 days, at most 200, newest first.
+    pub changes: Vec<ChangeEntry>,
+    /// True when `changes` left entries out because of those limits.
+    pub truncated: bool,
+    /// When this scan started (seconds) and its number in this run; a later scan has a larger number.
+    pub scanned_at: u64,
+    pub scan_id: u64,
+}
 
-/// One item that was added, changed, restored or removed since the baseline date.
 #[derive(Serialize, Debug, PartialEq)]
-pub struct ChangeEntry { pub path: String, pub label: String, pub kind: &'static str, pub at: u64 }
+pub struct ChangeEntry {
+    pub path: String, pub label: String, pub kind: ChangeKind, pub at: u64,
+    pub restored: bool, pub changed_since_added: bool, pub last_change_at: Option<u64>,
+    /// The item had been marked expected before this change.
+    pub was_expected: bool,
+}
 
-extern "C" { fn CC_SHA256(data: *const u8, len: u32, md: *mut u8) -> *mut u8; }
-
-/// Lowercase hex SHA-256. Uses the system's CommonCrypto so no dependency is needed. Input over 4 GiB
-/// is not expected (plists are capped far below that).
 fn sha256_hex(data: &[u8]) -> String {
-    let mut md = [0u8; 32];
-    // SAFETY: `data` is valid for `len` bytes and `md` has the 32 bytes CC_SHA256 writes.
-    unsafe { CC_SHA256(data.as_ptr(), data.len() as u32, md.as_mut_ptr()); }
-    md.iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Names the program's code-signing identity for the fingerprint. Nothing in it changes between
@@ -69,22 +86,16 @@ fn fingerprint(content_hash: &str, program: &str, identity: &str) -> String {
     sha256_hex(format!("{content_hash}\0{program}\0{identity}").as_bytes())
 }
 
-/// `codesign` results by program path and modified time, so a scan every minute does not run
-/// `codesign` for programs that did not change. A replaced program has a new time and is read again.
-type SigningCache = Mutex<HashMap<String, (Option<SystemTime>, Signing)>>;
-
-fn signing_cached_with(cache: &SigningCache, path: &str, modified: Option<SystemTime>, compute: impl FnOnce() -> Signing) -> Signing {
-    if let Some((m, s)) = cache.lock().unwrap().get(path) { if *m == modified { return s.clone(); } }
-    let s = compute();
-    cache.lock().unwrap().insert(path.into(), (modified, s.clone()));
-    s
+/// The reason an item has no signing result. A program that cannot be located is never shown as signed.
+fn trust_note(program: &str, missing: bool) -> Option<String> {
+    if program.is_empty() { None }
+    else if missing { Some("program missing".into()) }
+    else if !program.starts_with('/') { Some("not checked: the program path is relative".into()) }
+    else { None }
 }
 
-fn signing_cached(path: &str) -> Signing {
-    static CACHE: OnceLock<SigningCache> = OnceLock::new();
-    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    signing_cached_with(CACHE.get_or_init(Default::default), path, modified, || collect::signing_uncached(path))
-}
+/// The key a startup mark is stored under: the item and the exact version of it that was marked.
+fn mark_key(path: &str, fingerprint: &str) -> String { format!("{path}#{fingerprint}") }
 
 fn schedule_text(run_at_load: bool, keep_alive: bool, interval: Option<u64>) -> String {
     let mut parts = Vec::new();
@@ -94,21 +105,25 @@ fn schedule_text(run_at_load: bool, keep_alive: bool, interval: Option<u64>) -> 
     if parts.is_empty() { "on demand".into() } else { parts.join(", ") }
 }
 
+fn label_from_path(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.strip_suffix(".plist").unwrap_or(name).into()
+}
+
 pub fn item_from_json(path: &str, scope: &'static str, kind: &'static str, v: &serde_json::Value) -> Item {
     let program = v["Program"].as_str().or_else(|| v["ProgramArguments"][0].as_str()).unwrap_or("").to_string();
     let keep_alive = match &v["KeepAlive"] { serde_json::Value::Bool(b) => *b, serde_json::Value::Object(_) => true, _ => false };
     let run_at_load = v["RunAtLoad"].as_bool().unwrap_or(false);
     let start_interval = v["StartInterval"].as_u64();
     Item {
-        path: path.into(), scope, kind, label: v["Label"].as_str().unwrap_or(path.rsplit('/').next().unwrap_or(path)).into(),
+        path: path.into(), scope, kind, label: v["Label"].as_str().map_or_else(|| label_from_path(path), String::from),
         program, run_at_load, keep_alive, start_interval, schedule: schedule_text(run_at_load, keep_alive, start_interval), ..Default::default()
     }
 }
 
 /// An item whose plist could not be read or parsed: still listed, with the reason.
 fn unreadable_item(path: &str, scope: &'static str, kind: &'static str, reason: String) -> Item {
-    let stem = path.rsplit('/').next().unwrap_or(path);
-    Item { path: path.into(), scope, kind, label: stem.strip_suffix(".plist").unwrap_or(stem).into(), schedule: "unknown".into(),
+    Item { path: path.into(), scope, kind, label: label_from_path(path), schedule: "unknown".into(),
         content_hash: sha256_hex(reason.as_bytes()), unreadable: Some(reason), ..Default::default() }
 }
 
@@ -136,26 +151,46 @@ fn first_word(cmd: &str) -> String {
 /// Items from the output of `crontab -l`; lines that are not jobs ("no crontab for ...") yield nothing.
 pub fn parse_crontab(out: &str) -> Vec<Item> { out.lines().filter_map(item_from_cron).collect() }
 
-/// The first line of plutil's complaint without the file path, which the item already shows.
-fn plutil_reason(stderr: &[u8], path: &str) -> String {
-    let text = String::from_utf8_lossy(stderr);
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("not a valid property list");
-    line.replace(&format!("{path}: "), "").replace(path, "the file")
+/// Reads one plist's bytes. The file is opened without blocking, so a pipe cannot hang the scan, and
+/// the opened handle must be a regular file, so a link to a device such as /dev/zero is refused. A
+/// link to an ordinary file is followed. At most the cap plus one byte is ever read.
+fn read_plist(path: &str) -> Result<Vec<u8>, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path).map_err(|e| format!("cannot read the file: {e}"))?;
+    if !f.metadata().map_err(|e| format!("cannot read the file: {e}"))?.file_type().is_file() {
+        return Err("not a regular file (it is a pipe, device or socket)".into());
+    }
+    let mut bytes = Vec::new();
+    f.take(MAX_PLIST_BYTES + 1).read_to_end(&mut bytes).map_err(|e| format!("cannot read the file: {e}"))?;
+    if bytes.len() as u64 > MAX_PLIST_BYTES { return Err(format!("file is larger than {MAX_PLIST_BYTES} bytes")); }
+    Ok(bytes)
+}
+
+/// Converts plist bytes to JSON with plutil, feeding the same bytes that were hashed, so the fields and the fingerprint cannot describe different versions of the file.
+fn plist_to_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    let mut child = Command::new("plutil").args(["-convert", "json", "-o", "-", "-"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().map_err(|e| format!("cannot run plutil: {e}"))?;
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let data = bytes.to_vec();
+    // A separate thread, so a large input cannot block on plutil's full output pipe.
+    let writer = std::thread::spawn(move || { let _ = stdin.write_all(&data); });
+    let out = child.wait_with_output().map_err(|e| format!("cannot run plutil: {e}"))?;
+    let _ = writer.join();
+    if !out.status.success() {
+        let text = String::from_utf8_lossy(&out.stderr);
+        let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("not a valid property list");
+        return Err(line.strip_prefix("<stdin>: ").unwrap_or(line).to_string());
+    }
+    serde_json::from_slice(&out.stdout).map_err(|e| format!("plutil gave unreadable output: {e}"))
 }
 
 fn plist_item(path: &str, scope: &'static str, kind: &'static str) -> Item {
-    let bytes = match std::fs::metadata(path) {
-        Ok(m) if m.len() > MAX_PLIST_BYTES => return unreadable_item(path, scope, kind, format!("file is larger than {MAX_PLIST_BYTES} bytes")),
-        _ => match std::fs::read(path) { Ok(b) => b, Err(e) => return unreadable_item(path, scope, kind, format!("cannot read the file: {e}")) },
-    };
-    let out = match Command::new("plutil").args(["-convert", "json", "-o", "-", path]).output() {
-        Ok(o) => o,
-        Err(e) => return unreadable_item(path, scope, kind, format!("cannot run plutil: {e}")),
-    };
-    match serde_json::from_slice::<serde_json::Value>(&out.stdout).ok().filter(|_| out.status.success()) {
-        Some(v) => Item { content_hash: sha256_hex(&bytes), ..item_from_json(path, scope, kind, &v) },
-        // The bytes are part of the fingerprint even when unparsable, so editing the broken file still shows.
-        None => Item { content_hash: sha256_hex(&bytes), ..unreadable_item(path, scope, kind, plutil_reason(&out.stderr, path)) },
+    let bytes = match read_plist(path) { Ok(b) => b, Err(reason) => return unreadable_item(path, scope, kind, reason) };
+    let content_hash = sha256_hex(&bytes);
+    // The bytes are part of the fingerprint even when unparsable, so editing the broken file still shows.
+    match plist_to_json(&bytes) {
+        Ok(v) => Item { content_hash, ..item_from_json(path, scope, kind, &v) },
+        Err(reason) => Item { content_hash, ..unreadable_item(path, scope, kind, reason) },
     }
 }
 
@@ -187,83 +222,145 @@ fn kind_and_scope(path: &str, home: &str) -> (&'static str, &'static str) {
 
 /// A listing entry for an item that is no longer found, built from what the database kept.
 fn removed_item(row: &PersistRow, home: &str) -> Item {
+    let fingerprint = row.fingerprint.clone().unwrap_or_default();
     if let Some(mut it) = row.path.strip_prefix("crontab:").and_then(item_from_cron) {
-        it.first_seen = row.first_seen; it.removed_at = row.removed_at; it.fingerprint = row.fingerprint.clone().unwrap_or_default();
+        it.first_seen = row.first_seen; it.removed_at = row.removed_at; it.fingerprint = fingerprint;
         return it;
     }
     let (kind, scope) = kind_and_scope(&row.path, home);
-    let stem = row.path.rsplit('/').next().unwrap_or(&row.path);
-    Item { path: row.path.clone(), scope, kind, label: stem.strip_suffix(".plist").unwrap_or(stem).into(), schedule: row.schedule.clone(),
-        first_seen: row.first_seen, removed_at: row.removed_at, fingerprint: row.fingerprint.clone().unwrap_or_default(), ..Default::default() }
+    Item { path: row.path.clone(), scope, kind, label: label_from_path(&row.path), schedule: row.schedule.clone(),
+        first_seen: row.first_seen, removed_at: row.removed_at, fingerprint, ..Default::default() }
 }
 
-pub fn take() -> Scan {
-    let home = std::env::var("HOME").unwrap_or_default();
+/// Where a scan looks. Tests point it at a scratch folder.
+struct Roots { home: String, user_agents: String, system_agents: String, system_daemons: String, cron: bool }
+
+impl Roots {
+    fn real() -> Self {
+        let home = std::env::var("HOME").unwrap_or_default();
+        Roots { user_agents: format!("{home}/Library/LaunchAgents"), system_agents: "/Library/LaunchAgents".into(), system_daemons: "/Library/LaunchDaemons".into(), cron: true, home }
+    }
+}
+
+/// Paths that have at least one startup mark made at some version, so a changed item can say it was once expected.
+fn marked_paths(base: &Baseline) -> HashSet<String> {
+    base.entries().iter().filter_map(|e| baseline::parse_entry(e).1.rsplit_once('#').filter(|_| e.starts_with("startup:")).map(|(p, _)| p.to_string())).collect()
+}
+
+/// Sets the mark fields from the baseline. A mark names the version it was made on (`path#fingerprint`);
+/// an old entry that is only the path (from before marks named a version) keeps matching any version.
+fn apply_baseline(it: &mut Item, base: &Baseline, marked: &HashSet<String>) {
+    let exact = mark_key(&it.path, &it.fingerprint);
+    (it.expected, it.mark_key) = if base.has(Kind::Startup, &exact) { (true, exact) }
+        else if base.has(Kind::Startup, &it.path) { (true, it.path.clone()) }
+        else { (false, exact) };
+    it.was_expected = !it.expected && marked.contains(&it.path);
+}
+
+fn scan_in(roots: &Roots, history: rusqlite::Result<History>, base: &Baseline, now: u64) -> Scan {
     let mut items = Vec::new();
     let mut scanned = Vec::new();
-    for (dir, scope, kind) in [(format!("{home}/Library/LaunchAgents"), "user", "LaunchAgent"), ("/Library/LaunchAgents".into(), "system", "LaunchAgent"), ("/Library/LaunchDaemons".into(), "system", "LaunchDaemon")] {
-        if scan_dir(&dir, scope, kind, &mut items) { scanned.push(format!("{dir}/")); }
+    for (dir, scope, kind) in [(&roots.user_agents, "user", "LaunchAgent"), (&roots.system_agents, "system", "LaunchAgent"), (&roots.system_daemons, "system", "LaunchDaemon")] {
+        if scan_dir(dir, scope, kind, &mut items) { scanned.push(format!("{dir}/")); }
     }
     // `crontab -l` exits non-zero when the user has no crontab; that is an answer, not a failure.
-    if let Ok(o) = Command::new("crontab").arg("-l").output() {
-        if o.status.success() || String::from_utf8_lossy(&o.stderr).contains("no crontab") {
-            scanned.push("crontab:".into());
-            items.extend(parse_crontab(&String::from_utf8_lossy(&o.stdout)));
+    if roots.cron {
+        if let Ok(o) = Command::new("crontab").arg("-l").output() {
+            if o.status.success() || String::from_utf8_lossy(&o.stderr).contains("no crontab") {
+                scanned.push("crontab:".into());
+                items.extend(parse_crontab(&String::from_utf8_lossy(&o.stdout)));
+            }
         }
     }
     std::thread::scope(|s| {
         for it in items.iter_mut().filter(|i| i.program.starts_with('/')) {
             it.program_missing = !std::path::Path::new(&it.program).exists();
-            if !it.program_missing { s.spawn(move || it.signing = Some(signing_cached(&it.program))); }
+            if !it.program_missing { s.spawn(move || it.signing = Some(collect::signing_of(&it.program))); }
         }
     });
-    for it in &mut items { it.fingerprint = fingerprint(&it.content_hash, &it.program, &identity(&it.program, it.program_missing, it.signing.as_ref())); }
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let base = baseline::load();
-    let recorded = History::open().and_then(|mut h| {
+    for it in &mut items {
+        it.trust_note = trust_note(&it.program, it.program_missing);
+        it.fingerprint = fingerprint(&it.content_hash, &it.program, &identity(&it.program, it.program_missing, it.signing.as_ref()));
+    }
+    let marked = marked_paths(base);
+    for it in &mut items { apply_baseline(it, base, &marked); }
+    let recorded = history.and_then(|mut h| {
         let seen: Vec<Observed> = items.iter().map(|i| Observed { path: &i.path, fingerprint: &i.fingerprint, schedule: &i.schedule }).collect();
         h.record_persistence(&seen, &scanned, now)
     });
-    let mut changes = Vec::new();
+    let (mut changes, mut truncated) = (Vec::new(), false);
     match recorded {
         Ok(rows) => {
             let earliest = rows.iter().map(|r| r.first_seen).min().unwrap_or(now);
             let first: HashMap<&str, u64> = rows.iter().map(|r| (r.path.as_str(), r.first_seen)).collect();
             for it in &mut items {
                 it.first_seen = first.get(it.path.as_str()).copied().unwrap_or(now);
-                it.expected = base.has(Kind::Startup, &it.path);
-                it.is_new = is_new(it.first_seen, earliest, now) && !it.expected;
+                it.is_new = (is_new(it.first_seen, earliest, now) && !it.expected) || it.was_expected;
             }
-            let present: std::collections::HashSet<String> = items.iter().map(|i| i.path.clone()).collect();
-            items.extend(rows.iter().filter(|r| r.removed_at.is_some() && !present.contains(&r.path)).map(|r| {
-                let mut it = removed_item(r, &home);
-                it.expected = base.has(Kind::Startup, &it.path);
+            let present: HashSet<String> = items.iter().map(|i| i.path.clone()).collect();
+            let gone: Vec<Item> = rows.iter().filter(|r| r.removed_at.is_some() && !present.contains(&r.path)).map(|r| {
+                let mut it = removed_item(r, &roots.home);
+                apply_baseline(&mut it, base, &marked);
                 it
-            }));
-            let label_of: HashMap<&str, &str> = items.iter().map(|i| (i.path.as_str(), i.label.as_str())).collect();
-            // A marked item has been looked at, so it leaves the list like it leaves "new".
-            changes = history::persistence_changes(&rows).into_iter().filter(|c| !base.has(Kind::Startup, &c.path))
-                .map(|c| ChangeEntry { label: label_of.get(c.path.as_str()).copied().unwrap_or(&c.path).to_string(), path: c.path, kind: c.kind, at: c.at }).collect();
+            }).collect();
+            items.extend(gone);
+            let by_path: HashMap<&str, &Item> = items.iter().map(|i| (i.path.as_str(), i)).collect();
+            let (list, cut) = history::persistence_changes(&rows, now);
+            truncated = cut;
+            // An item marked at its current version has been looked at, so it leaves the list; a changed one stays.
+            changes = list.into_iter().filter(|c| !by_path.get(c.path.as_str()).is_some_and(|i| i.expected)).map(|c| {
+                let item = by_path.get(c.path.as_str());
+                let was_expected = item.is_some_and(|i| i.was_expected);
+                // An edit after a mark is what matters, even on an item added since the baseline.
+                let (kind, at) = match (was_expected, c.last_change_at) { (true, Some(t)) => (ChangeKind::Changed, t), _ => (c.kind, c.at) };
+                ChangeEntry { label: item.map_or_else(|| c.path.clone(), |i| i.label.clone()), path: c.path, kind, at, restored: c.restored,
+                    changed_since_added: c.changed_since_added, last_change_at: c.last_change_at, was_expected }
+            }).collect();
         }
         // Fail loudly: without history nothing can be called new, and silence would look like "all clear".
         Err(e) => {
             eprintln!("monitor-lizard: could not record startup items, so none can be marked new: {e}");
-            for it in &mut items { it.first_seen = now; it.expected = base.has(Kind::Startup, &it.path); }
+            for it in &mut items { it.first_seen = now; it.is_new = it.was_expected; }
         }
     }
     items.sort_by(|a, b| a.removed_at.is_some().cmp(&b.removed_at.is_some()).then(b.is_new.cmp(&a.is_new)).then(a.scope.cmp(b.scope)).then(a.label.cmp(&b.label)));
-    Scan { items, changes }
+    Scan { items, changes, truncated, scanned_at: now, scan_id: 0 }
 }
 
-/// Sets `expected` on one item of a cached scan and clears `is_new` when it becomes expected. A marked
-/// item also leaves the change list. Anything that cannot be parsed is returned as it was.
-pub fn patch_expected(json: &str, path: &str, expected: bool) -> String {
+fn now_secs() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
+
+/// Held for a whole scan and the cache update after it, and counts scans. Two scans (the periodic
+/// one and one started by a mark) must not interleave: a stale one committing last could mark an
+/// item removed and then restored, or put older data in the cache.
+static SCAN_GATE: Mutex<u64> = Mutex::new(0);
+
+fn run_serialized(scan: impl FnOnce() -> Scan, cache: Option<&Mutex<Option<String>>>) -> Scan {
+    let mut last = SCAN_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    *last += 1;
+    let mut s = scan();
+    s.scan_id = *last;
+    if let Some(c) = cache { *c.lock().unwrap() = Some(serde_json::to_string(&s).unwrap_or_default()); }
+    s
+}
+
+fn scan_real() -> Scan { scan_in(&Roots::real(), History::open(), &baseline::load(), now_secs()) }
+
+pub fn take() -> Scan { run_serialized(scan_real, None) }
+
+/// Scans and stores the result as JSON in the server's cache, in one step that no other scan can interleave with.
+pub fn refresh_cache(cache: &Mutex<Option<String>>) { run_serialized(scan_real, Some(cache)); }
+
+/// Sets `expected` on the item with this mark key in a cached scan, and clears `is_new` when it becomes
+/// expected. A marked item also leaves the change list. Anything unparsable is returned as it was.
+pub fn patch_expected(json: &str, key: &str, expected: bool) -> String {
     let Ok(mut v) = serde_json::from_str::<serde_json::Value>(json) else { return json.into() };
-    for item in v["items"].as_array_mut().into_iter().flatten().filter(|i| i["path"] == path) {
+    let mut paths = Vec::new();
+    for item in v["items"].as_array_mut().into_iter().flatten().filter(|i| i["mark_key"] == key) {
         item["expected"] = expected.into();
-        if expected { item["is_new"] = false.into(); }
+        if expected { item["is_new"] = false.into(); item["was_expected"] = false.into(); }
+        paths.push(item["path"].clone());
     }
-    if expected { if let Some(c) = v["changes"].as_array_mut() { c.retain(|c| c["path"] != path); } }
+    if expected { if let Some(c) = v["changes"].as_array_mut() { c.retain(|c| !paths.contains(&c["path"])); } }
     serde_json::to_string(&v).unwrap_or_else(|_| json.into())
 }
 
@@ -272,14 +369,14 @@ mod tests {
     use super::*;
     #[test]
     fn patching_the_cached_list_marks_only_the_named_item() {
-        let json = r#"{"items":[{"path":"/a","is_new":true,"expected":false},{"path":"/b","is_new":true,"expected":false}],"changes":[{"path":"/a","kind":"added"},{"path":"/b","kind":"added"}]}"#;
-        let v: serde_json::Value = serde_json::from_str(&patch_expected(json, "/a", true)).unwrap();
+        let json = r#"{"items":[{"path":"/a","mark_key":"/a#f1","is_new":true,"expected":false},{"path":"/b","mark_key":"/b#f2","is_new":true,"expected":false}],"changes":[{"path":"/a","kind":"added"},{"path":"/b","kind":"added"}]}"#;
+        let v: serde_json::Value = serde_json::from_str(&patch_expected(json, "/a#f1", true)).unwrap();
         let (a, b) = (&v["items"][0], &v["items"][1]);
         assert_eq!((a["expected"].as_bool(), a["is_new"].as_bool()), (Some(true), Some(false)));
         assert_eq!((b["expected"].as_bool(), b["is_new"].as_bool()), (Some(false), Some(true)));
         assert_eq!(v["changes"].as_array().unwrap().len(), 1, "a marked item leaves the change list");
         assert_eq!(v["changes"][0]["path"], "/b");
-        assert_eq!(patch_expected("not json", "/a", true), "not json");
+        assert_eq!(patch_expected("not json", "/a#f1", true), "not json");
     }
     #[test]
     fn plist_json() {
@@ -409,23 +506,194 @@ mod tests {
     }
 
     #[test]
-    fn codesign_runs_once_per_path_and_modified_time() {
-        let cache = SigningCache::default();
-        let calls = std::cell::Cell::new(0);
-        let read = |t: Option<SystemTime>| signing_cached_with(&cache, "/p", t, || { calls.set(calls.get() + 1); Signing::default() });
-        let t1 = Some(UNIX_EPOCH + std::time::Duration::from_secs(10));
-        read(t1); read(t1); read(t1);
-        assert_eq!(calls.get(), 1, "an unchanged program is not read again");
-        read(Some(UNIX_EPOCH + std::time::Duration::from_secs(11)));
-        assert_eq!(calls.get(), 2, "a replaced program is");
-    }
-
-    #[test]
     fn a_removed_item_keeps_a_listing_built_from_its_row() {
-        let row = PersistRow { path: "/Users/me/Library/LaunchAgents/com.x.plist".into(), first_seen: 5, schedule: "at load".into(), fingerprint: Some("f".into()), removed_at: Some(9), changed_at: None, change_kind: None };
+        let row = PersistRow { path: "/Users/me/Library/LaunchAgents/com.x.plist".into(), first_seen: 5, schedule: "at load".into(), fingerprint: Some("f".into()), removed_at: Some(9), changed_at: None, restored_at: None };
         let it = removed_item(&row, "/Users/me");
         assert_eq!((it.label.as_str(), it.kind, it.scope, it.removed_at, it.schedule.as_str()), ("com.x", "LaunchAgent", "user", Some(9), "at load"));
         let cron = PersistRow { path: "crontab:*/5 * * * * /bin/echo hi".into(), ..row };
         assert_eq!(removed_item(&cron, "/Users/me").kind, "cron");
+    }
+
+    // ----- marks are tied to the version that was marked -----
+
+    fn roots(dir: &std::path::Path) -> Roots {
+        Roots { home: dir.to_string_lossy().into(), user_agents: dir.join("LaunchAgents").to_string_lossy().into(),
+            system_agents: "/nonexistent-ml/agents".into(), system_daemons: "/nonexistent-ml/daemons".into(), cron: false }
+    }
+    fn scan_at(r: &Roots, db: &std::path::Path, base: &Baseline, now: u64) -> Scan { scan_in(r, History::at(db), base, now) }
+    fn find<'a>(s: &'a Scan, label: &str) -> &'a Item { s.items.iter().find(|i| i.label == label).unwrap_or_else(|| panic!("no {label}")) }
+    fn write_plist(r: &Roots, name: &str, program: &str) -> String {
+        std::fs::create_dir_all(&r.user_agents).unwrap();
+        let path = format!("{}/{name}.plist", r.user_agents);
+        std::fs::write(&path, plist(&format!("com.t.{name}"), program, "<key>RunAtLoad</key><true/>")).unwrap();
+        path
+    }
+    fn unsigned_program(dir: &std::path::Path) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("unsigned.sh");
+        std::fs::write(&p, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p.to_string_lossy().into()
+    }
+
+    #[test]
+    fn a_marked_item_whose_program_is_replaced_by_an_unsigned_one_is_flagged_again() {
+        let d = scratch("marked-changed");
+        let (r, db) = (roots(&d), d.join("h.db"));
+        let path = write_plist(&r, "a", "/bin/ls");
+        let none = Baseline::default();
+        let marked_key = find(&scan_at(&r, &db, &none, 1000), "com.t.a").mark_key.clone();
+        assert!(marked_key.starts_with(&format!("{path}#")), "the key names the version");
+        let base = Baseline::from_entries(vec![format!("startup:{marked_key}")]);
+        let s = scan_at(&r, &db, &base, 2000);
+        assert!(find(&s, "com.t.a").expected && s.changes.is_empty(), "the marked version is expected");
+        write_plist(&r, "a", &unsigned_program(&d));
+        let s = scan_at(&r, &db, &base, 3000);
+        let it = find(&s, "com.t.a");
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(!it.expected && it.was_expected && it.is_new, "needs attention again");
+        assert_eq!(it.signing.as_ref().map(|g| g.signed), Some(false));
+        assert_eq!(s.changes.len(), 1);
+        assert_eq!((s.changes[0].kind, s.changes[0].was_expected, s.changes[0].at), (ChangeKind::Changed, true, 3000));
+    }
+
+    #[test]
+    fn an_entry_without_a_fingerprint_matches_any_version() {
+        let d = scratch("legacy");
+        let (r, db) = (roots(&d), d.join("h.db"));
+        let path = write_plist(&r, "a", "/bin/ls");
+        let base = Baseline::from_entries(vec![format!("startup:{path}")]);
+        scan_at(&r, &db, &base, 1000);
+        write_plist(&r, "a", &unsigned_program(&d));
+        let s = scan_at(&r, &db, &base, 3000);
+        let _ = std::fs::remove_dir_all(&d);
+        let it = find(&s, "com.t.a");
+        assert!(it.expected && !it.was_expected);
+        assert_eq!(it.mark_key, path, "unmarking removes the old entry");
+    }
+
+    // ----- the whole scan, end to end -----
+
+    #[test]
+    fn editing_a_plist_shows_under_changes_and_deleting_one_keeps_it_listed_as_removed() {
+        let d = scratch("e2e");
+        let (r, db, none) = (roots(&d), d.join("h.db"), Baseline::default());
+        let path = write_plist(&r, "a", "/bin/ls");
+        write_plist(&r, "b", "/bin/ls");
+        let s = scan_at(&r, &db, &none, 1000);
+        assert!(s.changes.is_empty(), "first run: everything is baseline");
+        write_plist(&r, "a", "/nonexistent/evil");
+        let s = scan_at(&r, &db, &none, 2000);
+        assert_eq!(s.changes.len(), 1);
+        assert_eq!((s.changes[0].path.as_str(), s.changes[0].kind), (path.as_str(), ChangeKind::Changed));
+        assert!(find(&s, "com.t.a").program_missing);
+        std::fs::remove_file(&path).unwrap();
+        let s = scan_at(&r, &db, &none, 3000);
+        let gone = s.items.iter().find(|i| i.path == path).expect("still listed");
+        assert_eq!(gone.removed_at, Some(3000));
+        assert!(s.changes.iter().any(|c| c.path == path && c.kind == ChangeKind::Removed));
+        let s = scan_at(&r, &db, &none, 3100);
+        assert_eq!(s.items.iter().find(|i| i.path == path).unwrap().removed_at, Some(3000), "the removal time is not rewritten");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_relative_program_path_is_never_shown_as_signed() {
+        let d = scratch("relative");
+        let (r, db) = (roots(&d), d.join("h.db"));
+        write_plist(&r, "a", "bin/tool");
+        let s = scan_at(&r, &db, &Baseline::default(), 1000);
+        let _ = std::fs::remove_dir_all(&d);
+        let it = find(&s, "com.t.a");
+        assert!(it.signing.is_none() && !it.program_missing);
+        assert_eq!(it.trust_note.as_deref(), Some("not checked: the program path is relative"));
+        assert_eq!(identity("bin/tool", false, None), "not checked");
+    }
+
+    // ----- hostile files -----
+
+    #[test]
+    fn a_named_pipe_is_refused_without_blocking() {
+        let d = scratch("fifo");
+        let path = d.join("pipe.plist");
+        let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path.
+        if unsafe { libc::mkfifo(c.as_ptr(), 0o600) } != 0 { eprintln!("mkfifo unavailable; skipping"); return; }
+        let it = plist_item(path.to_str().unwrap(), "user", "LaunchAgent");
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(it.unreadable.as_deref().is_some_and(|w| w.contains("not a regular file")), "{:?}", it.unreadable);
+    }
+
+    #[test]
+    fn a_file_over_the_cap_is_refused_with_a_reason_and_still_listed() {
+        let d = scratch("big");
+        let path = d.join("big.plist");
+        std::fs::File::create(&path).unwrap().set_len(MAX_PLIST_BYTES + 1).unwrap();
+        let it = plist_item(path.to_str().unwrap(), "user", "LaunchAgent");
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(it.unreadable.as_deref().is_some_and(|w| w.contains("larger than")), "{:?}", it.unreadable);
+        assert_eq!(it.label, "big");
+    }
+
+    #[test]
+    fn a_link_to_a_device_is_refused_and_a_link_to_a_plist_is_followed() {
+        let d = scratch("links");
+        std::fs::write(d.join("real.xml"), plist("com.t.real", "/bin/ls", "")).unwrap();
+        std::os::unix::fs::symlink(d.join("real.xml"), d.join("good.plist")).unwrap();
+        // The link is only opened without reading: a character device reports "not regular" at once.
+        std::os::unix::fs::symlink("/dev/null", d.join("dev.plist")).unwrap();
+        let good = plist_item(d.join("good.plist").to_str().unwrap(), "user", "LaunchAgent");
+        let dev = plist_item(d.join("dev.plist").to_str().unwrap(), "user", "LaunchAgent");
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!((good.label.as_str(), good.unreadable.is_none()), ("com.t.real", true));
+        assert!(dev.unreadable.as_deref().is_some_and(|w| w.contains("not a regular file")));
+    }
+
+    #[test]
+    fn the_parsed_fields_come_from_the_bytes_that_were_hashed() {
+        let bytes = plist("com.t.same", "/bin/ls", "").into_bytes();
+        let v = plist_to_json(&bytes).unwrap();
+        assert_eq!(v["Label"], "com.t.same");
+        let err = plist_to_json(b"nope").unwrap_err();
+        assert!(!err.is_empty() && !err.contains("<stdin>"), "{err}");
+    }
+
+    // ----- scans never interleave -----
+
+    #[test]
+    fn two_threads_scanning_at_once_run_one_after_the_other_and_the_cache_ends_with_the_newer_scan() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (busy, cache) = (AtomicBool::new(false), Mutex::new(None));
+        let ids = Mutex::new(Vec::new());
+        std::thread::scope(|s| for _ in 0..2 {
+            s.spawn(|| {
+                let out = run_serialized(|| {
+                    assert!(!busy.swap(true, Ordering::SeqCst), "two scans overlapped");
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    busy.store(false, Ordering::SeqCst);
+                    Scan::default()
+                }, Some(&cache));
+                ids.lock().unwrap().push(out.scan_id);
+            });
+        });
+        let ids = ids.into_inner().unwrap();
+        assert_ne!(ids[0], ids[1]);
+        let stored: serde_json::Value = serde_json::from_str(cache.lock().unwrap().as_deref().unwrap()).unwrap();
+        assert_eq!(stored["scan_id"].as_u64(), ids.iter().copied().max());
+    }
+
+    #[test]
+    fn concurrent_scans_of_a_stable_folder_never_record_a_removal_or_a_change() {
+        let d = scratch("race");
+        let (r, db) = (roots(&d), d.join("h.db"));
+        write_plist(&r, "a", "/bin/ls");
+        scan_at(&r, &db, &Baseline::default(), 1000);
+        std::thread::scope(|s| for t in 0..2u64 {
+            let (r, db) = (&r, &db);
+            s.spawn(move || for n in 0..4 { run_serialized(|| scan_at(r, db, &Baseline::default(), 2000 + t * 10 + n), None); });
+        });
+        let rows = History::at(&db).unwrap().record_persistence(&[], &[], 9000).unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(rows.iter().all(|r| r.removed_at.is_none() && r.changed_at.is_none() && r.restored_at.is_none()), "{rows:?}");
     }
 }

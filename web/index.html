@@ -800,7 +800,7 @@ function cards() {
   if (failed >= 5) add({ id: 'sudo', sev: 'medium', title: failed + ' failed sudo attempts in the last 2 hours', sub: 'Repeated failures like this are usually a script retrying. Check who ran them.', acts: [['Investigate', 'btn-acc', () => rec({ view: 'priv' })], ['Mark as mine', '', () => mute('sudo')]] });
   const ap = f.filter((x) => x.rule === 'exposed-listener-apple');
   if (ap.length) add({ id: 'apple', sev: 'low', title: 'Apple services reachable from your network', sub: ap.map((x) => x.group).join(', ') + '. These are part of macOS.', acts: [['Mute', '', () => mute('apple')]] });
-  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })], ['Mark expected', '', () => mark([['startup', { key: i.path }]], true, i.label)]] });
+  for (const i of S.pers.filter((x) => x.is_new)) add({ id: 'pers:' + i.path, sev: psig(i) === 'unsigned' ? 'high' : 'medium', title: 'New startup item: ' + i.label, sub: i.program + ' (' + i.kind + ', ' + i.scope + ')', acts: [['Details', 'btn-acc', () => rec({ view: 'persist', q: '', pfilter: 'new' })], ['Mark expected', '', () => mark([['startup', { key: i.mark_key }]], true, i.label)]] });
   return out;
 }
 
@@ -941,7 +941,7 @@ function listeners() {
 // leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
 // it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
 const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
-const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : ''); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
+const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : ''); return t === null ? (i.trust_note ? h('span', { class: 'mut', title: i.trust_note }, i.program_missing ? 'Program missing' : 'Not checked') : h('span', { class: 'mut' }, '-')) : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter;
   const all = S.pers;
@@ -957,7 +957,7 @@ function persistence() {
       h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
-      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.path }]], i.expected, i.label)))),
+      h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.mark_key }]], i.expected, i.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No items match the current filters. ' : 'No startup items found.'), all.length ? clearBtn() : null), pg.pager);
   return [h('div', { class: 'filters' }, chips), table];
 }
