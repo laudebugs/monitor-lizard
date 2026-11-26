@@ -31,6 +31,15 @@ Marking an item as expected hides it from the Overview and the New filters. It d
 - A corrupt `baseline.json` is moved aside without overwriting older copies, and the Overview shows a banner saying earlier marks are not in effect. An unreadable one pauses marking until it can be read.
 - Anyone who can write `~/.monitor-lizard/baseline.json` can hide things from you. That is the same access that is out of scope below.
 
+## What is protected on disk
+
+The data folder `~/.monitor-lizard` is mode 0700, and every file the app keeps in it is 0600: the history database and its WAL and SHM files, the lock file, the backup, `baseline.json`, and `settings.json`. Other local users cannot read the sudo and su launch history.
+
+- At startup the app tightens an existing folder and its files, including ones made by an older version or copied from `~/.sys-monitor` or `~/.ownwatch`. It skips symlinks and anything owned by another user. It prints one line to stderr when it changed something.
+- The older folders themselves are never changed. Their modes stay as they were, so they may still be readable by other users. Delete them once you no longer need them.
+- If a change of mode fails, the app says so once and carries on. Check the modes yourself in that case.
+- Files outside this folder are not covered. The in-app guide and the project files are public text, not secrets.
+
 ## Out of scope
 
 Findings that need local root, or that assume the attacker already runs code as you and can read `~/.monitor-lizard/` (or an older `~/.sys-monitor/` or `~/.ownwatch/`, kept for migration).

@@ -184,6 +184,9 @@ impl History {
         // back up the already-migrated file.
         let _lock = open_lock(p)?;
         remove_stale_backups(&backup_path(p));
+        // Created here at 0600 so SQLite opens an existing file and the -wal and -shm files it
+        // makes copy this mode; letting SQLite create it would apply the umask (usually 0644).
+        crate::paths::open_private(p, false).map_err(|e| file_error("create the database file", p, e))?;
         let mut c = Connection::open(p)?;
         c.busy_timeout(std::time::Duration::from_secs(10))?;
         // Migrate before switching journal mode so a file from a newer version is refused untouched.
@@ -903,5 +906,21 @@ mod tests {
         assert_eq!(mem_backlog, vec![(100, 5000.0)]);
         assert!(h.query_metrics("1m", 0).unwrap().is_empty(), "nothing written when disabled");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_fresh_database_and_its_wal_and_shm_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("monlizard-hist-modes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = dir.join("h.db");
+        let mut h = History::at(&db).unwrap();
+        h.record_persistence(&["/x"], 1).unwrap(); // a write, so the -wal exists
+        for suffix in ["", "-wal", "-shm"] {
+            let p = PathBuf::from(format!("{}{suffix}", db.display()));
+            assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600, "{}", p.display());
+        }
+        drop(h);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

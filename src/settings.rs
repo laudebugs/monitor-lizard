@@ -85,8 +85,10 @@ pub fn save(s: &Settings) -> std::io::Result<()> {
     save_at(&file(), s)
 }
 fn save_at(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
-    fs::create_dir_all(path.parent().unwrap())?;
-    fs::write(path, serde_json::to_string_pretty(s).unwrap())
+    use std::io::Write;
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(path.parent().unwrap())?;
+    crate::paths::open_private(path, true)?.write_all(serde_json::to_string_pretty(s).unwrap().as_bytes())
 }
 
 /// Applies a settings-endpoint update: parses and validates every given field before writing
@@ -217,5 +219,14 @@ mod tests {
         let s = update_at(&p, None, None, None, None, Some("false")).unwrap();
         assert!(!s.metrics_history);
         assert_eq!(update_at(&p, None, None, None, None, Some("maybe")).unwrap_err(), "metrics_history must be true or false");
+    }
+
+    #[test]
+    fn a_new_settings_file_and_its_folder_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let p = tmp_settings_path("modes");
+        save_at(&p, &Settings::default()).unwrap();
+        assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::metadata(p.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
     }
 }
