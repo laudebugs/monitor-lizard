@@ -1,7 +1,7 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Validates the todo board under docs/todos/. Zero dependencies.
-//   node scripts/check-todos.mjs           validate (exit 1 on problems)
-//   node scripts/check-todos.mjs --board   print the derived board
+//   bun scripts/check-todos.mjs            validate (exit 1 on problems)
+//   bun scripts/check-todos.mjs --board    print the derived board
 // The board is never committed: a committed board changes in every PR that moves a todo,
 // and each merge would make every other open PR conflict.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
