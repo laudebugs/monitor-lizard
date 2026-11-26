@@ -78,7 +78,7 @@ make test
 ## Risks and open questions
 
 - Labels are the owner's judgement: review the corpus before trusting scores.
-- Adding Node to CI for the runner is optional; prefer a Rust runner if the spike shows no benefit.
+- A JavaScript runner would run on Bun (already in CI via `.bun-version`); whether the buildanagent packages run under Bun (their `engines` field says Node 22.19 or later) is unverified and part of the spike. Prefer a Rust runner if the spike shows no benefit.
 
 ## Definition of done
 
