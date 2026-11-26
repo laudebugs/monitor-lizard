@@ -7,7 +7,7 @@
 <title>ownwatch</title>
 <style>
 /* Fonts: IBM Plex Mono if installed, else the system monospace. No remote font loading (local-first). */
-:root{--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--font:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace}
+:root{--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--font:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace}
 *{box-sizing:border-box;border-radius:0}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font)}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -23,7 +23,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .grow{flex:1 1 auto;min-width:0}
 .badge{font-size:11px;min-width:22px;text-align:center;padding:2px 6px;background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
 .badge.warn{color:var(--warn);border-color:var(--warn)}.badge.bad{color:var(--bad);border-color:var(--bad)}
-.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
 .top h1{margin:0;font-size:20px;font-weight:600}
 .search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
 .search::placeholder{color:var(--mut)}
@@ -44,6 +44,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .tag.warn{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
 .tag.bad{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
 .tbl{overflow-x:auto}
+.pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
+.pager select{height:28px;background:var(--panel2);color:var(--fg);border:1px solid var(--line);font:inherit;font-size:12px;padding:0 6px}
+/* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
+@media(min-width:1101px){.tbl{overflow:visible}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
 .tr{display:grid;grid-template-columns:minmax(150px,1.6fr) 64px 64px minmax(150px,1.4fr) minmax(140px,1.2fr) 100px;gap:12px;align-items:center;min-height:46px;padding:0 16px;width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
 .tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
 button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
@@ -83,13 +87,26 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', q: '', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', q: '', page: {}, size: 25, modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
 const status = (g) => (g.approved ? 'approved' : apple(g) ? 'macOS' : net(g) ? 'review' : 'idle');
 const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
 const rec = (m) => { Object.assign(S, m); render(); };
+function paginate(list, key) {
+  const pages = Math.max(1, Math.ceil(list.length / S.size));
+  const p = Math.min(Math.max(1, S.page[key] || 1), pages);
+  const start = (p - 1) * S.size;
+  const slice = list.slice(start, start + S.size);
+  const go = (n) => rec({ page: Object.assign({}, S.page, { [key]: n }) });
+  const pager = list.length <= 10 ? null : h('div', { class: 'pager' },
+    h('span', {}, (start + 1) + '-' + (start + slice.length) + ' of ' + list.length), h('span', { class: 'grow' }),
+    h('label', {}, 'Rows ', h('select', { 'aria-label': 'Rows per page', onChange: (e) => rec({ size: +e.target.value, page: {} }) }, [10, 25, 50, 100].map((n) => h('option', { value: n, selected: n === S.size }, n)))),
+    h('button', { class: 'btn sm', disabled: p <= 1, onClick: () => go(p - 1) }, 'Prev'), h('span', {}, 'Page ' + p + ' / ' + pages),
+    h('button', { class: 'btn sm', disabled: p >= pages, onClick: () => go(p + 1) }, 'Next'));
+  return { slice, pager };
+}
 
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'X-Ownwatch-Token': TOKEN } });
@@ -165,15 +182,16 @@ function apps() {
   const all = S.snap.groups.filter((g) => g.conns.length);
   const list = all.filter((g) => (S.filter === 'all' || status(g) === S.filter) && (!q || g.label.toLowerCase().includes(q) || g.conns.some((c) => String(c.local_port).includes(q) || (c.remote_addr || '').includes(q))));
   const count = (f) => all.filter((g) => f === 'all' || status(g) === f).length;
-  const chips = [['all', 'All'], ['review', 'Needs review'], ['approved', 'Approved'], ['macOS', 'macOS']].map(([id, l]) => h('button', { class: 'chip ' + (S.filter === id ? 'on' : ''), onClick: () => rec({ filter: id }) }, l + ' ', count(id)));
+  const chips = [['all', 'All'], ['review', 'Needs review'], ['approved', 'Approved'], ['macOS', 'macOS']].map(([id, l]) => h('button', { class: 'chip ' + (S.filter === id ? 'on' : ''), onClick: () => rec({ filter: id, page: {} }) }, l + ' ', count(id)));
   const listen = (g) => [...new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port + (c.exposed ? '*' : '')))].join(', ') || '-';
   const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
-  const table = h('section', { class: 'card tbl', style: 'flex:999 1 560px;min-width:0' },
+  const pg = paginate(list, 'apps');
+  const table = h('section', { class: 'card tbl', style: 'flex:999 1 640px;min-width:0' },
     h('div', { class: 'tr h' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Trust'), h('span', {}, 'Status')),
-    list.map((g) => h('button', { class: 'tr ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
+    pg.slice.map((g) => h('button', { class: 'tr ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
       h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
       h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))))),
-    list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match.')));
+    list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match.')), pg.pager);
   const g = S.snap.groups.find((x) => x.key === S.sel);
   return [h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px' }, chips), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, g ? drawer(g, listen(g), sig(g)) : null)];
 }
@@ -204,14 +222,15 @@ function drawer(g, listen, sig) {
 function priv() {
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
   const T = 'grid-template-columns:90px 70px minmax(180px,1.4fr) minmax(220px,2fr);min-width:640px';
+  const sp = paginate(S.sudo, 'sudo'), ap = paginate(S.priv, 'auth');
   return [
     failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. If the requester shows "(exited)", it was gone before it could be read. The live capture below records new ones with their parent chain.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
     h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, h('div', { class: 'tr h', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px' }, h('span', {}, 'Time'), h('span', {}, 'Command'), h('span', {}, 'Requester chain')),
-      S.sudo.length ? S.sudo.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while ownwatch is serving shows up here.'))),
+      S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while ownwatch is serving shows up here.')), sp.pager),
     h('h2', { class: 'sec' }, 'Authorization requests (system log)'),
     h('div', { class: 'card tbl' }, h('div', { class: 'tr h', style: T }, h('span', {}, 'Time'), h('span', {}, 'Result'), h('span', {}, 'Right'), h('span', {}, 'Requester')),
-      S.priv.slice(0, 60).map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)'))))),
+      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.pager),
   ];
 }
 
@@ -243,7 +262,7 @@ function render() {
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   $('layer').replaceChildren(...layer);
 }
-$('q').addEventListener('input', (e) => { S.q = e.target.value; if (S.view !== 'apps' && S.q) S.view = 'apps'; render(); });
+$('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (S.view !== 'apps' && S.q) S.view = 'apps'; render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 render(); load(); loadPriv(); loadSudo();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000);
