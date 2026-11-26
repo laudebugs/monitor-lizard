@@ -91,6 +91,22 @@ mod tests {
     }
 
     #[test]
+    fn both_older_names_present_migrates_from_the_newer_one_and_touches_neither() {
+        // A machine that has every era's folder on disk at once: .sys-monitor is the one actually in
+        // use (OLDER_NAMES tries it first), so .ownwatch's data must never be the source here.
+        let base = tmp("both-older");
+        fs::create_dir_all(base.join(".sys-monitor")).unwrap();
+        fs::write(base.join(".sys-monitor").join("baseline.json"), "{\"approved\":[\"newer\"]}").unwrap();
+        fs::create_dir_all(base.join(".ownwatch")).unwrap();
+        fs::write(base.join(".ownwatch").join("baseline.json"), "{\"approved\":[\"older\"]}").unwrap();
+        let dir = data_dir_in(&base);
+        assert_eq!(fs::read_to_string(dir.join("baseline.json")).unwrap(), "{\"approved\":[\"newer\"]}");
+        assert_eq!(fs::read_to_string(base.join(".sys-monitor").join("baseline.json")).unwrap(), "{\"approved\":[\"newer\"]}", "the newer older-folder is never touched");
+        assert_eq!(fs::read_to_string(base.join(".ownwatch").join("baseline.json")).unwrap(), "{\"approved\":[\"older\"]}", "the oldest folder is never touched, and was never read from either");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn migration_failure_leaves_the_old_folder_untouched_and_logs_instead_of_panicking() {
         let base = tmp("fail");
         fs::create_dir_all(base.join(".sys-monitor")).unwrap();

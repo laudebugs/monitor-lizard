@@ -9,7 +9,7 @@
 | `Cargo.toml`, `Cargo.lock` | The Rust crate `monitor-lizard` ([ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)) |
 | `src/main.rs` | CLI entry: `snapshot`, `json`, `serve`, `approve`, `privilege`, `watch`, `sudo-log`, `persistence` |
 | `src/collect.rs`, `src/group.rs`, `src/rules.rs`, `src/snapshot.rs`, `src/model.rs` | Process and socket collection, grouping by app, findings and the rule-based trust label (`rules::classify`), the snapshot type |
-| `src/paths.rs` | Where state lives (`~/.monitor-lizard/`), with the one-time migration from `~/.ownwatch/` |
+| `src/paths.rs` | Where state lives (`~/.monitor-lizard/`), with the one-time migration from whichever of `~/.sys-monitor/` or `~/.ownwatch/` is found |
 | `src/baseline.rs`, `src/history.rs` | The approved-apps baseline (`baseline.json`) and the SQLite history (`history.db`: first-seen hosts, startup items, sudo launches, action audit; a `samples` table of downsampled CPU/memory history at 1 and 15 minute resolutions, opt-in via `settings.metrics_history`, never per-process), both under `src/paths.rs`'s data directory |
 | `src/privilege.rs`, `src/watcher.rs` | Authorization-log parsing and the live sudo/su launch watcher |
 | `src/persistence.rs` | Read-only scan of launch agents, launch daemons and cron; `is_new` marks items first seen after the learning period |
