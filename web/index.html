@@ -941,7 +941,7 @@ function listeners() {
 // leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
 // it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
 const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
-const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : ''); return t === null ? (i.trust_note ? h('span', { class: 'mut', title: i.trust_note }, i.program_missing ? 'Program missing' : 'Not checked') : h('span', { class: 'mut' }, '-')) : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
+const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : 'Signed' + (i.signing && i.signing.team ? ' ' + i.signing.team : ''); return t === null ? (i.trust_note ? h('span', { class: 'mut', title: i.trust_note }, i.program_missing ? 'Program missing' : 'Not checked') : h('span', { class: 'mut' }, '-')) : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok', title: label }, label); };
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter;
   const all = S.pers;
