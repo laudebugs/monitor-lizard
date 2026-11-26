@@ -61,9 +61,9 @@ fn cap_len(s: &str, n: usize) -> String {
     clean.chars().take(n).collect()
 }
 
-// Same figure `llm.rs` already enforces on length alone; not imported from there (it's private, and
-// this module's own cap -- length and control characters both -- should hold regardless of whatever
-// partial cleaning a particular model or server did or didn't do upstream.
+// Same figure `llm.rs` already enforces on length alone; not imported from there (it's private),
+// and this module's own cap -- length and control characters both -- should hold regardless of
+// whatever partial cleaning a particular model or server did or didn't do upstream.
 const RATIONALE_MAX: usize = 240;
 
 /// The agent's suggestion once it has been checked against the rules: never the model's raw reply.
@@ -71,8 +71,9 @@ const RATIONALE_MAX: usize = 240;
 /// a value of this type can only come from `validate_verdict`, so nothing downstream can display or
 /// act on a verdict that skipped the checks below. Markup in `rationale` is left as plain text, not
 /// escaped: this module has no notion of a display surface, so escaping it here would be guessing
-/// at a format that whatever shows it (A15) may not even use.
-// No caller outside the tests below yet: showing a Verdict is a later todo's job (A15).
+/// at a format whatever shows it may not even use.
+// Not yet called outside its own tests: a type whose only constructor is a validating function is
+// meant to exist before anything is allowed to build one by hand.
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Verdict {
@@ -91,7 +92,7 @@ pub struct Verdict {
 /// rule label stands alone, actions fall back to whatever of `Investigate` the rules themselves
 /// already allow (never inserted if the rules didn't allow it, so this fallback can't be the one
 /// case that violates the "never outside `allowed`" guarantee either).
-#[allow(dead_code)] // no caller outside the tests below yet: wiring A8's result through this is A15's job
+#[allow(dead_code)] // not yet called outside its own tests below; see the note on Verdict above
 pub fn validate_verdict(rule_label: Label, allowed: &[Action], verdict: Result<llm::Verdict, llm::LlmError>) -> Verdict {
     let Ok(raw) = verdict else {
         let actions = if allowed.contains(&Action::Investigate) { vec![Action::Investigate] } else { vec![] };
@@ -247,6 +248,16 @@ mod tests {
             assert_eq!(v.actions, vec![Action::Investigate]);
             assert_eq!(v.rationale, "");
         }
+    }
+
+    #[test]
+    fn a8_unavailable_with_investigate_not_allowed_leaves_actions_empty_not_a_disallowed_one() {
+        // Trusted-and-approved's allowed set is [Ignore] alone (see allowed_actions_for); this is
+        // the same "don't insert what wasn't allowed" guarantee as the Ok-but-filtered-empty case,
+        // exercised directly on the Err path rather than implied by it.
+        let v = validate_verdict(Label::Trusted, &[Action::Ignore], Err(llm::LlmError::Unavailable("down".into())));
+        assert_eq!(v.label, Label::Trusted);
+        assert!(v.actions.is_empty());
     }
 
     #[test]

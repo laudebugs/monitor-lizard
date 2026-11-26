@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `d310e18`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [local classifier research](../research/local-classifier/README.md), [buildanagent adoption research](../research/buildanagent-adoption/README.md), [ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md), [system-monitor plan](system-monitor.md) decisions D4 and D7
-- **Todos:** A6 (done), A7, A8, A10, A12, A13, A15, A16: see section 12.
+- **Todos:** A6 (done), A7 (done), A8 (done), A10 (done), A12, A13, A15, A16: see section 12.
 
 ## 1. Goal
 
@@ -140,9 +140,9 @@ User message: one JSON object `{"evidence": {...}}`. Attacker-controlled strings
 
 | Control | Where |
 |---|---|
-| The label is decided by rules; the model can only escalate | `validate_verdict` ([A10](../todos/ready/A10-agent-verdict-and-validator.md)) |
+| The label is decided by rules; the model can only escalate | `validate_verdict` ([A10](../todos/done/A10-agent-verdict-and-validator.md)) |
 | The model has no tools and cannot cause any action | one call, no tool schema ([ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md)) |
-| Suggested actions are a subset of what rules allow and `actions.rs` accepts | `allowed_actions` ([A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md)) |
+| Suggested actions are a subset of what rules allow and `actions.rs` accepts | `allowed_actions` ([A7](../todos/done/A7-agent-allowed-actions-and-group-query.md)) |
 | Attacker strings are capped, cleaned and quoted as data; the system prompt never contains them | `evidence`, `llm.rs`; a test asserts the built request |
 | Every action still passes the confirm dialog, with focus on Cancel and a second step for force quit | existing dialog, [A15](../todos/ready/A15-agent-ui-shadow-mode.md) |
 | The model server binds loopback only, runs with a cleared environment, and the app contacts the network only for the explicit model download | [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A12](../todos/ready/A12-model-install.md) |
