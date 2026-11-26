@@ -91,7 +91,7 @@ make test
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md` (pending, owner runs it)
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose (pending, owner runs it)
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -100,18 +100,30 @@ make test
 
 2026-11-26.
 
-**Built.** `src/baseline.rs` holds typed entries: `app:`, `host:`, `startup:` and `finding:`. An old untyped file loads unchanged as apps and becomes typed on the next write. A corrupt file is moved to `baseline.json.bad`, an empty baseline is used, and the dashboard shows a notice.
+**Built.** `src/baseline.rs` holds typed entries: `app:`, `host:`, `startup:` and `finding:<app>:<rule>#<ports>`. An old untyped file loads unchanged as apps and becomes typed on the next write. Writes take a mutex and a file lock, use a unique 0600 temp file, and flush the file and its folder.
 
-**Server.** `POST /api/approve` and `/api/unapprove` take `kind` and `key`, behind the same Origin and token guards. An unknown kind or bad key gives 400. `GET /api/baseline` lists entries. Each change goes into the new `baseline_changes` table first, and nothing changes if that write fails.
+**Server.** `POST /api/approve` and `/api/unapprove` take `kind` and `key`, or `app` and `addr` for a host, behind the same Origin and token guards. A bad kind, bad key or refused rule gives 400. `GET /api/baseline` reads only and never moves a file.
 
-**Effect.** Expected hosts leave the new-hosts finding. Expected startup items are never new. Expected findings move to `expected_findings` in the snapshot, out of counts, notifications and labels. The CLI `approve` takes typed keys.
+**Marks and labels.** A mark never raises a trust label, because labels are computed from every finding before the marked ones are split off. A finding mark covers exactly the exposed ports it was made on, so a new port brings the finding back. New hosts are marked host by host.
 
-**Interface.** Buttons sit on the Overview cards, the Persistence page and the Network page. Marked rows keep an "expected" chip and an Unmark button. The History page lists every change.
+**Never expected.** `unsigned-network` and `debug-port` are refused at write time, as are unknown rules and `unreviewed`. Marked findings are listed in a collapsed Overview section with their scope and an Unmark button, and the heading counts them.
 
-**Tests.** 18 new Rust tests. The suite passes with 156 run and 2 ignored, plus 31 Node tests. A real run on a scratch home checked 403, 400, repeated marks and the audit rows.
+**Audit and limits.** Each change is written to `baseline_changes` before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
 
-**Browser.** Looked at in Chrome: Persistence, Network and History in dark, Overview in light, marking and unmarking a startup item, a host and a finding. At 400 px only the sidebar fits, so the new columns were not assessed there.
+**Corrupt files.** A corrupt file is moved to `.bad`, `.bad-1` and so on, never over an older copy. The Overview shows a banner until dismissed, saying earlier marks are not in effect. An unreadable file pauses marking and is never replaced.
 
-**Deviations.** Unsigned-network findings cannot be marked, so approving cannot hide an unsigned program; the todo did not say this. `baseline_changes` is created by `CREATE TABLE IF NOT EXISTS` as asked. Once the schema-version PR merges, it needs to become a migration step. Muting is out of scope.
+**Startup items.** A real change to a startup item patches the cached list at once and rescans in the background. A repeated request does nothing.
 
-**Open.** `/code-review` and `/writing-review` are for the owner's session. The History page shows marks but offers no Unmark there. Forced-colors and the 400 px view of the new buttons are unchecked.
+**Interface.** Buttons sit on the Overview cards, the Persistence page and the Network page. The server sends each finding's mark key and each group's expected hosts, so the page builds no baseline keys. The History page lists every change, including failed saves.
+
+**Tests.** 32 new Rust tests. The suite passes with 170 run and 2 ignored, plus 31 Node tests. Two real processes marking at once lose no write.
+
+**Real run.** On a scratch home I marked a listener on port 49650, then opened 49651 in the same process. The finding returned and the label stayed Unknown throughout. The 400 cases, a corrupt file and the banner were also exercised.
+
+**Browser.** Looked at in Chrome: Persistence, Network and History in dark, Overview in light and dark, marking and unmarking a finding, the marked section, and the banner. At 400 px the Overview banner wraps with no horizontal scroll. Forced-colors was not checked.
+
+**Deviations.** The change also touched `snapshot.rs`, `persistence.rs`, `notify.rs`, `model.rs`, `group.rs`, `rules.rs` and `guide.rs`, which the Target files table omits. The label rule needed `snapshot.rs`, evidence needed `model.rs` and `rules.rs`, and the startup cache needed `persistence.rs`.
+
+**Size.** The PR is about 920 changed lines against a 400 target, so the M label was exceeded. Review added the evidence scope, never-expected rules, locking, limits and tests. Splitting it would have left the unsafe version mergeable.
+
+**Open.** `/writing-review` is for the owner's session. `baseline_changes` is still created by `CREATE TABLE IF NOT EXISTS` and becomes a migration step once the schema-version PR merges. `new-remote` findings cannot be marked as a finding, only host by host.
