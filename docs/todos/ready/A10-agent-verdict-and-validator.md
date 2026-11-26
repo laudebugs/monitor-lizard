@@ -46,7 +46,7 @@ A pure Rust function that turns a raw verdict into a safe one: the label can onl
 
 | Input | Expected |
 |---|---|
-| Model says benign for a rule label of suspicious | Clamped to suspicious |
+| Model says trusted for a rule label of suspicious | Clamped to suspicious |
 | Model says suspicious for a trusted rule label | Kept: escalation is allowed |
 | Action outside the allowed set | Dropped; if none remain, `investigate` |
 | Rationale over 240 characters or with control characters | Truncated and cleaned |

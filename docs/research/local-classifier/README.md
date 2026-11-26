@@ -33,7 +33,7 @@ Pin the Hugging Face commit SHA and verify SHA-256 after download and at load; a
 
 Input (every string escaped, truncated to 256 characters, in quoted fields only): `exe_path_class`, `signed`, `team_id`, `notarized`, `parent`, `listening_ports`, `remote_host_count`, `first_seen_age_h`, `persistence`, `rule_label`, `rules_fired`, `user_baseline`.
 
-Output, enforced by grammar: `label` (benign, unknown, suspicious), `confidence` (low, medium, high), `actions` (a subset of approve, ignore, investigate, quit, force_quit, block_network), `rationale` (240 characters at most). Code overrides `label` with `rule_label` whenever the rule is stricter.
+Output, enforced by grammar: `label` (trusted, unknown, suspicious; this report first said benign, but the rule label from A6 says trusted and the two must be one vocabulary so the clamp can compare them), `confidence` (low, medium, high), `actions` (a subset of approve, ignore, investigate, quit, force_quit, block_network), `rationale` (240 characters at most). Code overrides `label` with `rule_label` whenever the rule is stricter.
 
 ## UI
 

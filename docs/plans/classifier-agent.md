@@ -106,14 +106,14 @@ Constrained by a flat JSON schema (no nested references, enums and bounded strin
 
 ```json
 {
-  "label": "benign | unknown | suspicious",
+  "label": "trusted | unknown | suspicious",
   "confidence": "low | medium | high",
   "actions": ["approve", "ignore", "investigate", "quit", "force_quit"],
   "rationale": "string, at most 240 characters"
 }
 ```
 
-`block_network` is absent from the schema until it exists. The model's `label` is advisory: `validate_verdict` replaces it with the rule label whenever the rule is stricter, and keeps a model label only when it is more cautious.
+`block_network` is absent from the schema until it exists. The verdict uses the same three words as the rule label (trusted, unknown, suspicious), so the clamp is a direct comparison on one ordered scale: trusted, then unknown, then suspicious. The model's `label` is advisory: `validate_verdict` replaces it with the rule label whenever the rule is stricter, and keeps a model label only when it is more cautious.
 
 ### 5.5 Prompt (draft, versioned; to be tuned in A8)
 
