@@ -57,21 +57,39 @@ The `.app` bundle is 8.8 MiB. Memory is about 19 times the headless server (133 
 
 ## Full Disk Access test (question 7), steps for the owner
 
-Result: **PENDING**. Needs a human; macOS only grants it in System Settings.
+Result: **PENDING**. Needs a human at the keyboard; macOS only grants Full Disk Access (FDA) through System Settings, and no session should do that on the owner's behalf. This section was re-verified 2026-11-26: the build recipe below ran clean against the spike branch as it stands (`cargo tauri build --bundles app`, 1m42s cold, bundle at the path shown, 8.78 MiB), and `security find-identity -v -p codesigning` still lists a Developer ID Application identity on this Mac, so both rebuild variants below are ready to run without further setup.
 
-```sh
-cd src-tauri && cargo tauri build --bundles app
-open "target/release/bundle/macos/Sys Monitor.app"      # dashboard opens; note the tray title
-```
+### Checklist
 
-1. Open System Settings, Privacy & Security, Full Disk Access. Remove Terminal (or the app that runs your shell) from the list for this test, or run the test from a Terminal that has no FDA.
-2. Baseline: in that Terminal run `ls ~/Library/Mail`. Expect `Operation not permitted`.
-3. Click the `+` in Full Disk Access, add `Sys Monitor.app`, switch it on, then quit and reopen the app (FDA is read at launch).
-4. The spike has no Mail reader, so add a throwaway `let r = std::fs::read_dir("/Users/<you>/Library/Mail")` to `src-tauri/src/main.rs` that writes `ok` or the error to `$TMPDIR/fda.txt` at startup, rebuild the bundle, relaunch (step 3), and read the file. Expect `ok` with the grant and `Operation not permitted` without.
-5. Rebuild the bundle (new ad-hoc signature, different code hash) and relaunch without re-adding it. Record whether FDA still applies. This shows whether an unsigned or ad-hoc bundle keeps its grant across rebuilds, which is what the ADR claims a stable identity gives. Then repeat with `codesign --force --options runtime --sign "<your Developer ID Application identity>"` on the bundle (do this yourself; the spike did not sign).
-6. Record all three outcomes (first grant, ad-hoc rebuild, Developer ID rebuild) in ADR 0004.
+- [ ] **0. Open a Terminal with no FDA.** In System Settings, Privacy & Security, Full Disk Access, remove the Terminal app you use for this (or use a different terminal that was never added). This has to come before the baseline check, or step 1 passes for the wrong reason.
+- [ ] **1. Baseline.** In that Terminal: `ls ~/Library/Mail`. Expect `Operation not permitted`. If it lists files, FDA is still on for this Terminal somehow — stop and fix that first.
+- [ ] **2. Add the throwaway Mail-read probe**, since the spike has no Mail reader yet. In `/Users/laudebugs/git/spike-a17-tauri-menu-bar-shell/src-tauri/src/main.rs`, near the top of `fn main()`, add:
+  ```rust
+  let home = std::env::var("HOME").unwrap_or_default();
+  let r = std::fs::read_dir(format!("{home}/Library/Mail"));
+  let _ = std::fs::write(format!("{}/fda.txt", std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into())), format!("{r:?}"));
+  ```
+  This only reads a directory listing and writes one line to a scratch temp file; it does not read mail content.
+- [ ] **3. First build and grant.**
+  ```sh
+  cd /Users/laudebugs/git/spike-a17-tauri-menu-bar-shell/src-tauri
+  cargo tauri build --bundles app
+  open "target/release/bundle/macos/Sys Monitor.app"
+  ```
+  Quit the app. In Full Disk Access, click `+`, add `Sys Monitor.app` from that `target/release/bundle/macos/` path, switch it on. Relaunch (FDA is read at launch, so this is the first launch that can see the grant).
+  Read `$TMPDIR/fda.txt` (or `/tmp/fda.txt`): expect it names the directory's entries (`Ok([...])`), not `Operation not permitted`. Record this as **first grant: pass/fail**.
+- [ ] **4. Ad-hoc rebuild.** Touch a comment in `main.rs` (changes the code hash without changing behavior), rebuild (same command), relaunch **without re-adding it to Full Disk Access**. Read `fda.txt` again. Record **ad-hoc rebuild: grant kept / grant lost**.
+- [ ] **5. Developer ID rebuild.** After another rebuild, sign the bundle yourself:
+  ```sh
+  codesign --force --options runtime --sign "Developer ID Application: <your name> (<team id>)" \
+    "target/release/bundle/macos/Sys Monitor.app"
+  codesign --verify --deep --strict "target/release/bundle/macos/Sys Monitor.app"   # confirms the signature took
+  ```
+  (`security find-identity -v -p codesigning` shows the exact identity string to use.) Relaunch without re-adding it to Full Disk Access. Read `fda.txt` again. Record **Developer ID rebuild: grant kept / grant lost**.
+- [ ] **6. Clean up.** Remove `Sys Monitor.app` from Full Disk Access, add your real Terminal back if you removed it, revert the `main.rs` probe (`git checkout -- src-tauri/src/main.rs` on the spike branch), and delete `$TMPDIR/fda.txt`.
+- [ ] **7. Record all three outcomes** in [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md) and flip its acceptance gate (Accepted if the Developer ID rebuild kept the grant and the ad-hoc one did not match the ADR's claim; Rejected otherwise).
 
-Expectation, not evidence: TCC keys a grant to the bundle identifier plus its code requirement, so a Developer ID signature should keep the grant across rebuilds and an ad-hoc one should not. UNVERIFIED.
+Expectation, not evidence: TCC keys a grant to the bundle identifier plus its code requirement, so a Developer ID signature should keep the grant across rebuilds and an ad-hoc one should not. UNVERIFIED until the checklist above is actually run.
 
 ## Surprises
 
