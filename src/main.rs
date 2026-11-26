@@ -1,4 +1,4 @@
-mod actions; mod baseline; mod collect; mod group; mod history; mod model; mod privilege; mod rules; mod server; mod snapshot; mod watcher;
+mod actions; mod baseline; mod collect; mod group; mod history; mod model; mod persistence; mod privilege; mod rules; mod server; mod snapshot; mod watcher;
 use std::collections::BTreeMap;
 
 fn main() {
@@ -22,10 +22,13 @@ fn main() {
                 println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| h.command.split_whitespace().next().unwrap_or(&h.exe).to_string()).collect::<Vec<_>>().join(" <- "));
             }
         },
+        Some("persistence") => for i in persistence::take() {
+            println!("{}{:<12} {:<7} {} -> {}", if i.is_new { "NEW " } else { "    " }, i.kind, i.scope, i.label, i.program);
+        },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
-        _ => eprintln!("usage: ownwatch [snapshot | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
+        _ => eprintln!("usage: ownwatch [snapshot | persistence | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
     }
 }
 

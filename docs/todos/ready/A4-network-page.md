@@ -18,7 +18,7 @@ Replace the Network placeholder with outbound connections grouped by app and rem
 
 ## Context
 
-- `/api/history` `seen` rows (from [A1](A1-backend-persistence-history-api.md)) hold `first_seen`, `last_seen`, `hits` per app and remote.
+- `/api/history` `seen` rows (from [A1](../done/A1-backend-persistence-history-api.md)) hold `first_seen`, `last_seen`, `hits` per app and remote.
 - Reverse DNS is deliberately out: it tells a resolver which IPs you look up (plan section 5).
 
 ## Scope

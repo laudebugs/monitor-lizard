@@ -4,9 +4,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 /// Seconds after a group's first sighting during which new hosts count as "learning", not "new".
-const LEARNING_SECS: u64 = 60;
+pub const LEARNING_SECS: u64 = 60;
 /// How long a first-seen host stays flagged.
 pub const FLAG_WINDOW_SECS: u64 = 3600;
+
+#[derive(serde::Serialize, Debug)]
+pub struct SeenRow { pub group_key: String, pub remote: String, pub first_seen: u64, pub last_seen: u64, pub hits: u64 }
+#[derive(serde::Serialize, Debug)]
+pub struct ActionRow { pub ts: u64, pub sig: String, pub sent: String, pub refused: String }
 
 pub struct History(Connection);
 
@@ -21,8 +26,34 @@ impl History {
             group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
             last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
             CREATE TABLE IF NOT EXISTS sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);")?;
         Ok(Self(c))
+    }
+
+    /// Upsert startup items; returns (path -> first_seen, earliest first_seen across all items).
+    pub fn record_persistence(&mut self, paths: &[&str], now: u64) -> rusqlite::Result<(std::collections::HashMap<String, u64>, u64)> {
+        let tx = self.0.transaction()?;
+        for path in paths {
+            tx.execute("INSERT INTO persistence(path,first_seen,last_seen) VALUES(?1,?2,?2) ON CONFLICT(path) DO UPDATE SET last_seen=?2", params![path, now as i64])?;
+        }
+        tx.commit()?;
+        let mut st = self.0.prepare("SELECT path, first_seen FROM persistence")?;
+        let rows: Vec<(String, i64)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        let earliest = rows.iter().map(|r| r.1).min().unwrap_or(now as i64) as u64;
+        Ok((rows.into_iter().map(|(p, t)| (p, t as u64)).collect(), earliest))
+    }
+
+    pub fn seen_rows(&self, limit: usize) -> rusqlite::Result<Vec<SeenRow>> {
+        let mut st = self.0.prepare("SELECT group_key,remote,first_seen,last_seen,hits FROM seen ORDER BY first_seen DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(SeenRow { group_key: r.get(0)?, remote: r.get(1)?, first_seen: r.get::<_, i64>(2)? as u64, last_seen: r.get::<_, i64>(3)? as u64, hits: r.get::<_, i64>(4)? as u64 }))?;
+        rows.collect()
+    }
+
+    pub fn recent_actions(&self, limit: usize) -> rusqlite::Result<Vec<ActionRow>> {
+        let mut st = self.0.prepare("SELECT ts,sig,sent,refused FROM actions ORDER BY id DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(ActionRow { ts: r.get::<_, i64>(0)? as u64, sig: r.get(1)?, sent: r.get(2)?, refused: r.get(3)? }))?;
+        rows.collect()
     }
 
     /// Audit trail of every Stop/Quit the dashboard performed.
@@ -85,6 +116,20 @@ mod tests {
         Group { key: key.into(), label: key.into(), category: "Apps".into(), procs: vec![], signing: None, approved: true,
             conns: vec![Conn { pid: 1, name: "x".into(), proto: "TCP".into(), state: "ESTABLISHED".into(), local_addr: "10.0.0.2".into(), local_port: 1,
                 remote_addr: Some(remote.into()), remote_port: Some(443), direction: Direction::Outbound, scope: Scope::Public, exposed: false }] }
+    }
+    #[test]
+    fn startup_items_keep_their_first_seen_time() {
+        let dir = std::env::temp_dir().join(format!("ow-test-pers-{}", std::process::id()));
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        let (first, earliest) = h.record_persistence(&["a"], 1000).unwrap();
+        assert_eq!((first["a"], earliest), (1000, 1000));
+        let (first, earliest) = h.record_persistence(&["a", "b"], 1120).unwrap();
+        assert_eq!((first["a"], first["b"], earliest), (1000, 1120, 1000));
+        // an item that disappears and comes back keeps its original time
+        h.record_persistence(&["b"], 1200).unwrap();
+        let (first, _) = h.record_persistence(&["a", "b"], 1300).unwrap();
+        assert_eq!(first["a"], 1000);
+        let _ = std::fs::remove_dir_all(dir);
     }
     #[test]
     fn flags_new_host_only_after_learning_period() {

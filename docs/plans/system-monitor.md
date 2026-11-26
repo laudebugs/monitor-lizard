@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `6ecc2f1`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [prior art](../research/prior-art/README.md), [local classifier](../research/local-classifier/README.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [A1](../todos/ready/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/ready/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/ready/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md).
+- **Todos:** [A1](../todos/done/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/ready/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/ready/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md).
 
 ## 1. Goal
 
@@ -21,7 +21,7 @@ As of 2026-11-26, on `main`:
 - `src/privilege.rs`, `src/watcher.rs`: authorization-log parsing and a 20 ms process-table watcher that records sudo/su launches with their parent chain.
 - `src/actions.rs`, `src/server.rs`: guarded Stop/Quit (own-user processes only, per-run token, audit log) on a loopback server.
 - `web/index.html`: the dashboard with Overview, Apps, Privilege, dark/light/system theme, custom dropdowns and paginated tables. Network, Listeners, Persistence and History are placeholders.
-- An uncommitted-to-main backend for startup items and history queries exists as a local WIP commit (`47d0b7a` on `feat/persistence-history-backend`); [A1](../todos/ready/A1-backend-persistence-history-api.md) lands it.
+- `src/persistence.rs` plus the `/api/persistence` and `/api/history` endpoints (startup items, first-seen hosts, action audit log): [A1](../todos/done/A1-backend-persistence-history-api.md).
 
 ## 3. What others do
 

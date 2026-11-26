@@ -18,7 +18,7 @@ Replace the History placeholder with what changed over time: hosts first seen pe
 
 ## Context
 
-- `/api/history` returns `seen` and `actions` ([A1](A1-backend-persistence-history-api.md)).
+- `/api/history` returns `seen` and `actions` ([A1](../done/A1-backend-persistence-history-api.md)).
 - Plan decision D3 requires the audit log to be visible to the user.
 
 ## Scope

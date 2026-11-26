@@ -1,9 +1,12 @@
-use crate::{actions, baseline, history::History, privilege, snapshot, watcher};
+use crate::{actions, baseline, history::History, persistence, privilege, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
 
 const PAGE: &str = include_str!("../web/index.html");
+/// How many rows `/api/history` returns: newest first, enough for the History page.
+const SEEN_LIMIT: usize = 2000;
+const ACTION_LIMIT: usize = 200;
 
 type Cache = Arc<Mutex<Option<String>>>;
 
@@ -35,9 +38,10 @@ pub fn serve(port: u16) {
     println!("ownwatch -> http://{addr}");
     let secret = token();
     let page = PAGE.replace("__TOKEN__", &secret);
-    let (snap, privs): (Cache, Cache) = (Default::default(), Default::default());
+    let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
+    refresh(&pers, Duration::from_secs(60), persistence::take);
     thread::spawn(|| {
         let h = History::open().ok();
         watcher::watch(|e| { if let Some(h) = &h { let _ = h.record_sudo(&e); } })
@@ -59,6 +63,12 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/snapshot") if query == "fresh=1" => json_resp(serde_json::to_string(&snapshot::take()).unwrap_or_default()),
             (Method::Get, "/api/snapshot") => cached(&snap),
             (Method::Get, "/api/privilege") => cached(&privs),
+            (Method::Get, "/api/persistence") => cached(&pers),
+            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?))) {
+                Ok((seen, actions)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions }).to_string()),
+                // An unreadable database must not look like "no history".
+                Err(e) => Response::from_string(format!("history unavailable: {e}")).with_status_code(500).boxed(),
+            }
             (Method::Get, "/api/sudo") => json_resp(History::open().and_then(|h| h.recent_sudo(50)).map(|v| serde_json::to_string(&v).unwrap_or_default()).unwrap_or_else(|_| "[]".into())),
             (Method::Post, "/api/approve") => {
                 let key = query_param(query, "key").unwrap_or_default();
