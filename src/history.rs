@@ -117,6 +117,24 @@ mod tests {
             conns: vec![Conn { pid: 1, name: "x".into(), proto: "TCP".into(), state: "ESTABLISHED".into(), local_addr: "10.0.0.2".into(), local_port: 1,
                 remote_addr: Some(remote.into()), remote_port: Some(443), direction: Direction::Outbound, scope: Scope::Public, exposed: false }] }
     }
+    fn startup_item(path: &str) -> crate::persistence::Item {
+        crate::persistence::Item { path: path.into(), scope: "user", kind: "LaunchAgent", label: path.into(), program: String::new(),
+            run_at_load: false, keep_alive: false, signing: None, first_seen: 0, is_new: false }
+    }
+    #[test]
+    fn startup_items_keep_their_first_seen_time() {
+        let dir = std::env::temp_dir().join(format!("ow-test-pers-{}", std::process::id()));
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        let (first, earliest) = h.record_persistence(&[startup_item("a")], 1000).unwrap();
+        assert_eq!((first["a"], earliest), (1000, 1000));
+        let (first, earliest) = h.record_persistence(&[startup_item("a"), startup_item("b")], 1120).unwrap();
+        assert_eq!((first["a"], first["b"], earliest), (1000, 1120, 1000));
+        // an item that disappears and comes back keeps its original time
+        h.record_persistence(&[startup_item("b")], 1200).unwrap();
+        let (first, _) = h.record_persistence(&[startup_item("a"), startup_item("b")], 1300).unwrap();
+        assert_eq!(first["a"], 1000);
+        let _ = std::fs::remove_dir_all(dir);
+    }
     #[test]
     fn flags_new_host_only_after_learning_period() {
         let dir = std::env::temp_dir().join(format!("ow-test-{}", std::process::id()));

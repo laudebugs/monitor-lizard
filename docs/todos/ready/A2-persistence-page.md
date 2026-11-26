@@ -18,7 +18,7 @@ Replace the Persistence placeholder with a page listing every startup item, flag
 
 ## Context
 
-- [A1](A1-backend-persistence-history-api.md) provides `/api/persistence`.
+- [A1](../done/A1-backend-persistence-history-api.md) provides `/api/persistence`.
 - The Apps page in `web/index.html` is the pattern: chips, search, sticky header, pagination, drawer-style detail.
 
 ## Scope

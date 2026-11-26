@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `A1` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/a1-backend-persistence-history-api` |
 | PR title | `feat(api): scan startup items and expose first-seen history` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#5](https://github.com/laudebugs/system-monitor/pull/5) |
 
 ## Goal
 
@@ -94,9 +94,21 @@ make check\nmake test\ncargo run --release -- persistence | head\ncargo run --re
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-26.
+
+- **Built:** `src/persistence.rs` (scan of `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` through `plutil`, plus `crontab -l`; signing via `collect::signing_of`; `is_new` as its own function), history tables and queries (`persistence`, `seen_rows`, `recent_actions`), routes `/api/persistence` (refreshed every 60 s) and `/api/history`, and the `persistence` command. Started from WIP commit `47d0b7a`.
+- **Tests:** 12 Rust tests pass (8 before; new: startup items keep their first-seen time across disappearing and reappearing, and the newness rule at the learning-period and 7-day boundaries). Tests use a temporary database path.
+- **Real run on this Mac:** 37 startup items (17 system daemons, 15 system agents, 5 user agents) in about 0.5 s; none new on the first scan; 4 run unsigned programs (a Cisco uninstall script, Docker's socket helper and two MacGPG2 helper scripts); 2 Google Keystone user agents have an empty plist, so no program. `/api/history` returned 477 first-seen rows and 5 audit rows. Both endpoints return 403 for a foreign `Host` header.
+- **Deviation:** none from the sketch.
+- **Open:** the learning-period seeding means a startup item installed within the first minute of the first scan is never flagged; acceptable for a first run. Login items are still not covered. The pages that consume these endpoints are A2, A4 and A5.
+- **CI:** pending on the pull request; `/code-review` not yet run (pending, per `AGENTS.md`).
+

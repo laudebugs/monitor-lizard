@@ -48,6 +48,12 @@ fn scan_dir(dir: &str, scope: &'static str, kind: &'static str, out: &mut Vec<It
     }
 }
 
+/// An item is new if it first appeared after the learning period that follows the very first scan,
+/// and recently enough to still be worth a look.
+pub fn is_new(first_seen: u64, earliest: u64, now: u64) -> bool {
+    first_seen > earliest + LEARNING_SECS && now.saturating_sub(first_seen) < NEW_WINDOW_SECS
+}
+
 pub fn take() -> Vec<Item> {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut items = Vec::new();
@@ -67,7 +73,7 @@ pub fn take() -> Vec<Item> {
         if let Ok((first, earliest)) = h.record_persistence(&items, now) {
             for it in &mut items {
                 it.first_seen = first.get(&it.path).copied().unwrap_or(now);
-                it.is_new = it.first_seen > earliest + LEARNING_SECS && now.saturating_sub(it.first_seen) < NEW_WINDOW_SECS;
+                it.is_new = is_new(it.first_seen, earliest, now);
             }
         }
     }
@@ -83,6 +89,13 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(r#"{"Label":"com.x.agent","ProgramArguments":["/opt/x/bin/agent","--run"],"RunAtLoad":true,"KeepAlive":{"SuccessfulExit":false}}"#).unwrap();
         let it = item_from_json("/Library/LaunchAgents/com.x.agent.plist", "system", "LaunchAgent", &v);
         assert_eq!((it.label.as_str(), it.program.as_str(), it.run_at_load, it.keep_alive), ("com.x.agent", "/opt/x/bin/agent", true, true));
+    }
+    #[test]
+    fn newness_follows_the_learning_period_and_window() {
+        assert!(!is_new(1000, 1000, 1000), "first scan: nothing is new");
+        assert!(!is_new(1050, 1000, 1100), "inside the learning period");
+        assert!(is_new(1200, 1000, 1300), "appeared after learning");
+        assert!(!is_new(1200, 1000, 1200 + NEW_WINDOW_SECS), "too old to flag");
     }
     #[test]
     fn cron_lines() {
