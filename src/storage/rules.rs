@@ -35,6 +35,8 @@ pub enum Rule {
     UnclearPath,
     NoHome,
     Symlink,
+    /// The path vanished or could not be resolved while checking a `safe` label.
+    Unresolvable,
     Unclassified,
 }
 
@@ -114,7 +116,8 @@ pub fn label_item(home: &Path, path: &Path, project_idle: bool) -> Verdict {
     let resolved = std::fs::canonicalize(path).and_then(|p| std::fs::canonicalize(home).map(|h| (h, p)));
     match resolved {
         Ok((h, p)) if label_for(&h, &p, project_idle) == v => v,
-        _ => verdict(Label::Review, Rule::Symlink),
+        Ok(_) => verdict(Label::Review, Rule::Symlink),
+        Err(_) => verdict(Label::Review, Rule::Unresolvable),
     }
 }
 
@@ -226,8 +229,8 @@ mod tests {
         std::fs::create_dir_all(home.join("Library/Caches/Yarn")).unwrap();
         assert_eq!(label_item(&home, &home.join("Library/Caches/pip"), false), verdict(Label::Review, Rule::Symlink));
         assert_eq!(label_item(&home, &home.join("Library/Developer/Xcode/DerivedData"), false), verdict(Label::Review, Rule::Symlink));
-        // A symlinked parent is caught too.
-        assert_eq!(label_item(&home, &home.join("Library/Caches/pip/inside"), false).label, Label::Review);
+        // A symlinked parent is caught too; a path that does not exist cannot be resolved.
+        assert_eq!(label_item(&home, &home.join("Library/Caches/pip/inside"), false), verdict(Label::Review, Rule::Unresolvable));
         // A real folder keeps its label, even though the temp folder itself sits behind a symlink.
         assert_eq!(label_item(&home, &home.join("Library/Caches/Yarn"), false).label, Label::Safe);
         std::fs::remove_dir_all(&d).unwrap();

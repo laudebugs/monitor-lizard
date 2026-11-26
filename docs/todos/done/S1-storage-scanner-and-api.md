@@ -26,7 +26,7 @@ Scan a fixed list of locations on the boot volume, label each item `safe`, `revi
 
 **In scope:**
 
-- Locations: `~/Library/Developer/Xcode/DerivedData`, `~/Library/Developer/CoreSimulator`, `~/Library/Caches/*`, `~/Library/Containers/com.docker.docker`, `~/Library/Logs`, `~/Downloads`, `~/Library/Mail`, `/Applications`, plus a bounded search for `node_modules` (depth 6 from `~/`, skipping `~/Library`).
+- Locations: `~/Library/Developer/Xcode/DerivedData`, `~/Library/Developer/CoreSimulator`, `~/Library/Caches/*`, `~/Library/Containers/com.docker.docker`, `~/Library/Logs`, `~/Downloads`, `~/Library/Mail`, `/Applications`, plus a bounded search for `node_modules` in the usual project folders (the home folder and its direct children, and folders such as `~/Developer` or `~/work` to depth 5; never `~/Library` or the user-content folders).
 - Local snapshots through `tmutil listlocalsnapshots /` (count and dates).
 - Size is allocated bytes (`st_blocks * 512`), never follows symlinks, never crosses devices, has a total time budget of 20 s and runs at low priority.
 - `GET /api/storage` returns the cached scan; `?fresh=1` starts a new one and returns the previous result with `scanning: true`.
@@ -42,7 +42,7 @@ Scan a fixed list of locations on the boot volume, label each item `safe`, `revi
 
 | File | Change |
 |---|---|
-| `src/storage.rs` | (new) scanner, rules table, types |
+| `src/storage/` | (new) `mod.rs` (scan), `rules.rs` (labels), `walk.rs` (walker and project search), `volume.rs` (capacity, `tmutil`), `cache.rs` (cache and rate limit) |
 | `src/server.rs` | route and cache for `/api/storage` |
 | `src/main.rs` | `mod storage;` and the `storage` subcommand |
 
@@ -98,7 +98,7 @@ cargo run --release -- storage | head -40
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
 - [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
+- [ ] `/writing-review` run on any prose (not run: the owner's session does it)
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
@@ -144,12 +144,14 @@ A request starts a scan at most once a minute. A request inside that window gets
 
 Two runs of `monitor-lizard storage` took 19.4 s of wall time, `tmutil` included, and used 3.9 s of CPU, about 20% of one core. Peak memory was 11 MB. Before pacing the same scan used about 48% of a core.
 
-The scan is partial on a normal developer home, not only on an unusual one. The two runs measured 269 and 277 of 305 and 309 locations, about 36 and 39 GB. Downloads, Mail, `/Applications` and the `node_modules` search were not reached.
+On a normal developer home the scan is `complete: false`, and it will stay so until S1b lets it finish over several runs. Protected folders under `Library/Caches` add to this. The two runs measured 269 and 277 of 305 and 309 locations, about 36 and 39 GB. Downloads, Mail, `/Applications` and the `node_modules` search were not reached.
 
 Acceptance holds as written: valid JSON in under 20 s, no `safe` item under user content, and CPU under 25% of one core. Convergence over several runs is a separate todo.
 
 ### Deviations
 
+- The `node_modules` search covers the home folder and its direct children, plus named project folders to depth 5, not depth 6 from `~/`.
+- A subfolder that cannot be read makes its location, its category and the whole scan incomplete. This is common under `Library/Caches` on macOS.
 - CoreSimulator is `review`: unavailable runtimes cannot be told apart by path.
 - The scan is partial within 20 s, so `complete` and `not_reached` are part of the result.
 - The utility class is used, not the background class, which reached about 5,000 entries in 27 s.

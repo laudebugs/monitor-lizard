@@ -19,7 +19,9 @@ Add the Storage nav item and the first half of the page from design direction D:
 ## Context
 
 - Design canvas "Sys Monitor Redesign Directions" (2026-11-26), boards D and "Research and directions".
-- The scan is partial on a normal developer home (S1 reached about 270 of 305 locations in 20 s). The page must show partial data honestly: a Partial banner while `complete` is false, "at least" before a total whose `lower_bound` is true, "measured N min ago" per row, "not yet scanned" rows for `not_reached`, and never a final treemap or a "safe to remove" total while `complete` is false. See S1b.
+- The scan is partial on a normal developer home: S1 reached about 270 of 305 locations in 20 s. See S1b.
+- The page must say so. Show a Partial banner while `complete` is false, and "at least" before a total whose `lower_bound` is true.
+- Show "measured N min ago" per row and "not yet scanned" rows for `not_reached`. Never show a final treemap or a "safe to remove" total while `complete` is false.
 - B7 builds the capacity bar; reuse it, do not copy it.
 - `web/index.html` conventions: `h()` helper, `rec()` state, `sortHeader`, `paginate`, bundled fonts, no remote assets.
 

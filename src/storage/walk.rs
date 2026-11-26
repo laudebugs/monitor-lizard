@@ -91,11 +91,14 @@ fn count(w: &mut Walked, m: &std::fs::Metadata) {
 }
 
 /// A rough size for ordering only: the allocated bytes of a folder's direct entries.
-pub fn one_level_bytes(dir: &Path) -> u64 {
+pub fn one_level_bytes(dir: &Path, deadline: Instant) -> u64 {
     let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
     let mut total = 0;
     for (i, e) in rd.flatten().enumerate() {
-        if i % 64 == 0 { pace(); }
+        if i % 64 == 0 {
+            if Instant::now() >= deadline { break; }
+            pace();
+        }
         total += e.metadata().map(|m| m.blocks() * 512).unwrap_or(0);
     }
     total
@@ -198,12 +201,15 @@ fn mtime(p: &Path) -> Option<u64> { std::fs::symlink_metadata(p).ok().map(|m| m.
 /// reinstall may differ or fail), the nearest git index above it (up to the home folder) older than
 /// 90 days, and nothing among the project's top-level entries, `node_modules` included, newer than
 /// 90 days. A missing signal means not idle. A monorepo package has no lockfile of its own, so it is
-/// never idle: that is deliberate.
+/// never idle: that is deliberate. The check reads folder times, so an in-place edit deep inside
+/// `src/` that changes no top-level time and no git index goes unseen.
 pub fn project_idle(home: &Path, project: &Path, modules: &Path, now: u64) -> bool {
     let old = |t: u64| now.saturating_sub(t) >= IDLE_SECS;
     if !project.join("package.json").is_file() || !LOCKFILES.iter().any(|l| project.join(l).is_file()) { return false; }
-    let git_index = project.ancestors().take_while(|a| a.starts_with(home)).map(|a| a.join(".git/index")).find_map(|p| mtime(&p));
-    let Some(git_index) = git_index else { return false };
+    // The first `.git` going up is the project's repository. If its index is missing or unreadable the
+    // project is not idle: an outer repository's index says nothing about it.
+    let repo = project.ancestors().take_while(|a| a.starts_with(home)).find(|a| std::fs::symlink_metadata(a.join(".git")).is_ok());
+    let Some(git_index) = repo.and_then(|r| mtime(&r.join(".git/index"))) else { return false };
     let Ok(rd) = std::fs::read_dir(project) else { return false };
     let top_level = rd.flatten().filter(|e| e.file_name() != "node_modules").map(|e| mtime(&e.path()));
     let Some(newest) = top_level.chain([mtime(project), mtime(modules)]).collect::<Option<Vec<_>>>().and_then(|v| v.into_iter().max()) else { return false };
@@ -409,6 +415,22 @@ mod tests {
         let (q, qm) = project(&home, "code/nogit", true);
         age(&q, 120);
         assert!(!project_idle(&home, &q, &qm, now()), "no git index anywhere up to home");
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn the_first_git_folder_going_up_decides_and_an_outer_repository_is_not_used() {
+        let home = temp("idle-nested");
+        let (outer, _) = project(&home, "code/outer", true);
+        git_at(&outer);
+        let (inner, im) = project(&outer, "tools/inner", true);
+        // The inner project has a `.git` without an index; the outer repository's old index must not stand in.
+        fs::create_dir_all(inner.join(".git")).unwrap();
+        age(&outer, 120);
+        assert!(!project_idle(&home, &inner, &im, now()));
+        fs::write(inner.join(".git/index"), b"i").unwrap();
+        age(&inner, 120);
+        assert!(project_idle(&home, &inner, &im, now()), "with its own old index it is idle");
         fs::remove_dir_all(&home).unwrap();
     }
 

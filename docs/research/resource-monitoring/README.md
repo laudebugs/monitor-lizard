@@ -16,7 +16,7 @@ As of November 2026. Gathered on 2026-11-26 by an agent that read docs and sourc
 | GPU power and frequency | IOReport (private `libIOReport.dylib`) | `macmon` crate | Medium; fragile on macOS 27 |
 | Memory | `host_statistics64(HOST_VM_INFO64)`; `sysctl hw.memsize`, `vm.swapusage` (read here) | FFI, `sysinfo` for totals | High on fields; the "used" formula (app + wired + compressed) is inference |
 | Memory pressure | `sysctl kern.memorystatus_vm_pressure_level` (1, 2, 4) and `kern.memorystatus_level` (percent available); read here: 2 and 47 | libc | High that it reads; one report says the level stayed "normal" during swap thrash, so show the percentage too [U] |
-| Disk capacity | `statfs`/`statvfs`; "important usage" for purgeable-aware free space: read without root through `CFURLCopyResourcePropertyForKey` on `/` with the `NSURLVolumeAvailableCapacityForImportantUsageKey` key, checked 2026-11-26 on macOS 27 | libc, CoreFoundation | High |
+| Disk capacity | `statfs`/`statvfs`; "important usage" for purgeable-aware free space: read without root through `CFURLCopyResourcePropertiesForKeys` on `/` with the `NSURLVolumeAvailableCapacityForImportantUsageKey` and `NSURLVolumeAvailableCapacityKey` keys, checked 2026-11-26 on macOS 27 | libc, CoreFoundation | High |
 | Disk throughput and IOPS | IORegistry `IOBlockStorageDriver` > `Statistics` [U: key names from memory]; `iostat` works but blocks about 1 s | `io-kit-sys` | Medium |
 | Network throughput | `sysctl NET_RT_IFLIST2` (64-bit counters) or `getifaddrs` (32-bit, wraps); `netstat -ib` took 167 ms | `sysinfo`, libc | High |
 | Temperatures | `IOHIDEventSystemClient` (what `sysinfo` does) | `sysinfo`, `macmon` | Medium; sensor names change per chip |
