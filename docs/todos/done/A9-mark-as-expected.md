@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `A9` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), risk 6; [system-monitor](../../plans/system-monitor.md) section 5 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
@@ -48,9 +48,9 @@ Let the user say "this is expected" for a remote host, a startup item or a singl
 
 ## Steps
 
-- [ ] Tests for migration of an old `baseline.json` first.
-- [ ] Add typed keys and the server routes.
-- [ ] Wire rules so an expected host or startup item no longer produces a finding.
+- [x] Tests for migration of an old `baseline.json` first.
+- [x] Add typed keys and the server routes.
+- [x] Wire rules so an expected host or startup item no longer produces a finding.
 
 ## Edge cases (must be covered)
 
@@ -89,9 +89,29 @@ make test
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
+- [ ] `/code-review` run per `AGENTS.md` (pending, owner runs it)
+- [ ] `/writing-review` run on any prose (pending, owner runs it)
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-26.
+
+**Built.** `src/baseline.rs` holds typed entries: `app:`, `host:`, `startup:` and `finding:`. An old untyped file loads unchanged as apps and becomes typed on the next write. A corrupt file is moved to `baseline.json.bad`, an empty baseline is used, and the dashboard shows a notice.
+
+**Server.** `POST /api/approve` and `/api/unapprove` take `kind` and `key`, behind the same Origin and token guards. An unknown kind or bad key gives 400. `GET /api/baseline` lists entries. Each change goes into the new `baseline_changes` table first, and nothing changes if that write fails.
+
+**Effect.** Expected hosts leave the new-hosts finding. Expected startup items are never new. Expected findings move to `expected_findings` in the snapshot, out of counts, notifications and labels. The CLI `approve` takes typed keys.
+
+**Interface.** Buttons sit on the Overview cards, the Persistence page and the Network page. Marked rows keep an "expected" chip and an Unmark button. The History page lists every change.
+
+**Tests.** 19 new Rust tests. The suite passes with 156 run and 2 ignored, plus 31 Node tests. A real run on a scratch home checked 403, 400, repeated marks and the audit rows.
+
+**Browser.** Looked at in Chrome: Persistence, Network and History in dark, Overview in light, marking and unmarking a startup item, a host and a finding. At 400 px only the sidebar fits, so the new columns were not assessed there.
+
+**Deviations.** Unsigned-network findings cannot be marked, so approving cannot hide an unsigned program; the todo did not say this. `baseline_changes` is created by `CREATE TABLE IF NOT EXISTS` as asked. Once the schema-version PR merges, it needs to become a migration step. Muting is out of scope.
+
+**Open.** `/code-review` and `/writing-review` are for the owner's session. The History page shows marks but offers no Unmark there. Forced-colors and the 400 px view of the new buttons are unchecked.
