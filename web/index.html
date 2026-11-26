@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ownwatch</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--mut:#6b7280;--line:#e5e7eb;--card:#f7f7f8;--hi:#dc2626;--med:#d97706;--low:#6b7280;--ok:#16a34a}
+@media(prefers-color-scheme:dark){:root{--bg:#0e0f11;--fg:#e8e8ea;--mut:#9aa0a6;--line:#26282c;--card:#16181b;--hi:#f87171;--med:#fbbf24;--low:#9aa0a6;--ok:#4ade80}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{display:flex;gap:24px;align-items:baseline;padding:16px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{font-size:16px;margin:0}.stat b{font-size:18px;font-variant-numeric:tabular-nums}.stat span{color:var(--mut);margin-left:4px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;padding:24px;max-width:1400px;margin:auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:24px 0 8px}h2:first-child{margin-top:0}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 70px 70px 160px 90px;gap:12px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.row.head{color:var(--mut);font-size:12px;cursor:default}.row:not(.head):hover{background:var(--card)}
+.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.num{font-variant-numeric:tabular-nums;text-align:right}
+.tag{font-size:11px;padding:1px 6px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}.tag.ok{color:var(--ok)}.tag.bad{color:var(--hi);border-color:var(--hi)}
+.detail{background:var(--card);padding:10px 14px;border-bottom:1px solid var(--line);font:12px/1.5 ui-monospace,monospace;overflow-x:auto}
+.detail div{white-space:nowrap}button{font:inherit;font-size:12px;padding:2px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
+.f{padding:8px 0;border-bottom:1px solid var(--line)}.f small{display:block;color:var(--mut)}
+.sev{font-weight:600;font-size:11px;text-transform:uppercase;margin-right:6px}.high{color:var(--hi)}.medium{color:var(--med)}.low{color:var(--low)}
+</style></head><body>
+<header><h1>ownwatch</h1><div id="totals"></div><span id="at" style="color:var(--mut);margin-left:auto"></span></header>
+<main><section id="groups"></section><aside><h2>Findings</h2><div id="findings"></div></aside></main>
+<script>
+const $=id=>document.getElementById(id),open=new Set();
+const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a))x==='class'?e.className=v:x.startsWith('on')?e.addEventListener(x.slice(2),v):e.setAttribute(x,v);e.append(...k.flat().filter(c=>c!=null));return e};
+async function approve(key){await fetch('/api/approve?key='+encodeURIComponent(key),{method:'POST'});load()}
+function sig(g){const s=g.signing;if(!s)return h('span');return s.apple?h('span',{class:'tag ok'},'apple'):s.signed?h('span',{class:'tag ok'},'signed '+(s.team||'')):h('span',{class:'tag bad'},'unsigned')}
+function render(s){
+ $('totals').replaceChildren(...Object.entries(s.totals).map(([k,v])=>h('span',{class:'stat'},h('b',{},v),h('span',{},k))));
+ $('at').textContent='updated '+new Date(s.at*1000).toLocaleTimeString();
+ const cats=Map.groupBy(s.groups,g=>g.category),root=$('groups');root.replaceChildren();
+ for(const[cat,gs]of cats){
+  const busy=gs.filter(g=>g.conns.length),idle=gs.filter(g=>!g.conns.length);
+  root.append(h('h2',{},`${cat} · ${gs.length} groups · ${gs.reduce((n,g)=>n+g.procs.length,0)} procs`));
+  root.append(h('div',{class:'row head'},h('div',{},'Group'),h('div',{class:'num'},'Procs'),h('div',{class:'num'},'Out'),h('div',{},'Listening'),h('div',{},'Trust')));
+  for(const g of busy){
+   const out=g.conns.filter(c=>c.direction==='outbound'),lp=[...new Set(g.conns.filter(c=>c.direction==='listen').map(c=>c.local_port+(c.exposed?'*':'')))];
+   root.append(h('div',{class:'row',onclick:()=>{open.has(g.key)?open.delete(g.key):open.add(g.key);render(s)}},
+    h('div',{class:'name',title:g.key},g.label,g.approved?h('span',{class:'tag ok',style:'margin-left:8px'},'approved'):null),
+    h('div',{class:'num'},g.procs.length),h('div',{class:'num'},out.length),h('div',{class:'name'},lp.join(', ')||'-'),sig(g)));
+   if(open.has(g.key))root.append(h('div',{class:'detail'},
+    g.approved?null:h('button',{onclick:()=>approve(g.key)},'Approve this app'),
+    h('div',{},g.key),...g.conns.map(c=>h('div',{},`${c.direction.padEnd(8)} ${c.proto} ${c.local_addr}:${c.local_port}${c.remote_addr?' -> '+c.remote_addr+':'+c.remote_port:''} [${c.scope}${c.exposed?', EXPOSED':''}]`))));
+  }
+  if(idle.length)root.append(h('div',{class:'row head'},h('div',{class:'name'},`+ ${idle.length} groups with no sockets: ${idle.slice(0,10).map(g=>g.label).join(', ')}…`)));
+ }
+ $('findings').replaceChildren(...s.findings.map(f=>h('div',{class:'f'},h('span',{class:'sev '+f.severity},f.severity),h('b',{},f.group),h('small',{},f.detail))));
+}
+async function load(){try{render(await (await fetch('/api/snapshot')).json())}catch(e){$('at').textContent='error: '+e}}
+load();setInterval(load,10000);
+</script></body></html>
