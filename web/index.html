@@ -80,7 +80,18 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .tag.ok{--c-bg:var(--chip-ok-bg);--c-fg:var(--chip-ok-fg)}
 .tag.warn,.badge.warn{--c-bg:var(--chip-warn-bg);--c-fg:var(--chip-warn-fg)}
 .tag.bad,.badge.bad{--c-bg:var(--chip-bad-bg);--c-fg:var(--chip-bad-fg)}
-.tbl{overflow-x:auto}
+.tbl{overflow-x:auto;position:relative}
+.xbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.xnote{flex:1 1 220px;min-width:0}
+.colmenu{padding:6px 0;min-width:180px}
+.colopt{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 12px;font-size:12px;white-space:nowrap}.colopt:hover{background:var(--sel)}
+.has-copy>.tr{padding-right:64px}
+/* On a phone-width screen the table scrolls sideways instead of squeezing its first columns to nothing. */
+@media(max-width:700px){.tbl.has-copy>.tr{min-width:640px}}
+.rowcopy-layer{position:absolute;top:0;left:0;height:0;z-index:1}
+.rowcopy{position:absolute;right:10px;height:24px;padding:0 8px;border:1px solid var(--line);background:var(--panel2);color:var(--mut);font:500 11px/1 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.rowcopy:hover,.rowcopy:focus-visible{color:var(--fg);border-color:var(--acc);outline:none}
+.copybox{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:min(520px,calc(100% - 32px));display:flex;flex-direction:column;gap:8px;background:var(--panel2);border:1px solid var(--acc);padding:12px 16px;z-index:11}
+.copybox textarea{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);font:12px/1.4 var(--font-mono)}
 .pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
 .sel{position:relative;display:inline-block}
 .sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;min-height:28px;padding:3px 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
@@ -332,6 +343,7 @@ function paginate(list, key) {
   const p = Math.min(Math.max(1, S.page[key] || 1), pages);
   const start = (p - 1) * S.size;
   const slice = list.slice(start, start + S.size);
+  TABLES[key] = { rows: list, page: slice };
   const go = (n) => rec({ page: Object.assign({}, S.page, { [key]: n }) });
   const pager = list.length <= 10 ? null : h('div', { class: 'pager' },
     h('span', {}, (start + 1) + '-' + (start + slice.length) + ' of ' + list.length), h('span', { class: 'grow' }),
@@ -366,16 +378,183 @@ function nextSort(key, col) {
   if (!s || s.col !== col) n[key] = { col, dir: 'asc' }; else if (s.dir === 'asc') n[key] = { col, dir: 'desc' }; else delete n[key];
   return n;
 }
+/* export:begin */
+/* Pure helpers for table export and the column chooser (no DOM, no storage: the tests load this block alone).
+   A column is { id, label, get(row), time? }; a time column's value is epoch seconds. */
+// A spreadsheet treats a cell that starts with these as a formula, and a file can hold text a stranger chose
+// (an app name, a host). A leading apostrophe makes it text; it is the same rule Excel and Numbers use.
+const FORMULA_START = /^[=+\-@\t\r]/;
+function csvCell(v) {
+  if (v == null || (typeof v === 'number' && !Number.isFinite(v))) return '';
+  let s = String(v);
+  if (typeof v !== 'number' && FORMULA_START.test(s)) s = "'" + s;
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function colId(c) { return c.id || c.sort || String(c.label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); }
+function isoOf(sec) { const d = typeof sec === 'number' ? new Date(sec * 1000) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString() : null; }
+function toCsv(cols, rows) {
+  const out = [cols.map((c) => csvCell(c.label)).join(',')];
+  for (const r of rows) out.push(cols.map((c) => csvCell(c.time ? isoOf(c.get(r)) : c.get(r))).join(','));
+  return out.join('\r\n') + '\r\n';
+}
+function rowObject(cols, row) {
+  const o = {};
+  for (const c of cols) {
+    const v = c.get(row);
+    o[c.id] = v === undefined || (typeof v === 'number' && !Number.isFinite(v)) ? null : v;
+    if (c.time) o[c.id + '_iso'] = isoOf(v);
+  }
+  return o;
+}
+function toJson(cols, rows) { return JSON.stringify(rows.map((r) => rowObject(cols, r)), null, 2); }
+// What the person hid is stored as a list of column ids. Anything unreadable or hostile means "show everything".
+function hiddenFrom(raw) {
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 64) : [];
+  } catch (e) { return []; }
+}
+function visibleCols(cols, hidden) {
+  const shown = cols.filter((c) => !hidden.includes(c.id));
+  return shown.length ? shown : cols;
+}
+// One column always stays: hiding the last visible one is refused, so an empty table cannot be saved.
+function toggleHidden(cols, hidden, id) {
+  const known = hidden.filter((x) => cols.some((c) => c.id === x));
+  if (known.includes(id)) return known.filter((x) => x !== id);
+  return cols.length - known.length <= 1 ? known : known.concat(id);
+}
+const EXPORT_PREFIX = ''; // put the product name here if exported files should carry it
+function fileName(page, ext, now) {
+  const p = (n) => String(n).padStart(2, '0');
+  return EXPORT_PREFIX + page + '-' + now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate()) + '.' + ext;
+}
+/* export:end */
+/* export-cols:begin */
+// Export value of every column, per table key. These are the same texts the table shows, not the numbers
+// used for sorting, so a file and the screen agree. The '-' the table shows for "none" is exported as empty, because a leading '-' would be written as text with an apostrophe. Ids must match the sortHeader columns; a test checks it.
+const EXPORT = {
+  apps: { app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length, listening: (g) => (listenText(g) === '-' ? '' : listenText(g)), signing: (g) => (g.signing ? signText(g) : ''), status: (g) => status(g), label: (g) => g.trust },
+  sudo: { time: (e) => e.ts, command: (e) => e.args, requester_chain: (e) => (e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)') },
+  auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)') },
+  listen: { port: (r) => r.c.local_port, proto: (r) => r.c.proto, bind: (r) => r.c.local_addr, app: (r) => r.g.label, pid: (r) => r.c.pid, reach: (r) => reachOf(r) },
+  pers: { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen },
+  net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(' '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
+  hist: { when: (s) => s.first_seen, app: (s) => labelOf(s.group_key), host: (s) => s.remote, hits: (s) => s.hits },
+  act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => refusedText(a) },
+};
+/* export-cols:end */
+const TIME_COLS = { sudo: ['time'], pers: ['added'], net: ['seen'], hist: ['when'], act: ['when'] };
+// What each file holds, shown beside the buttons: a shared file shows habits (apps, hosts, paths), so the
+// button states it before anything is written.
+const EXPORT_INFO = { apps: 'app names, signing details and listening ports', sudo: 'the commands run with sudo and the programs that ran them', auth: 'authorization rights and the programs that asked', listen: 'app names, ports and bind addresses', pers: 'startup item names and program paths', net: 'app names and the remote hosts they contacted', hist: 'app names and the hosts they first contacted', act: 'which processes you stopped and when' };
+const EXPORT_PAGE = { apps: 'apps', sudo: 'sudo-launches', auth: 'authorization-requests', listen: 'listeners', pers: 'persistence', net: 'network', hist: 'new-hosts', act: 'actions' };
+// The filtered, sorted rows of each table (all pages), left by paginate() for the toolbar and the row buttons.
+const TABLES = {};
+const HEADERS = {}; // the columns each table's last sortHeader drew
+const HIDDEN = {};
+const COLS_STORE = 'table-cols:';
+function hiddenOf(key) {
+  if (!hasOwn(HIDDEN, key)) {
+    let raw = null;
+    try { raw = localStorage.getItem(COLS_STORE + key); } catch (e) { /* storage can be blocked; show every column */ }
+    HIDDEN[key] = hiddenFrom(raw);
+  }
+  return HIDDEN[key];
+}
+function setHidden(key, list) {
+  HIDDEN[key] = list;
+  try { localStorage.setItem(COLS_STORE + key, JSON.stringify(list)); } catch (e) { /* the choice then lasts until reload */ }
+}
+const exportCols = (key, header) => header.map((c) => {
+  const id = colId(c);
+  return { id, label: c.label, get: (EXPORT[key] && EXPORT[key][id]) || (() => null), time: (TIME_COLS[key] || []).includes(id) };
+});
+function download(name, mime, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
+  const a = h('a', { href: url, download: name, style: 'display:none' });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+const rowsOf = (key) => (TABLES[key] ? TABLES[key].rows : []);
+function exportTable(key, header, kind) {
+  const cols = visibleCols(exportCols(key, header), hiddenOf(key)), rows = rowsOf(key);
+  const text = kind === 'csv' ? toCsv(cols, rows) : toJson(cols, rows);
+  download(fileName(EXPORT_PAGE[key] || key, kind, new Date()), kind === 'csv' ? 'text/csv' : 'application/json', text);
+}
+let lastColToggle = null;
+function columnsMenu(key, header) {
+  const id = 'cols:' + key, open = S.menu === id, all = exportCols(key, header), hidden = hiddenOf(key), shown = visibleCols(all, hidden);
+  return h('div', { class: 'sel' },
+    h('button', { class: 'sel-btn', type: 'button', 'aria-haspopup': 'true', 'aria-expanded': String(open), 'data-trigger': id, title: 'Choose which columns this table shows and exports', onClick: (e) => { e.stopPropagation(); rec({ menu: open ? null : id }); } }, h('span', {}, 'Columns'), h('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')),
+    open ? h('div', { class: 'sel-menu down colmenu', role: 'group', 'aria-label': 'Columns', onClick: (e) => e.stopPropagation(), onKeydown: (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rec({ menu: null }); const t = document.querySelector('[data-trigger="' + id + '"]'); if (t) t.focus(); } } },
+      all.map((c) => h('label', { class: 'colopt' },
+        h('input', { type: 'checkbox', checked: shown.includes(c), disabled: shown.length === 1 && shown[0] === c, 'data-autofocus': lastColToggle === key + ':' + c.id ? '' : null, onChange: () => { lastColToggle = key + ':' + c.id; setHidden(key, toggleHidden(all, hidden, c.id)); rec({}); } }), c.label))) : null);
+}
+function exportBar(key, header) {
+  const n = rowsOf(key).length, info = EXPORT_INFO[key] || 'the rows shown';
+  const btn = (kind) => h('button', { class: 'btn sm', type: 'button', title: (n ? 'Saves ' + n + (n === 1 ? ' row' : ' rows') : 'Saves only the column names') + ' as ' + kind.toUpperCase() + ', with the shown columns and your filters and sort. The file holds ' + info + '. It is made in this page and goes nowhere else.', onClick: () => exportTable(key, header, kind) },
+    n ? 'Export ' + kind.toUpperCase() + ' (' + n + (n === 1 ? ' row' : ' rows') + ')' : 'Nothing to export (' + kind.toUpperCase() + ')');
+  return h('div', { class: 'xbar' }, btn('csv'), btn('json'), columnsMenu(key, header), h('span', { class: 'mut small xnote' }, 'File holds ' + info + '. It stays on this Mac.'));
+}
+// Hidden columns and the row buttons are applied to the drawn table after each render, so every table gets
+// both from its sortHeader call and no page draws them itself.
+const GRID_DEFAULT = 'minmax(0,1.6fr) 56px 56px minmax(0,1.4fr) minmax(0,1.2fr) 96px 96px';
+// The first call keeps the row's original grid, so a later pass (a window resize) never trims it twice.
+function tracksOf(el) {
+  if (el.dataset.grid == null) { const m = /grid-template-columns:\s*([^;]+)/.exec(el.getAttribute('style') || ''); el.dataset.grid = m ? m[1].trim() : GRID_DEFAULT; }
+  const out = []; let depth = 0, cur = '';
+  for (const ch of el.dataset.grid) {
+    if (ch === '(') depth++; else if (ch === ')') depth--;
+    if (ch === ' ' && !depth) { if (cur) out.push(cur); cur = ''; } else cur += ch;
+  }
+  return cur ? out.concat(cur) : out;
+}
+function decorateTables() {
+  for (const head of document.querySelectorAll('.tr.h[data-table]')) {
+    const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');
+    const shown = visibleCols(ids.map((id) => ({ id })), hiddenOf(key)).map((c) => c.id);
+    const rows = [...sec.querySelectorAll(':scope > .tr:not(.h)')];
+    for (const r of [head, ...rows]) {
+      if (r.children.length !== ids.length) continue;
+      const tracks = tracksOf(r);
+      [...r.children].forEach((c, i) => { c.style.display = shown.includes(ids[i]) ? '' : 'none'; });
+      r.style.gridTemplateColumns = tracks.filter((_, i) => shown.includes(ids[i])).join(' ');
+    }
+    for (const old of sec.querySelectorAll(':scope > .rowcopy-layer')) old.remove();
+    sec.classList.add('has-copy');
+    const slice = TABLES[key] ? TABLES[key].page : [];
+    const layer = h('div', { class: 'rowcopy-layer', style: 'width:' + sec.scrollWidth + 'px' }, rows.slice(0, slice.length).map((r, i) =>
+      h('button', { class: 'rowcopy', type: 'button', style: 'top:' + (r.offsetTop + Math.max(0, (r.offsetHeight - 24) / 2)) + 'px', title: 'Copy this row as JSON', 'aria-label': 'Copy row ' + (i + 1) + ' as JSON', onClick: () => copyRow(key, slice[i]) }, 'Copy')));
+    sec.append(layer);
+  }
+}
+let decoRaf = 0;
+window.addEventListener('resize', () => { if (!decoRaf) decoRaf = requestAnimationFrame(() => { decoRaf = 0; decorateTables(); }); });
+// The shown columns of one row, as JSON a person can paste elsewhere.
+function copyRow(key, row) {
+  copyText(JSON.stringify(rowObject(visibleCols(exportCols(key, HEADERS[key] || []), hiddenOf(key)), row), null, 2));
+}
+function copyText(text) {
+  const done = () => { rec({ toast: 'Copied as JSON.', copyText: null }); setTimeout(() => { if (S.toast === 'Copied as JSON.') quiet({ toast: null }); }, 3000); };
+  // Clipboard access can be refused (no permission, page not focused): then show the text selected, ready for Cmd+C.
+  const fallback = () => { rec({ copyText: text, toast: null }); const t = document.querySelector('.copybox textarea'); if (t) { t.focus(); t.select(); } };
+  try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+}
 function sortHeader(key, cols, style, extra) {
   const s = S.sorts[key];
-  return h('div', { class: 'tr h ' + (extra || ''), style: style || '' }, cols.map((c) => {
+  HEADERS[key] = cols;
+  const head = h('div', { class: 'tr h ' + (extra || ''), style: style || '', 'data-table': key, 'data-cols': cols.map(colId).join(',') }, cols.map((c) => {
     if (!c.sort) return h('span', { class: c.cls || '' }, c.label);
     const on = !!s && s.col === c.sort;
     return h('span', { class: c.cls || '' }, h('button', { class: 'th' + (on ? ' on' : ''), type: 'button', title: c.title || 'Sort by ' + c.label, onClick: () => rec({ sorts: nextSort(key, c.sort), page: {} }) },
       c.label, h('span', { class: 'arrow', 'aria-hidden': 'true' }, on ? (s.dir === 'asc' ? '\u25B2' : '\u25BC') : '')));
   }));
+  return [exportBar(key, cols), head];
 }
 const sigKind = (g) => (!g.signing ? 'unchecked' : g.signing.apple ? 'apple' : g.signing.signed ? 'signed' : 'unsigned');
+const listenText = (g) => [...new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port + (c.exposed ? '*' : '')))].join(', ') || '-';
+const signText = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
 const TRUST_RANK = { suspicious: 0, unknown: 1, trusted: 2 }; // ascending puts the most worrying first
 const DRAWER_MIN = 320, DRAWER_MAX = 720, DRAWER_STEP = 16;
 const clampDrawer = (w) => Math.min(DRAWER_MAX, Math.max(DRAWER_MIN, w));
@@ -517,8 +696,7 @@ function apps() {
   const list = all.filter((g) => (S.filter === 'all' || status(g) === S.filter) && (!q || g.label.toLowerCase().includes(q) || g.conns.some((c) => String(c.local_port).includes(q) || (c.remote_addr || '').includes(q))));
   const count = (f) => all.filter((g) => f === 'all' || status(g) === f).length;
   const chips = [['all', 'All'], ['review', 'Needs review'], ['approved', 'Approved'], ['macOS', 'macOS']].map(([id, l]) => h('button', { class: 'chip ' + (S.filter === id ? 'on' : ''), onClick: () => rec({ filter: id, page: {} }) }, l + ' ', count(id)));
-  const listen = (g) => [...new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port + (c.exposed ? '*' : '')))].join(', ') || '-';
-  const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
+  const listen = listenText, sig = signText;
   const fLabel = fv('apps-label'), fSig = fv('apps-sig');
   const shown = sortRows(list.filter((g) => (fLabel === 'all' || g.trust === fLabel) && (fSig === 'all' || sigKind(g) === fSig)), 'apps', {
     app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length,
@@ -548,6 +726,7 @@ function drawer(g, listen, sig) {
     h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, unprefixed(g.key))),
       h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
+      h('button', { class: 'btn sm', title: 'Copies this app\'s row as JSON', onClick: () => copyRow('apps', g) }, 'Copy as JSON'),
       !g.approved && !apple(g) ? h('button', { class: 'btn btn-acc sm', onClick: () => approve(g) }, 'Approve app') : null,
       mine.length ? h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
       h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
@@ -680,6 +859,10 @@ function network() {
 
 const labelOf = (key) => { const g = S.snap && S.snap.groups.find((x) => x.key === key); return g ? g.label : base(unprefixed(key)); };
 function jsonOr(s, fallback) { try { return JSON.parse(s); } catch (e) { return fallback; } }
+function refusedText(a) {
+  const r = jsonOr(a.refused, []);
+  return r.length ? r.length + ' refused: ' + r[0].reason + (r.length > 1 ? ', ...' : '') : '-';
+}
 // Not named history: a global function of that name replaces window.history and breaks pushState.
 function historyView() {
   const q = S.q.toLowerCase();
@@ -696,10 +879,6 @@ function historyView() {
       : h('div', { class: 'item' }, h('p', {}, allHosts.length ? 'No hosts match the search. ' : 'No new hosts recorded yet.'), allHosts.length ? clearBtn() : null), hp.pager);
   const allActs = [...S.acts].sort((a, b) => b.ts - a.ts); // newest first, baked into the base order
   const actList = allActs.filter((a) => !q || a.sig.toLowerCase().includes(q) || a.sent.includes(q) || a.refused.toLowerCase().includes(q));
-  const refusedText = (a) => {
-    const r = jsonOr(a.refused, []);
-    return r.length ? r.length + ' refused: ' + r[0].reason + (r.length > 1 ? ', ...' : '') : '-';
-  };
   const actsShown = sortRows(actList, 'act', { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).length, refused: (a) => refusedText(a) });
   const ap = paginate(actsShown, 'act');
   const actCols = 'grid-template-columns:140px 70px minmax(0,1fr) minmax(0,1.4fr)';
@@ -830,7 +1009,10 @@ function render() {
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
+  if (S.copyText) layer.push(h('div', { class: 'copybox', role: 'dialog', 'aria-label': 'Copy blocked' }, h('p', { class: 'small', style: 'margin:0' }, 'The browser did not allow copying. The text is selected: press Cmd+C.'),
+    h('textarea', { readonly: true, rows: 8, 'aria-label': 'Row as JSON' }, S.copyText), h('button', { class: 'btn sm', onClick: () => rec({ copyText: null }) }, 'Close')));
   $('layer').replaceChildren(...layer);
+  decorateTables();
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;

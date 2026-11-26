@@ -17,6 +17,10 @@ State (baseline and history) lives in `~/.sys-monitor/`; a one-time migration co
 
 `sys-monitor help [word]` lists every command and term, filtered by the word, with what each one changes and how to undo it. The dashboard serves the same table at `/api/guide`.
 
+## Tables
+
+Every table in the dashboard can export what is on screen as CSV or JSON (all filtered and sorted rows, shown columns only), choose its columns, and copy one row as JSON. Exports are built in the page and saved by your browser; nothing is sent anywhere. A file lists app names, hosts and paths, so share it with care.
+
 ## Working on this repo
 
 Rules for people and AI agents are in [AGENTS.md](AGENTS.md). Work comes from the todo board (`make todos`), one todo per branch and pull request, each in its own git worktree. Run `make check` before pushing; CI runs the same targets and one `gate` check. Docs live in [docs/](docs/README.md). Structure adopted from the owner's `scaffold` template.
