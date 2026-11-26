@@ -12,12 +12,12 @@ const G = new Function(m[1] + '\nreturn { guideWords, guideRows, guideTopics, gu
 
 const cmd = (id, topic, title, command, description, tags = []) => ({ id, topic, title, command, description, tags, safety: 'read-only' });
 const commands = [
-  cmd('sm-snapshot', 'sys-monitor', 'Print the grouped snapshot', 'sys-monitor snapshot', 'Lists every process grouped by app.', ['groups']),
+  cmd('sm-snapshot', 'monitor-lizard', 'Print the grouped snapshot', 'monitor-lizard snapshot', 'Lists every process grouped by app.', ['groups']),
   cmd('tmutil-list', 'storage', 'List local Time Machine snapshots', 'tmutil listlocalsnapshots /', 'Lists the dates of local snapshots.', ['snapshot', 'time machine']),
   cmd('tmutil-delete', 'storage', 'Delete one local snapshot', 'tmutil deletelocalsnapshots <date>', 'Deletes a Time Machine snapshot.', ['snapshot', 'time machine', 'delete']),
   cmd('docker-df', 'storage', 'Docker disk use', 'docker system df', 'Shows the space used by images and containers.', ['docker', 'images']),
   cmd('docker-prune', 'storage', 'Remove unused Docker data', 'docker system prune', 'Deletes stopped containers and dangling images.', ['docker', 'prune']),
-  cmd('sm-sudo', 'sys-monitor', 'Show recent sudo events', 'sys-monitor sudo-log', 'Prints events. A snapshot is not involved.', ['sudo']),
+  cmd('sm-sudo', 'monitor-lizard', 'Show recent sudo events', 'monitor-lizard sudo-log', 'Prints events. A snapshot is not involved.', ['sudo']),
 ];
 const terms = [
   { id: 'apfs', term: 'APFS', meaning: 'The disk format. A local snapshot lives here.', tags: ['volume'] },
@@ -51,14 +51,14 @@ test('a title hit outranks a description hit, and ties keep table order', () => 
 
 test('an empty search lists everything grouped by topic in table order', () => {
   const groups = G.guideGroups(G.guideRows(commands, '', 'all'));
-  assert.deepEqual(groups.map(([t, r]) => [t, r.length]), [['sys-monitor', 2], ['storage', 4]]);
-  assert.deepEqual(G.guideTopics(commands), ['sys-monitor', 'storage']);
+  assert.deepEqual(groups.map(([t, r]) => [t, r.length]), [['monitor-lizard', 2], ['storage', 4]]);
+  assert.deepEqual(G.guideTopics(commands), ['monitor-lizard', 'storage']);
 });
 
 test('the topic filter narrows before the search runs', () => {
   assert.deepEqual(ids(G.guideRows(commands, '', 'storage')).length, 4);
-  assert.deepEqual(ids(G.guideRows(commands, 'snapshot', 'sys-monitor')), ['sm-snapshot', 'sm-sudo']);
-  assert.deepEqual(G.guideRows(commands, 'docker', 'sys-monitor'), []);
+  assert.deepEqual(ids(G.guideRows(commands, 'snapshot', 'monitor-lizard')), ['sm-snapshot', 'sm-sudo']);
+  assert.deepEqual(G.guideRows(commands, 'docker', 'monitor-lizard'), []);
 });
 
 test('a selected entry the filters hide gives way to the first result; none gives null', () => {
@@ -79,7 +79,6 @@ test('no results gives an empty list, and glossary terms search by term, meaning
 test('topic labels come from the topic text, so a renamed product needs no edit here', () => {
   assert.equal(G.topicLabel('storage'), 'Storage');
   assert.equal(G.topicLabel('developer'), 'Developer tools');
-  assert.equal(G.topicLabel('sys-monitor'), 'Sys Monitor');
   assert.equal(G.topicLabel('monitor-lizard'), 'Monitor Lizard');
 });
 

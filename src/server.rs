@@ -44,7 +44,7 @@ pub fn serve(port: u16) {
     // Bind loopback only: this tool exposes everything about the machine.
     let addr = format!("127.0.0.1:{port}");
     let server = Server::http(&addr).expect("bind failed");
-    println!("sys-monitor -> http://{addr}");
+    println!("monitor-lizard -> http://{addr}");
     let secret = token();
     let page = PAGE.replace("__TOKEN__", &secret);
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
@@ -66,7 +66,7 @@ pub fn serve(port: u16) {
         let hdr = |n: &'static str| req.headers().iter().find(|h| h.field.equiv(n)).map(|h| h.value.to_string());
         let host_ok = hdr("Host").is_some_and(|h| hosts.contains(&h)); // DNS-rebinding guard
         // Writes need: same origin (if sent) and the page's secret token.
-        let write_ok = hdr("Origin").is_none_or(|o| origins.contains(&o)) && hdr("X-SysMonitor-Token").is_some_and(|t| t == secret);
+        let write_ok = hdr("Origin").is_none_or(|o| origins.contains(&o)) && hdr("X-MonitorLizard-Token").is_some_and(|t| t == secret);
         let json_resp = |body: String| Response::from_string(body).with_header(Header::from_bytes("content-type", "application/json").unwrap()).boxed();
         let cached = |c: &Cache| json_resp(c.lock().unwrap().clone().unwrap_or_else(|| "null".into()));
         let forbidden = || Response::from_string("forbidden").with_status_code(403).boxed();

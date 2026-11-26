@@ -159,13 +159,13 @@ test('patchFromHash keeps other pages sorts and the other fil entries', () => {
   assert.equal(patch.fil['apps-sig'], 'apple');
 });
 
-test('crumbParts: Sys Monitor > page > selected item, each a link', () => {
+test('crumbParts: Monitor Lizard > page > selected item, each a link', () => {
   const parts = L.crumbParts({ ...base, sel: 'dev:/x/Foo.app' }, 'Foo');
-  assert.deepEqual(parts.map((p) => p.text), ['Sys Monitor', 'Apps', 'Foo']);
+  assert.deepEqual(parts.map((p) => p.text), ['Monitor Lizard', 'Apps', 'Foo']);
   assert.equal(parts[0].href, '#overview');
   assert.equal(parts[1].href, '#apps');
   assert.equal(L.parseHash(parts[2].href).sel, 'dev:/x/Foo.app');
-  assert.deepEqual(L.crumbParts({ ...base, view: 'overview' }, null).map((p) => p.text), ['Sys Monitor', 'Overview']);
+  assert.deepEqual(L.crumbParts({ ...base, view: 'overview' }, null).map((p) => p.text), ['Monitor Lizard', 'Overview']);
 });
 
 test('the page defines no global named history, which would replace window.history', () => {

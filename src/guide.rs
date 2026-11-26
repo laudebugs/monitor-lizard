@@ -1,4 +1,4 @@
-//! The one table of commands and terms behind `sys-monitor help` and `GET /api/guide`.
+//! The one table of commands and terms behind `monitor-lizard help` and `GET /api/guide`.
 //! Nothing here runs a command: entries are text a person copies.
 use serde::Serialize;
 
@@ -52,8 +52,8 @@ pub struct Term {
     pub tags: &'static [&'static str],
 }
 
-/// Topic of the entries that are `sys-monitor` subcommands: usage and the completeness test depend on it.
-pub const OWN_TOPIC: &str = "sys-monitor";
+/// Topic of the entries that are `monitor-lizard` subcommands: usage and the completeness test depend on it.
+pub const OWN_TOPIC: &str = "monitor-lizard";
 const STORAGE: &str = "storage";
 
 const MACOS: &str = "macOS 27.0.1";
@@ -61,87 +61,87 @@ const MACOS: &str = "macOS 27.0.1";
 pub static COMMANDS: &[Command] = &[
     Command {
         id: "sm-snapshot", topic: OWN_TOPIC, title: "Print the grouped snapshot",
-        command: "sys-monitor snapshot",
-        description: "Lists every process and network socket grouped by app, with listening ports and signing state. This is also what plain `sys-monitor` prints.",
+        command: "monitor-lizard snapshot",
+        description: "Lists every process and network socket grouped by app, with listening ports and signing state. This is also what plain `monitor-lizard` prints.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Overview"), undo: None,
         tags: &["processes", "sockets", "groups"],
     },
     Command {
         id: "sm-persistence", topic: OWN_TOPIC, title: "List startup items",
-        command: "sys-monitor persistence",
+        command: "monitor-lizard persistence",
         description: "Lists launch agents, launch daemons and cron jobs. Items not seen before are marked NEW.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Persistence"), undo: None,
         tags: &["startup", "launchagent", "launchdaemon", "cron"],
     },
     Command {
         id: "sm-metrics", topic: OWN_TOPIC, title: "Print one metrics sample",
-        command: "sys-monitor metrics",
+        command: "monitor-lizard metrics",
         description: "Prints one CPU, memory, network, disk and GPU sample as JSON.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Performance"), undo: None,
         tags: &["cpu", "memory", "disk", "gpu", "json"],
     },
     Command {
         id: "sm-classify", topic: OWN_TOPIC, title: "Explain why a group got its label",
-        command: "sys-monitor classify <group-key>",
+        command: "monitor-lizard classify <group-key>",
         description: "Prints the trust label, the rules that fired and the actions allowed for one app group.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Apps"), undo: None,
         tags: &["label", "rules", "trust"],
     },
     Command {
         id: "sm-llm-classify", topic: OWN_TOPIC, title: "Ask a local model about a group",
-        command: "sys-monitor llm-classify <group-key> [port=8090]",
+        command: "monitor-lizard llm-classify <group-key> [port=8090]",
         description: "Sends the evidence for one group to a model server on this Mac (default port 8090) and prints its reply. Nothing leaves the machine.",
         example: None, safety: Safety::ReadOnly, appears_in: None, undo: None,
         tags: &["llm", "model", "classify"],
     },
     Command {
         id: "sm-watch", topic: OWN_TOPIC, title: "Watch for sudo and su",
-        command: "sys-monitor watch",
+        command: "monitor-lizard watch",
         description: "Prints each sudo or su run, with the chain of parent processes, until you press Ctrl-C. Each event is also saved to the history database.",
         example: None, safety: Safety::ChangesFiles, appears_in: Some("Privilege"),
-        undo: Some("Quit and delete ~/.sys-monitor/history.db to drop the saved events."),
+        undo: Some("Quit and delete ~/.monitor-lizard/history.db to drop the saved events."),
         tags: &["sudo", "su", "privilege"],
     },
     Command {
         id: "sm-sudo-log", topic: OWN_TOPIC, title: "Show recent sudo and su events",
-        command: "sys-monitor sudo-log [n]",
+        command: "monitor-lizard sudo-log [n]",
         description: "Prints the last n (default 20) events saved by `watch`.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Privilege"), undo: None,
         tags: &["sudo", "su", "history"],
     },
     Command {
         id: "sm-privilege", topic: OWN_TOPIC, title: "Show recent privilege prompts",
-        command: "sys-monitor privilege [minutes]",
+        command: "monitor-lizard privilege [minutes]",
         description: "Prints authorization attempts from the last n minutes (default 60), including failures and the parent process.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Privilege"), undo: None,
         tags: &["authd", "authorization", "sudo"],
     },
     Command {
         id: "sm-json", topic: OWN_TOPIC, title: "Print the full snapshot as JSON",
-        command: "sys-monitor json",
+        command: "monitor-lizard json",
         description: "Prints the same data the dashboard loads, for scripts and agents.",
         example: None, safety: Safety::ReadOnly, appears_in: None, undo: None,
         tags: &["json", "export"],
     },
     Command {
         id: "sm-serve", topic: OWN_TOPIC, title: "Start the dashboard",
-        command: "sys-monitor serve [port]",
-        description: "Serves the dashboard on 127.0.0.1 (default port 4747). The dashboard can stop your own processes after you confirm, and saves history to ~/.sys-monitor/.",
+        command: "monitor-lizard serve [port]",
+        description: "Serves the dashboard on 127.0.0.1 (default port 4747). The dashboard can stop your own processes after you confirm, and saves history to ~/.monitor-lizard/.",
         example: None, safety: Safety::ChangesFiles, appears_in: None,
         undo: Some("Press Ctrl-C to stop the server. A stopped process cannot be restarted from the dashboard."),
         tags: &["dashboard", "server", "web"],
     },
     Command {
         id: "sm-approve", topic: OWN_TOPIC, title: "Mark app groups as expected",
-        command: "sys-monitor approve <group-key>...",
+        command: "monitor-lizard approve <group-key>...",
         description: "Adds each group to the baseline of expected apps, so it is no longer reported as new.",
         example: None, safety: Safety::ChangesFiles, appears_in: Some("Apps"),
-        undo: Some("Remove the key from the baseline file in ~/.sys-monitor/."),
+        undo: Some("Remove the key from the baseline file in ~/.monitor-lizard/."),
         tags: &["baseline", "approve", "expected"],
     },
     Command {
         id: "sm-help", topic: OWN_TOPIC, title: "Search this guide",
-        command: "sys-monitor help [word]",
+        command: "monitor-lizard help [word]",
         description: "Prints the commands and terms whose title, command or tags contain the word. With no word it prints all of them.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Guide"), undo: None,
         tags: &["help", "usage", "guide"],
@@ -233,8 +233,8 @@ pub static TERMS: &[Term] = &[
 
 /// Every subcommand, in table order, as `usage:` shows them.
 pub fn usage() -> String {
-    let parts: Vec<String> = COMMANDS.iter().filter(|c| c.topic == OWN_TOPIC).map(|c| c.command.trim_start_matches("sys-monitor ").to_string()).collect();
-    format!("usage: sys-monitor [{}]", parts.join(" | "))
+    let parts: Vec<String> = COMMANDS.iter().filter(|c| c.topic == OWN_TOPIC).map(|c| c.command.trim_start_matches("monitor-lizard ").to_string()).collect();
+    format!("usage: monitor-lizard [{}]", parts.join(" | "))
 }
 
 fn contains(hay: &str, word: &str) -> bool {
@@ -255,7 +255,7 @@ fn topics() -> Vec<&'static str> {
     t
 }
 
-/// The text `sys-monitor help [word]` prints.
+/// The text `monitor-lizard help [word]` prints.
 pub fn render_help(word: &str) -> String {
     let (cmds, terms) = search(word);
     if cmds.is_empty() && terms.is_empty() {
@@ -356,7 +356,7 @@ mod tests {
     fn no_match_names_the_topics() {
         let text = render_help("zzzz");
         assert!(text.starts_with("No command matches \"zzzz\""));
-        assert!(text.contains("sys-monitor") && text.contains("storage"));
+        assert!(text.contains("monitor-lizard") && text.contains("storage"));
     }
 
     #[test]

@@ -99,7 +99,7 @@ In code the label is `Group.trust` and the reasons are `Group.rules_fired`; this
 | trusted, approved | ignore |
 | any | never `block_network` (no network extension exists) |
 
-Actions must also be ones `src/actions.rs` would accept: it refuses root, launchd and sys-monitor itself.
+Actions must also be ones `src/actions.rs` would accept: it refuses root, launchd and monitor-lizard itself.
 
 ### 5.3 Evidence (input)
 
