@@ -365,6 +365,10 @@ function priv() {
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
     h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'Requester chain' }], 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px'),
       S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Sys Monitor is serving shows up here.')), sp.pager),
+    h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
+      dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
+    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
+      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
   ];
 }
 
