@@ -97,52 +97,71 @@ cargo run --release -- storage | head -40
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
-2026-11-26.
+2026-11-26, updated after review.
 
 ### Purgeable space
 
-Purgeable space is readable without root. `CFURLCopyResourcePropertyForKey` on `/` with the key `NSURLVolumeAvailableCapacityForImportantUsageKey` works through CoreFoundation, which the crate already links. No new dependency was needed.
+Purgeable space is readable without root. `CFURLCopyResourcePropertiesForKeys` on `/`, with the keys `NSURLVolumeAvailableCapacityKey` and `NSURLVolumeAvailableCapacityForImportantUsageKey`, works through the CoreFoundation wrappers the crate already uses. No new dependency and no hand-written extern.
 
-On this Mac (macOS 27.0.1) `df` showed 34 GiB free and `diskutil info /` showed 36.6 to 37.8 GB. The available key matched them. The important-usage key gave 78.9 GB, so purgeable is about 41 GB. Opportunistic usage gave 64.3 GB.
+On this Mac (macOS 27.0.1) `df` showed 34 GiB free and `diskutil info /` 36.6 to 37.8 GB. The available key matched them. The important-usage key gave 78.9 GB, so purgeable is about 41 GB. Opportunistic usage gave 64.3 GB.
 
-`diskutil info /` and `diskutil apfs list` do not print a purgeable figure, only container free space. `tmutil listlocalsnapshots /` lists dates only, and `diskutil apfs listSnapshots /` lists no size, so snapshot size is `Unavailable`.
-
-Purgeable is the important-usage figure minus the available figure. It is an estimate that macOS recomputes, so two reads seconds apart can differ. The earlier B2 comment saying `f_bavail` already includes purgeable space was wrong, and it is corrected.
+`diskutil info /` and `diskutil apfs list` print no purgeable figure. `tmutil listlocalsnapshots /` lists dates only, and `diskutil apfs listSnapshots /` lists no size, so snapshot size is `Unavailable`. Purgeable is an estimate that macOS recomputes, so two reads can differ.
 
 ### What was built
 
-`src/storage.rs` holds the rules table, the walker, the scan, the cache and the tests. `src/server.rs` gained one route and one cache field. `src/main.rs` and `src/guide.rs` gained the `storage` subcommand and its guide entry. Both guide fixtures were updated.
+`src/storage/` holds `mod.rs` (the scan), `rules.rs` (labels), `walk.rs` (walker, pacing, project search), `volume.rs` (capacity and `tmutil`) and `cache.rs` (the cache and its rate limit). `src/server.rs` gained one route and one cache field. The `storage` subcommand and its guide entry are in `src/main.rs` and `src/guide.rs`.
 
-The walker uses `lstat` only and counts allocated bytes. It never follows a symlink, never enters another device and counts a hard link once. Each location has a cap of 200,000 entries, and the whole scan has a 20 s budget, with 1 s kept back for `tmutil` and the reply.
+The walker uses `lstat` only and counts allocated bytes. It never follows a symlink, never enters another device and counts a hard link once. Each location has a cap of 200,000 entries and at most a quarter of the time left. The whole command has a 20 s budget with `tmutil` running beside the walk.
 
-The scan runs on a utility-class thread and rests to stay near 20% of one core. The `/api/storage` cache starts a scan on the first request or on `?fresh=1`, and two requests at once start one scan.
+### Labels
+
+A wrong `safe` tells a user to delete something, so the order of the rules is the safety argument. Path components are compared in lowercase, a path with `..`, a relative path or a component that is not UTF-8 is `review`, and an empty home refuses `safe`. User content, Mail and every `review` rule come before any `safe` rule.
+
+`safe` is limited to Xcode DerivedData, the Homebrew, pip, Yarn and node-gyp caches, and idle `node_modules`. A generic app cache is `review`, because some apps keep offline data there. A `safe` label is kept only if the path, with symlinks resolved, gets the same label.
+
+A project is idle only when it has a lockfile beside `package.json`, the nearest git index up to the home folder is 90 days old, and no top-level entry or `node_modules` is newer. A monorepo package has no lockfile of its own, so it is never idle. This is deliberate.
+
+### Search for node_modules
+
+The search enters only the home folder and its direct children, plus `~/Developer`, `~/Projects`, `~/Code`, `~/src`, `~/dev`, `~/work`, `~/git`, `~/repos`, `~/workspace` and folders with those names one level down. It never enters user-content folders or `~/Library`, so it cannot raise a folder-access prompt. It finds at most 300.
+
+### Order and budget
+
+Order: DerivedData, the Docker folder, app caches largest first by a one-level size, CoreSimulator, Logs, `node_modules`, Downloads, Mail, `/Applications`. The first ones are large and can be acted on; the last ones cannot be `safe`.
+
+The JSON says how complete it is: `coverage`, `progress`, `lower_bound` and `unmeasured` per category, a stable `id` per item and `notes`. APFS clones are counted once per copy, as `du` does, and `notes` says so.
+
+A request starts a scan at most once a minute. A request inside that window gets the cached result and `next_scan_allowed_at`.
 
 ### Measured on a real home
 
-On this developer home (5.6 GB of caches and 12 GB of Docker data, with `/Applications` at 18 to 19 GB), an unpaced scan used 9.7 s of CPU in 20 s, about 48% of one core. That is why pacing was added.
+Two runs of `monitor-lizard storage` took 19.4 s of wall time, `tmutil` included, and used 3.9 s of CPU, about 20% of one core. Peak memory was 11 MB. Before pacing the same scan used about 48% of a core.
 
-With pacing, two runs finished in 19.9 and 20.3 s and used 3.3 and 4.0 s of CPU (17% and 20% of one core). Peak memory was 11 MB.
+The scan is partial on a normal developer home, not only on an unusual one. The two runs measured 269 and 277 of 305 and 309 locations, about 36 and 39 GB. Downloads, Mail, `/Applications` and the `node_modules` search were not reached.
 
-On this home the scan is always partial. One run reached 238 of 304 locations and a later one 28, so the reach depends on how warm the disk cache is. `node_modules` and `/Applications` were not reached, and the result says so in `complete: false` and `not_reached`.
-
-The utility class is used because the background class reached only about 5,000 entries in 27 s.
+Acceptance holds as written: valid JSON in under 20 s, no `safe` item under user content, and CPU under 25% of one core. Convergence over several runs is a separate todo.
 
 ### Deviations
 
-- CoreSimulator is labelled `review`, not `safe`. The unavailable runtimes cannot be told apart by path, and `xcrun simctl` would start a process.
-- `/Applications` is scanned last, not first, because it can never be `safe`.
-- The `node_modules` search also skips dot-folders and `~/Downloads`, and finds at most 300. A project counts as idle when its folder, `node_modules`, `package.json` and git index are all 90 days old.
-- A `node_modules` folder under a user-content folder is labelled `yours`.
+- CoreSimulator is `review`: unavailable runtimes cannot be told apart by path.
+- The scan is partial within 20 s, so `complete` and `not_reached` are part of the result.
+- The utility class is used, not the background class, which reached about 5,000 entries in 27 s.
+- The review fixes landed as one restructure, not a split commit followed by fixes, because the split and the new types touched the same lines.
+
+### Size
+
+The PR is far above the 200 to 400 line target: about 1,470 lines in `src/storage/`, of which about 600 are tests, plus docs. Review asked for the rules, coverage fields and cache tests, and each is part of the safety case.
 
 ### Open
 
-- A bulk directory read (`getattrlistbulk`) would cut the system calls and let the scan reach more locations in 20 s. It needs more unsafe code, so it was left out.
-- The Full Disk Access folders (Mail, Safari, Music caches) show `Unavailable("permission denied")` here. Whether the A17 app identity changes that is still unverified.
-- CI is pending on the pull request. `/code-review` and `/writing-review` are not run yet.
+- Convergence across runs is S1b.
+- Mail, Safari and Music caches show `Unavailable("permission denied")` without Full Disk Access.
+- `getattrlistbulk` would cut system calls and reach more locations. It needs more unsafe code.
+- CI is pending. `/writing-review` is not run.

@@ -47,6 +47,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | Todo | Title | Depends on |
 |---|---|---|
 | S1 | Storage scanner and `/api/storage` | B2 |
+| S1b | Converging storage scan | S1 |
 | S2a | Storage page: status strip, treemap, table, inspector | S1, B7, T1a |
 | S2b | Storage page: suggested clean-ups, Inside System Data | S2a |
 | S3a | Move to Trash route and audit log | S1 |
