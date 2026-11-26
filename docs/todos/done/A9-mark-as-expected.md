@@ -108,7 +108,7 @@ make test
 
 **Never expected.** `unsigned-network` and `debug-port` are refused at write time, as are unknown rules and `unreviewed`. Marked findings are listed in a collapsed Overview section with their scope and an Unmark button, and the heading counts them.
 
-**Audit and limits.** Each change is written to `baseline_changes` before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
+**Audit and limits.** The `baseline_changes` table is migration step 2, created with `IF NOT EXISTS`. Each change is written to it before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
 
 **Corrupt files.** A corrupt file is moved to `.bad`, `.bad-1` and so on, never over an older copy. The Overview shows a banner until dismissed, saying earlier marks are not in effect. An unreadable file pauses marking and is never replaced.
 
@@ -126,4 +126,4 @@ make test
 
 **Size.** The PR is about 920 changed lines against a 400 target, so the M label was exceeded. Review added the evidence scope, never-expected rules, locking, limits and tests. Splitting it would have left the unsafe version mergeable.
 
-**Open.** `/writing-review` is for the owner's session. `baseline_changes` is still created by `CREATE TABLE IF NOT EXISTS` and becomes a migration step once the schema-version PR merges. `new-remote` findings cannot be marked as a finding, only host by host.
+**Open.** `/writing-review` is for the owner's session. `new-remote` findings cannot be marked as a finding, only host by host.

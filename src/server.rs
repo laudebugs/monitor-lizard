@@ -52,11 +52,13 @@ pub fn serve(port: u16) {
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
     refresh(&pers, Duration::from_secs(60), persistence::take);
+    // Say at startup if the history cannot be opened (for instance a database from a newer build), instead of showing empty pages.
+    drop(history::open_or_report());
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
     history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
     thread::spawn(|| {
-        let h = History::open().ok();
+        let h = history::open_or_report();
         watcher::watch(|e| { if let Some(h) = &h { let _ = h.record_sudo(&e); } })
     });
     let origins = [format!("http://{addr}"), format!("http://localhost:{port}")];
@@ -93,9 +95,12 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?))) {
                 Ok((seen, actions, baseline_changes)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes }).to_string()),
                 // An unreadable database must not look like "no history".
-                Err(e) => Response::from_string(format!("history unavailable: {e}")).with_status_code(500).boxed(),
+                Err(e) => Response::from_string(history::unavailable(&e)).with_status_code(500).boxed(),
             }
-            (Method::Get, "/api/sudo") => json_resp(History::open().and_then(|h| h.recent_sudo(50)).map(|v| serde_json::to_string(&v).unwrap_or_default()).unwrap_or_else(|_| "[]".into())),
+            (Method::Get, "/api/sudo") => match History::open().and_then(|h| h.recent_sudo(50)) {
+                Ok(v) => json_resp(serde_json::to_string(&v).unwrap_or_default()),
+                Err(e) => Response::from_string(history::unavailable(&e)).with_status_code(500).boxed(),
+            }
             (Method::Get, "/api/guide") => json_resp(crate::guide::to_json()),
             (Method::Get, "/api/settings") => json_resp(serde_json::to_string(&settings::load()).unwrap_or_default()),
             (Method::Post, "/api/settings") if write_ok => {

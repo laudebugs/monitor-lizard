@@ -93,7 +93,7 @@ pub fn dispatch(findings: &[Finding]) {
     if cfg.notifications == Level::Off {
         return;
     }
-    let Ok(h) = History::open() else { return };
+    let Some(h) = crate::history::open_or_report() else { return };
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     if let Some(updated) = dispatch_with(&h, cfg, findings, now, local_minutes_since_midnight(now), send) {
         let _ = settings::save(&updated);
