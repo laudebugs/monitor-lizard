@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `R3a` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | M1 |
 | ADRs | None |
