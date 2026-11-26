@@ -68,7 +68,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | R3a | Persistence data: schedule, fingerprints, removals | M1 |
 | R3b | Persistence page redesign | R3a, T1b, N1, N3, A9 |
 
-G1, G2, N1, N3, A9, M1 and T1a can start now, and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
+G1 is built (2026-11-26, PR pending merge). G2, N1, N3, A9, M1 and T1a can start now, and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
 
 ## 6. Risks and open questions
 

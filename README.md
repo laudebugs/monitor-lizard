@@ -13,6 +13,10 @@ Local-first macOS monitor that groups every process and network socket by app an
 
 State (baseline and history) lives in `~/.sys-monitor/`; a one-time migration copies `~/.ownwatch/` the first time it finds no new folder. The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
 
+## Commands
+
+`sys-monitor help [word]` lists every command and term, filtered by the word, with what each one changes and how to undo it. The dashboard serves the same table at `/api/guide`.
+
 ## Working on this repo
 
 Rules for people and AI agents are in [AGENTS.md](AGENTS.md). Work comes from the todo board (`make todos`), one todo per branch and pull request, each in its own git worktree. Run `make check` before pushing; CI runs the same targets and one `gate` check. Docs live in [docs/](docs/README.md). Structure adopted from the owner's `scaffold` template.
