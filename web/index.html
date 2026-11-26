@@ -140,6 +140,11 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 <script>
 const TOKEN = "__TOKEN__";
 const $ = (id) => document.getElementById(id);
+/* view-items:begin */
+// The one rule for "nothing to show". h() and render() both use it: Element.append and replaceChildren write a
+// null argument as the text "null", so a conditional section (`cond ? h(...) : null`) must be dropped first.
+const nodesOf = (items) => items.flat(Infinity).filter((c) => c != null && c !== false);
+/* view-items:end */
 const h = (tag, attrs = {}, ...kids) => {
   const e = tag === 'svg' ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -148,7 +153,7 @@ const h = (tag, attrs = {}, ...kids) => {
     // e.className = v silently does nothing there (first hit by this page's own sparkline svgs).
     if (k === 'class') e.setAttribute('class', v); else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v); else e.setAttribute(k, v === true ? '' : v);
   }
-  e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
+  e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
 const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true };
@@ -799,12 +804,6 @@ function crumb() {
   return parts.map((p, i) => [i ? h('span', { 'aria-hidden': 'true' }, '\u203A') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, p.text) : h('a', { href: p.href }, p.text)]);
 }
 
-/* view-items:begin */
-// Element.replaceChildren turns a null argument into the text "null" (h() filters nullish children, replaceChildren does not),
-// so a view may list a conditional section as `cond ? h(...) : null` and every view goes through here.
-const viewItems = (items) => items.filter((x) => x != null && x !== false);
-/* view-items:end */
-
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
@@ -820,14 +819,14 @@ function render() {
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (!S.snap) c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...'));
-  else if (S.view === 'overview') c.replaceChildren(...viewItems(overview()));
-  else if (S.view === 'apps') c.replaceChildren(...viewItems(apps()));
-  else if (S.view === 'priv') c.replaceChildren(...viewItems(priv()));
-  else if (S.view === 'listeners') c.replaceChildren(...viewItems(listeners()));
-  else if (S.view === 'persist') c.replaceChildren(...viewItems(persistence()));
-  else if (S.view === 'performance') c.replaceChildren(...viewItems(performanceView_()));
-  else if (S.view === 'network') c.replaceChildren(...viewItems(network()));
-  else if (S.view === 'history') c.replaceChildren(...viewItems(historyView()));
+  else if (S.view === 'overview') c.replaceChildren(...nodesOf(overview()));
+  else if (S.view === 'apps') c.replaceChildren(...nodesOf(apps()));
+  else if (S.view === 'priv') c.replaceChildren(...nodesOf(priv()));
+  else if (S.view === 'listeners') c.replaceChildren(...nodesOf(listeners()));
+  else if (S.view === 'persist') c.replaceChildren(...nodesOf(persistence()));
+  else if (S.view === 'performance') c.replaceChildren(...nodesOf(performanceView_()));
+  else if (S.view === 'network') c.replaceChildren(...nodesOf(network()));
+  else if (S.view === 'history') c.replaceChildren(...nodesOf(historyView()));
   else c.replaceChildren(h('p', { class: 'mut' }, 'Unknown view.')); // every NAV id has a branch above; this only guards a future NAV entry added without one
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },

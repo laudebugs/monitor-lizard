@@ -8,14 +8,16 @@ On the Privilege page the word "null" sits above the heading "sudo / su launches
 
 ## How to reproduce
 
-1. Build and run the page on a Mac with no failed sudo authorizations in the last two hours (2026-11-26: `target/release/sys-monitor serve 4961`).
+1. Build the page on a Mac with no failed sudo authorizations in the last two hours and serve it (`target/release/sys-monitor serve 4961`).
 2. Open `http://127.0.0.1:4961/#priv`.
-3. Look above the heading. Reproduced in Chrome on 2026-11-26.
+3. Look above the heading.
+
+Reproduced on 2026-11-26 in Chrome, in a tab opened for the check, on the build of `main` at `b55eada`. The page was in the dark theme and showed `null` above the heading. After the theme was switched to light it showed the same text. `S.priv` held 0 failed sudo entries.
 
 ## Measurements
 
-- In the real page, `S.priv` held 0 failed sudo entries. The only text node directly inside `#content` on the Privilege page was `"null"`.
-- Rendering each of the eight views in turn and listing the text nodes directly inside `#content` found text only on Privilege. The other seven views do not return a nullish top-level item with the data present then.
+- In the page, the only text node directly inside `#content` on the Privilege page was `"null"`.
+- With the same data, each of the eight views was rendered in turn and the text nodes directly inside `#content` were counted. Only the Privilege page had one. The other seven views have no nullish top-level item with the data loaded then; a different data set could still produce one, so the fix does not rely on that.
 
 ## Cause
 
