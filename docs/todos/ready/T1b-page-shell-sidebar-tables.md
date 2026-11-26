@@ -14,7 +14,7 @@
 
 ## Goal
 
-Give every page the same anatomy: breadcrumb and search on top, a verdict line as the title, filters, a table and an inspector. Group the sidebar and show counts of items that need a decision. This is the owner of plan decision D11.
+Give every page the same anatomy: breadcrumb and search on top, a verdict line as the title, filters, a table and an inspector. Group the sidebar and show counts of items that need a decision. This todo implements plan decision D11.
 
 ## Context
 

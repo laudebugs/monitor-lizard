@@ -19,7 +19,7 @@ Give every table the same three tools: export what is on screen as CSV or JSON, 
 ## Context
 
 - C1 added `sortRows`, `sortHeader` and filters in `web/index.html`; they are the one place to hook into.
-- HN commenters on the disk-tool thread asked for shareable reports (secondary evidence: one comment).
+- A commenter on the disk-tool HN thread asked for shareable reports (read directly; one comment).
 
 ## Scope
 

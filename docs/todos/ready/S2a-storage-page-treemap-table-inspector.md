@@ -84,7 +84,6 @@ Plan status; `README.md` page list if it names pages.
 ## Risks and open questions
 
 - Every new page lands in the same file; watch the size budget in `docs/guidelines/maintainability.md`.
-- If T1a has not landed yet, build with the tokens in design boards D to H and move them into T1's classes in the same PR.
 
 ## Definition of done
 

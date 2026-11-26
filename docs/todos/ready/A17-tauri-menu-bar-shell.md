@@ -1,6 +1,6 @@
 # A17: Tauri menu-bar shell
 
-> **On hold until [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md) is Accepted.** The A17a spike is done ([report](../../research/tauri-shell-spike/README.md)). Acceptance needs the owner's Full Disk Access test below. Do not start A17b before it passes.
+> **On hold until [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md) is Accepted.** The A17a spike is done ([report](../../research/tauri-shell-spike/README.md)). Acceptance needs the owner's Full Disk Access test below. Do not build the shell before it passes.
 
 | Field | Value |
 |---|---|
@@ -22,7 +22,7 @@ The spike (A17a) is done, so this todo is the shell itself. Signing and release 
 
 ## Context
 
-- ADR 0004 lists what is unverified. The owner approved running the spike (A17a) on 2026-11-26; the ADR status stays Proposed until the spike report is in.
+- ADR 0004 lists what is unverified. The spike (A17a) ran on 2026-11-26. The ADR stays Proposed until the Full Disk Access test in the Steps passes.
 - A14 (done) notes that click-through and actions on notifications need this app.
 - Use the project's `tauri-v2` skill for the configuration and permissions work.
 

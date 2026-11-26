@@ -1,8 +1,8 @@
-# A Tauri v2 menu-bar shell works, but its payoff is small and its fixed cost is signing
+# A Tauri v2 menu-bar shell works; whether it is worth its signing cost rests on one untested benefit
 
 As of 2026-11-26 (spike A17a, branch `spike/a17-tauri-menu-bar-shell`). Ran on macOS 27 (Darwin 27.0.0), Apple silicon. Code that ran is committed under `src-tauri/` on a local branch that is not pushed; it is a throwaway spike, not the shell. This report did not go through the full five-step pipeline in [../README.md](../README.md): there is no fact-check log. Each answer is labelled VERIFIED (I ran it, or read the primary page named) or UNVERIFIED.
 
-**Thesis:** the technical risks in [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md) are mostly gone. The server runs in-process, the page and its guards work unchanged in the webview, and the tray works. What remains is cost (signing, a release job, about 19 times the resident memory (133 MB against 7 MB)) against a benefit that is still unproven (Full Disk Access identity).
+**Thesis:** the technical risks in [ADR 0004](../../decisions/0004-tauri-menu-bar-shell.md) are mostly gone. The server runs in-process, the page and its guards work unchanged in the webview, and the tray works. What remains is cost: signing, a release job and about 19 times the resident memory (133 MB against 7 MB). The benefit, a stable Full Disk Access identity, is still unproven.
 
 ## Versions and build
 
@@ -26,7 +26,7 @@ As of 2026-11-26 (spike A17a, branch `spike/a17-tauri-menu-bar-shell`). Ran on m
 | 3b | Menu (Open dashboard, Rescan, Quit)? | Built with `Menu::with_items`. I could not open the menu and click items: System Events saw the status item but not its menu, and keyboard navigation did nothing. The handlers are untested. | UNVERIFIED |
 | 3c | Hidden from the Dock? | Yes. `set_activation_policy(Accessory)` gives `type="UIElement"` in `lsappinfo`. The bundle also gets `LSUIElement = true` from `src-tauri/Info.plist` (checked in the built `Info.plist`). | VERIFIED (ran) |
 | 3d | Quit stops the server, no orphan? | The Quit handler (`Server::unblock`, `app.exit(0)`) was not exercised (see 3b). SIGTERM to the shell ended the process and its three WebKit helpers; no listener remained on its port. Server and sampler are threads in the same process, so exit leaves no child. | Handler UNVERIFIED; process exit VERIFIED |
-| 4 | Minimum capabilities, no `invoke` for writes? | No capability file was needed. The windows load a remote URL, and a remote origin gets IPC only if a capability lists it under `remote.urls`; I added none. The tray and menu are Rust-side, so they need no permission. The page has no `invoke` calls and writes use the HTTP routes. Caveat: `window.__TAURI_INTERNALS__` is still injected into the external page (typeof `object`); I did not test that `invoke` is denied from it. Add `"app.withGlobalTauri": false` and check in A17b. | Config VERIFIED (ran, no capability); denial of `invoke` UNVERIFIED. Rule for remote URLs from the Tauri v2 capabilities docs is from memory: UNVERIFIED |
+| 4 | Minimum capabilities, no `invoke` for writes? | No capability file was needed. The windows load a remote URL, and a remote origin gets IPC only if a capability lists it under `remote.urls`; I added none. The tray and menu are Rust-side, so they need no permission. The page has no `invoke` calls and writes use the HTTP routes. Caveat: `window.__TAURI_INTERNALS__` is still injected into the external page (typeof `object`); I did not test that `invoke` is denied from it. Add `"app.withGlobalTauri": false` and check in A17. | Config VERIFIED (ran, no capability); denial of `invoke` UNVERIFIED. Rule for remote URLs from the Tauri v2 capabilities docs is from memory: UNVERIFIED |
 | 5 | `navigator.clipboard.writeText`? | Context is secure (`isSecureContext` true). Called without a user gesture it rejects with `NotAllowedError`. A gesture-driven call was not tested (no click could be sent), and the Guide page is not on `main`, so it was not available to test. WKWebView normally allows it inside a click handler: UNVERIFIED. `document.queryCommandSupported('copy')` is true as a fallback. | No-gesture VERIFIED; gesture UNVERIFIED |
 | 6a | Developer ID identity on this Mac? | Yes: `security find-identity -v -p codesigning` lists 3 valid identities, two "Developer ID Application" (same hash twice) and one "Apple Distribution". Name and team ID are left out here. | VERIFIED (ran) |
 | 6b | What signing and notarization need and cost | Apple Developer Program, 99 USD per year; includes certificates and an Apple-verified Developer ID. Only the Account Holder creates Developer ID certificates. Tauri signs with `APPLE_SIGNING_IDENTITY` (or `bundle.macOS.signingIdentity`) and notarizes when `APPLE_API_ISSUER`/`APPLE_API_KEY`/`APPLE_API_KEY_PATH` or `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID` are set. CI needs the certificate as a base64 `.p12` (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`). | VERIFIED for cost and Tauri steps (pages read through a fetch tool, which summarises: treat as secondary); Apple's notarization page body did not load, so hardened runtime, timestamp, `notarytool` and stapling are UNVERIFIED (general knowledge) |
@@ -45,14 +45,14 @@ Idle for 60 s after 15 s warm-up, sampled with `ps`. The shell had its window op
 | CPU seconds in 60 s | 0.55 | 0.69 | 0.20 |
 | Binary | 3.3 MB | 9.2 MB | system WebKit, not shipped |
 
-The `.app` bundle is 8.8 MiB. Memory is about 19x the headless server (about 2.5x if you count the browser tab you would otherwise have open: not measured). CPU is negligible either way.
+The `.app` bundle is 8.8 MiB. Memory is about 19 times the headless server (133 MB against 7 MB). CPU is negligible either way.
 
 ## What must change in the code
 
 - `src/server.rs`: split `serve` into a bind step and `serve_on(Arc<Server>)`; add `bind_free()`. Done in this branch, with `serve(port)` behaving as before.
-- The root crate is a binary, not a library. The spike includes modules by `#[path]`; A17b should instead make a library target or a workspace crate so there is one copy of the modules.
+- The root crate is a binary, not a library. The spike includes modules by `#[path]`; A17 should instead make a library target or a workspace crate so there is one copy of the modules.
 - Quit works only if the server loop can end: `Server::unblock` is enough, but the refresh threads, sampler and sudo watcher are detached and die with the process. Fine for Quit; not fine if the shell ever restarts the server without exiting.
-- Todo A17 says "Server fails to start: tray shows an error state". The spike's `bind_free` returns `Result`, but the shell `expect`s it; A17b needs the error state.
+- Todo A17 says "Server fails to start: tray shows an error state". The spike's `bind_free` returns `Result`, but the shell `expect`s it; A17 needs the error state.
 - Second launch focusing the existing window needs `tauri-plugin-single-instance`: not tried, UNVERIFIED.
 
 ## Full Disk Access test (question 7), steps for the owner

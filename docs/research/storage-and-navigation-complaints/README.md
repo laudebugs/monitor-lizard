@@ -2,7 +2,7 @@
 
 As of 2026-11-26. Gathered the same day by reading Hacker News threads through the Algolia API and by web search. This note did not go through the five-step pipeline in [../README.md](../README.md): there is no fact-check log, and the items under "Not verified" are unchecked.
 
-**Thesis:** people distrust single-number metrics, cannot see what fills their disk, and want a verdict they can act on and data they can take out of the app. These are the evidence for the Storage page, the Guide and the navigation rules in the [plan](../../plans/storage-and-guide.md).
+**Thesis:** people distrust single-number metrics, cannot see what fills their disk, and want a verdict they can act on and data they can take out of the app. The threads below support the Storage page, the Guide and the navigation rules in the [plan](../../plans/storage-and-guide.md).
 
 ## Read directly (Hacker News comments)
 
