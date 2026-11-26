@@ -18,6 +18,12 @@ const FIFTEEN_MIN_RETENTION_SECS: u64 = 30 * 86400;
 
 #[derive(serde::Serialize, Debug)]
 pub struct SeenRow { pub group_key: String, pub remote: String, pub first_seen: u64, pub last_seen: u64, pub hits: u64 }
+/// Audit rows kept; older ones are deleted. The baseline itself is not affected.
+const BASELINE_CHANGE_KEEP: i64 = 10_000;
+
+/// One time the user marked or unmarked something as expected; `marked` is false for an unmark.
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct BaselineChangeRow { pub ts: u64, pub kind: String, pub key: String, pub marked: bool, pub note: String }
 #[derive(serde::Serialize, Debug)]
 pub struct ActionRow { pub ts: u64, pub sig: String, pub sent: String, pub refused: String }
 
@@ -44,6 +50,8 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS notified(finding_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS samples(res TEXT NOT NULL, metric TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL, PRIMARY KEY(res, metric, ts)) WITHOUT ROWID;",
+    // IF NOT EXISTS so a development database that already has the table is safe.
+    "CREATE TABLE IF NOT EXISTS baseline_changes(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, marked INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '');",
 ];
 
 fn backup_path(p: &std::path::Path) -> PathBuf {
@@ -223,6 +231,21 @@ impl History {
         self.0.execute("INSERT INTO actions(ts,sig,sent,refused) VALUES(?1,?2,?3,?4)",
             params![ts as i64, sig, format!("{sent:?}"), refused])?;
         Ok(())
+    }
+
+    /// Audit trail of every mark or unmark as expected. The actions table holds only pids, so it cannot say this.
+    /// `note` is empty for a normal change; a row with a note says the change did not happen, and why.
+    /// Only the newest `BASELINE_CHANGE_KEEP` rows are kept, so repeated marking cannot grow the file without bound.
+    pub fn record_baseline_change(&self, ts: u64, kind: &str, key: &str, marked: bool, note: &str) -> rusqlite::Result<()> {
+        self.0.execute("INSERT INTO baseline_changes(ts,kind,key,marked,note) VALUES(?1,?2,?3,?4,?5)", params![ts as i64, kind, key, marked, note])?;
+        self.0.execute("DELETE FROM baseline_changes WHERE id <= (SELECT MAX(id) FROM baseline_changes) - ?1", [BASELINE_CHANGE_KEEP])?;
+        Ok(())
+    }
+
+    pub fn recent_baseline_changes(&self, limit: usize) -> rusqlite::Result<Vec<BaselineChangeRow>> {
+        let mut st = self.0.prepare("SELECT ts,kind,key,marked,note FROM baseline_changes ORDER BY id DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(BaselineChangeRow { ts: r.get::<_, i64>(0)? as u64, kind: r.get(1)?, key: r.get(2)?, marked: r.get(3)?, note: r.get(4)? }))?;
+        rows.collect()
     }
 
     pub fn record_sudo(&self, e: &crate::watcher::SudoEvent) -> rusqlite::Result<()> {
@@ -421,7 +444,7 @@ pub fn start_metrics_writer(ring: crate::sampler::Ring, enabled: impl Fn() -> bo
 mod tests {
     use super::*;
     fn group(key: &str, remote: &str) -> Group {
-        Group { key: key.into(), label: key.into(), category: "Apps".into(), procs: vec![], signing: None, approved: true, trust: Label::Unknown, rules_fired: vec![],
+        Group { key: key.into(), label: key.into(), category: "Apps".into(), procs: vec![], signing: None, approved: true, trust: Label::Unknown, rules_fired: vec![], expected_hosts: vec![],
             conns: vec![Conn { pid: 1, name: "x".into(), proto: "TCP".into(), state: "ESTABLISHED".into(), local_addr: "10.0.0.2".into(), local_port: 1,
                 remote_addr: Some(remote.into()), remote_port: Some(443), direction: Direction::Outbound, scope: Scope::Public, exposed: false }] }
     }
@@ -512,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unversioned_database_keeps_every_row_gets_version_1_and_is_backed_up() {
+    fn an_unversioned_database_keeps_every_row_reaches_the_latest_version_and_is_backed_up() {
         let dir = scratch("old");
         let db = dir.join("h.db");
         write_unversioned_database(&db);
@@ -524,7 +547,7 @@ mod tests {
         // The table added after the file was written is created by step 1.
         h.0.execute("INSERT INTO samples VALUES('1m','cpu_avg',60,1.0)", []).unwrap();
         drop(h);
-        assert_eq!(version_of(&db), 1);
+        assert_eq!(version_of(&db), MIGRATIONS.len());
         let bak = Connection::open(backup_path(&db)).unwrap();
         assert_eq!(bak.query_row("SELECT COUNT(*) FROM seen", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
         assert_eq!(user_version(&bak).unwrap(), 0, "the backup is the file as it was");
@@ -545,7 +568,7 @@ mod tests {
         assert_eq!(std::fs::metadata(backup_path(&db)).unwrap().modified().unwrap(), first);
         let bak = Connection::open(backup_path(&db)).unwrap();
         assert_eq!(bak.query_row("SELECT COUNT(*) FROM actions", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
-        assert_eq!(version_of(&db), 1);
+        assert_eq!(version_of(&db), MIGRATIONS.len());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -604,7 +627,7 @@ mod tests {
         write_unversioned_database(&db);
         let threads: Vec<_> = (0..4).map(|_| { let db = db.clone(); std::thread::spawn(move || History::at(&db).map(drop)) }).collect();
         for t in threads { t.join().unwrap().expect("every opener succeeds"); }
-        assert_eq!(version_of(&db), 1);
+        assert_eq!(version_of(&db), MIGRATIONS.len());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -631,7 +654,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(300));
         std::fs::write(&go, "").unwrap();
         for mut c in children { assert!(c.wait().unwrap().success(), "both processes open the database"); }
-        assert_eq!(version_of(&db), 1);
+        assert_eq!(version_of(&db), MIGRATIONS.len());
         let bak = Connection::open(backup_path(&db)).unwrap();
         assert_eq!(user_version(&bak).unwrap(), 0, "the backup is the pre-migration file");
         assert_eq!(bak.query_row("SELECT hits FROM seen", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
@@ -707,6 +730,80 @@ mod tests {
         let text = unavailable(&e);
         assert!(text.starts_with("history unavailable: ") && text.contains("newer version"), "{text}");
         assert_eq!(std::fs::read(&db).unwrap(), before);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn baseline_changes_are_recorded_newest_first_with_their_direction_and_note() {
+        let (h, dir) = tmp_history("baseline-changes");
+        h.record_baseline_change(10, "host", "k|1.2.3.4", true, "").unwrap();
+        h.record_baseline_change(20, "host", "k|1.2.3.4", false, "the change was not saved: disk full").unwrap();
+        let rows = h.recent_baseline_changes(10).unwrap();
+        assert_eq!(rows, vec![
+            BaselineChangeRow { ts: 20, kind: "host".into(), key: "k|1.2.3.4".into(), marked: false, note: "the change was not saved: disk full".into() },
+            BaselineChangeRow { ts: 10, kind: "host".into(), key: "k|1.2.3.4".into(), marked: true, note: String::new() }]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_audit_keeps_only_the_newest_rows() {
+        let (h, dir) = tmp_history("baseline-prune");
+        for n in 0..(BASELINE_CHANGE_KEEP as u64 + 5) { h.record_baseline_change(n, "app", &format!("/{n}.app"), true, "").unwrap(); }
+        let rows = h.recent_baseline_changes(usize::MAX >> 1).unwrap();
+        assert_eq!(rows.len(), BASELINE_CHANGE_KEEP as usize);
+        assert_eq!(rows[0].ts, BASELINE_CHANGE_KEEP as u64 + 4, "the newest survived");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_version_1_database_gains_the_baseline_table_at_version_2_and_keeps_every_row() {
+        let dir = scratch("v1-to-v2");
+        let db = dir.join("h.db");
+        // A database made with step 1 only, with a row in every table it has.
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch(MIGRATIONS[0]).unwrap();
+        c.execute_batch("INSERT INTO seen VALUES('g','1.1.1.1',1,2,3);
+            INSERT INTO sudo_events(ts,pid,tool,args,chain) VALUES(1,2,'sudo','ls','[]');
+            INSERT INTO persistence VALUES('/p.plist',1,2);
+            INSERT INTO actions(ts,sig,sent,refused) VALUES(1,'TERM','[1]','');
+            INSERT INTO notified VALUES('k:r',1);
+            INSERT INTO samples VALUES('1m','cpu_avg',60,1.5);").unwrap();
+        c.pragma_update(None, "user_version", 1).unwrap();
+        drop(c);
+        let h = History::at(&db).unwrap();
+        for t in ["seen", "sudo_events", "persistence", "actions", "notified", "samples"] {
+            assert_eq!(h.0.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get::<_, i64>(0)).unwrap(), 1, "{t} kept its row");
+        }
+        h.record_baseline_change(1, "app", "/A.app", true, "").unwrap();
+        drop(h);
+        assert_eq!(version_of(&db), 2);
+        assert!(!backup_path(&db).exists(), "a versioned database is not backed up again");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_fresh_database_has_the_baseline_table_at_the_latest_version() {
+        let dir = scratch("fresh-v2");
+        let db = dir.join("h.db");
+        let h = History::at(&db).unwrap();
+        assert!(h.recent_baseline_changes(1).unwrap().is_empty());
+        drop(h);
+        assert_eq!(version_of(&db), 2);
+        assert_eq!(MIGRATIONS.len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_version_2_database_opens_unchanged_and_keeps_its_audit_rows() {
+        let dir = scratch("v2-noop");
+        let db = dir.join("h.db");
+        let h = History::at(&db).unwrap();
+        h.record_baseline_change(7, "host", "k|1.1.1.1", true, "").unwrap();
+        drop(h);
+        let h = History::at(&db).unwrap();
+        assert_eq!(h.recent_baseline_changes(10).unwrap().len(), 1);
+        drop(h);
+        assert_eq!(version_of(&db), 2);
         let _ = std::fs::remove_dir_all(dir);
     }
 

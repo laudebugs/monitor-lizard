@@ -59,7 +59,14 @@ fn main() {
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("help") => println!("{}", guide::render_help(&args.collect::<Vec<_>>().join(" "))),
-        Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
+        Some("approve") => for arg in args {
+            let (kind, key) = baseline::parse_entry(&arg);
+            match baseline::change(kind, key, true) {
+                Ok(true) => println!("marked {} {key} as expected", kind.name()),
+                Ok(false) => println!("{} {key} was already expected", kind.name()),
+                Err(e) => { eprintln!("could not mark {arg}: {e}"); std::process::exit(1); }
+            }
+        },
         _ => eprintln!("{}", guide::usage()),
     }
 }
