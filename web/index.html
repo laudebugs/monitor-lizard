@@ -55,6 +55,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .sel-opt{height:32px;padding:0 12px;border:0;background:transparent;color:var(--fg);font-size:12px;text-align:left;white-space:nowrap}
 .sel-opt:hover,.sel-opt:focus-visible{background:var(--sel);outline:none}
 .sel-opt.on{color:var(--acc);box-shadow:inset 2px 0 0 var(--acc)}
+.sel-menu.down{bottom:auto;top:calc(100% + 4px)}
+.th{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer}
+.th:hover,.th.on{color:var(--fg)}
+.th .arrow{display:inline-block;width:10px;font-size:9px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
 .theme-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
 @media(min-width:1101px){.tbl{overflow-x:clip}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
@@ -100,7 +105,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, size: 25, menu: null, theme: localStorage.getItem('ow-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, theme: localStorage.getItem('ow-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
@@ -125,11 +130,11 @@ function menuKeys(e) {
   else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); const k = S.menu; rec({ menu: null }); const t = document.querySelector('[data-trigger="' + k + '"]'); if (t) t.focus(); }
   else if (e.key === 'Tab') { S.menu = null; render(); }
 }
-function dropdown(key, value, options, onPick, label) {
+function dropdown(key, value, options, onPick, label, down) {
   const open = S.menu === key, cur = options.find((o) => o[0] === value) || options[0];
   return h('div', { class: 'sel' },
     h('button', { class: 'sel-btn', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': String(open), 'aria-label': label + ': ' + cur[1], 'data-trigger': key, onClick: (e) => { e.stopPropagation(); rec({ menu: open ? null : key }); } }, h('span', {}, cur[1]), h('span', { class: 'caret', 'aria-hidden': 'true' }, '\u25BE')),
-    open ? h('div', { class: 'sel-menu', role: 'listbox', 'aria-label': label, onKeydown: menuKeys },
+    open ? h('div', { class: 'sel-menu' + (down ? ' down' : ''), role: 'listbox', 'aria-label': label, onKeydown: menuKeys },
       options.map(([v, text]) => h('button', { class: 'sel-opt' + (v === value ? ' on' : ''), type: 'button', role: 'option', 'aria-selected': String(v === value), 'data-autofocus': v === value ? '' : null, onClick: (e) => { e.stopPropagation(); S.menu = null; onPick(v); } }, text))) : null);
 }
 function paginate(list, key) {
@@ -145,6 +150,42 @@ function paginate(list, key) {
     h('button', { class: 'btn sm', disabled: p >= pages, onClick: () => go(p + 1) }, 'Next'));
   return { slice, pager };
 }
+
+/* Sorting and filtering shared by every table.
+   S.sorts[key] = { col, dir }: no entry means the default order. S.fil[name] holds a dropdown filter's value. */
+const fv = (name) => S.fil[name] || 'all';
+const setFil = (name, v) => rec({ fil: Object.assign({}, S.fil, { [name]: v }), page: {} });
+const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', page: {} }); };
+const clearBtn = () => h('button', { class: 'btn sm', onClick: clearFilters }, 'Clear filters');
+const isEmpty = (v) => v == null || v === '';
+// Stable sort; empty values go last in both directions; numbers compare as numbers, text ignores case.
+function sortRows(rows, key, getters) {
+  const s = S.sorts[key];
+  if (!s || !getters[s.col]) return rows;
+  const dir = s.dir === 'desc' ? -1 : 1;
+  return rows.map((r, i) => ({ r, i, v: getters[s.col](r) })).sort((x, y) => {
+    if (isEmpty(x.v) || isEmpty(y.v)) return isEmpty(x.v) === isEmpty(y.v) ? x.i - y.i : isEmpty(x.v) ? 1 : -1;
+    const c = typeof x.v === 'number' && typeof y.v === 'number' ? x.v - y.v : String(x.v).localeCompare(String(y.v), undefined, { sensitivity: 'base' });
+    return c * dir || x.i - y.i;
+  }).map((o) => o.r);
+}
+// Click cycles ascending, descending, then back to the default order.
+function nextSort(key, col) {
+  const s = S.sorts[key], n = Object.assign({}, S.sorts);
+  if (!s || s.col !== col) n[key] = { col, dir: 'asc' }; else if (s.dir === 'asc') n[key] = { col, dir: 'desc' }; else delete n[key];
+  return n;
+}
+function sortHeader(key, cols, style, extra) {
+  const s = S.sorts[key];
+  return h('div', { class: 'tr h ' + (extra || ''), style: style || '' }, cols.map((c) => {
+    if (!c.sort) return h('span', { class: c.cls || '' }, c.label);
+    const on = !!s && s.col === c.sort;
+    return h('span', { class: c.cls || '' }, h('button', { class: 'th' + (on ? ' on' : ''), type: 'button', title: c.title || 'Sort by ' + c.label, onClick: () => rec({ sorts: nextSort(key, c.sort), page: {} }) },
+      c.label, h('span', { class: 'arrow', 'aria-hidden': 'true' }, on ? (s.dir === 'asc' ? '\u25B2' : '\u25BC') : '')));
+  }));
+}
+const sigKind = (g) => (!g.signing ? 'unchecked' : g.signing.apple ? 'apple' : g.signing.signed ? 'signed' : 'unsigned');
+const TRUST_RANK = { suspicious: 0, unknown: 1, trusted: 2 }; // ascending puts the most worrying first
 
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'X-Ownwatch-Token': TOKEN } });
@@ -223,15 +264,24 @@ function apps() {
   const chips = [['all', 'All'], ['review', 'Needs review'], ['approved', 'Approved'], ['macOS', 'macOS']].map(([id, l]) => h('button', { class: 'chip ' + (S.filter === id ? 'on' : ''), onClick: () => rec({ filter: id, page: {} }) }, l + ' ', count(id)));
   const listen = (g) => [...new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port + (c.exposed ? '*' : '')))].join(', ') || '-';
   const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
-  const pg = paginate(list, 'apps');
+  const fLabel = fv('apps-label'), fSig = fv('apps-sig');
+  const shown = sortRows(list.filter((g) => (fLabel === 'all' || g.trust === fLabel) && (fSig === 'all' || sigKind(g) === fSig)), 'apps', {
+    app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length,
+    listening: (g) => new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port)).size, signing: (g) => sig(g), status: (g) => status(g), label: (g) => TRUST_RANK[g.trust],
+  });
+  const pg = paginate(shown, 'apps');
+  const filters = [
+    dropdown('f-apps-label', fLabel, [['all', 'All labels'], ['trusted', 'Trusted'], ['unknown', 'Unknown'], ['suspicious', 'Suspicious']], (v) => setFil('apps-label', v), 'Label filter', true),
+    dropdown('f-apps-sig', fSig, [['all', 'Any signing'], ['apple', 'Apple'], ['signed', 'Signed (third party)'], ['unsigned', 'Unsigned'], ['unchecked', 'Not checked']], (v) => setFil('apps-sig', v), 'Signing filter', true),
+  ];
   const table = h('section', { class: 'card tbl', style: 'flex:999 1 640px;min-width:0' },
-    h('div', { class: 'tr h ell' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Signing'), h('span', {}, 'Status'), h('span', {}, 'Label')),
+    sortHeader('apps', [{ label: 'App', sort: 'app' }, { label: 'Procs', sort: 'procs', cls: 'num' }, { label: 'Out', sort: 'out', cls: 'num' }, { label: 'Listening', sort: 'listening', title: 'Sort by number of listening ports' }, { label: 'Signing', sort: 'signing' }, { label: 'Status', sort: 'status' }, { label: 'Label', sort: 'label', title: 'Sort by label, most worrying first' }], '', 'ell'),
     pg.slice.map((g) => h('button', { class: 'tr ell ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
       h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
       h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))), h('span', {}, h('span', { class: 'tag ' + trustCls(g.trust), title: (g.rules_fired || []).join(', ') }, g.trust)))),
-    list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match.')), pg.pager);
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match the current filters. '), clearBtn()), pg.pager);
   const g = S.snap.groups.find((x) => x.key === S.sel);
-  return [h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px' }, chips), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, g ? drawer(g, listen(g), sig(g)) : null)];
+  return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), filters), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, g ? drawer(g, listen(g), sig(g)) : null)];
 }
 
 function drawer(g, listen, sig) {
@@ -261,15 +311,19 @@ function drawer(g, listen, sig) {
 function priv() {
   const failed = S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
   const T = 'grid-template-columns:90px 70px minmax(180px,1.4fr) minmax(220px,2fr);min-width:640px';
-  const sp = paginate(S.sudo, 'sudo'), ap = paginate(S.priv, 'auth');
+  const fRes = fv('auth-result');
+  const sp = paginate(sortRows(S.sudo, 'sudo', { time: (e) => e.ts, command: (e) => e.args }), 'sudo');
+  const authRows = S.priv.filter((e) => fRes === 'all' || (fRes === 'ok' ? e.ok : !e.ok));
+  const ap = paginate(sortRows(authRows, 'auth', { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right, requester: (e) => base(e.client) }), 'auth');
   return [
     failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. If the requester shows "(exited)", it was gone before it could be read. The live capture below records new ones with their parent chain.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
-    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, h('div', { class: 'tr h', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px' }, h('span', {}, 'Time'), h('span', {}, 'Command'), h('span', {}, 'Requester chain')),
+    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'Requester chain' }], 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px'),
       S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, new Date(e.ts * 1000).toLocaleTimeString()), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while ownwatch is serving shows up here.')), sp.pager),
-    h('h2', { class: 'sec' }, 'Authorization requests (system log)'),
-    h('div', { class: 'card tbl' }, h('div', { class: 'tr h', style: T }, h('span', {}, 'Time'), h('span', {}, 'Result'), h('span', {}, 'Right'), h('span', {}, 'Requester')),
-      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.pager),
+    h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
+      dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
+    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
+      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, 'No requests match the filter. '), clearBtn()), ap.pager),
   ];
 }
 
@@ -283,19 +337,21 @@ function listeners() {
   const tier = { exposed: 0, lan: 1, local: 2 };
   rows.sort((a, b) => tier[reachOf(a)] - tier[reachOf(b)] || a.c.local_port - b.c.local_port);
   const inFilter = (r, id) => id === 'all' || (id === 'exposed' ? r.c.exposed : !r.c.exposed);
-  const shown = rows.filter((r) => inFilter(r, f) && (!q || String(r.c.local_port).includes(q) || r.g.label.toLowerCase().includes(q) || r.c.local_addr.toLowerCase().includes(q)));
+  const proto = fv('listen-proto');
+  const filtered = rows.filter((r) => inFilter(r, f) && (proto === 'all' || r.c.proto === proto) && (!q || String(r.c.local_port).includes(q) || r.g.label.toLowerCase().includes(q) || r.c.local_addr.toLowerCase().includes(q)));
+  const shown = sortRows(filtered, 'listen', { port: (r) => r.c.local_port, proto: (r) => r.c.proto, bind: (r) => r.c.local_addr, app: (r) => r.g.label, pid: (r) => r.c.pid, reach: (r) => tier[reachOf(r)] });
   const pg = paginate(shown, 'listen');
   const chips = [['all', 'All'], ['exposed', 'Exposed'], ['local', 'Local only']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ lfilter: id, page: {} }) }, l + ' ', rows.filter((r) => inFilter(r, id)).length));
   const cols = 'grid-template-columns:80px 60px minmax(0,1fr) minmax(0,1.4fr) 80px 120px';
   const reach = (r) => { const k = reachOf(r); return k === 'exposed' ? h('span', { class: 'tag warn', title: 'Listening on all interfaces' }, 'EXPOSED') : k === 'lan' ? h('span', { class: 'tag', title: 'An Apple service reachable from your network' }, 'LAN') : h('span', { class: 'tag' }, 'local'); };
   const missed = S.snap.totals.listening - rows.length;
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
-    h('div', { class: 'tr h ell', style: cols }, h('span', { class: 'num' }, 'Port'), h('span', {}, 'Proto'), h('span', {}, 'Bind address'), h('span', {}, 'App'), h('span', { class: 'num' }, 'PID'), h('span', {}, 'Reach')),
+    sortHeader('listen', [{ label: 'Port', sort: 'port', cls: 'num' }, { label: 'Proto', sort: 'proto' }, { label: 'Bind address', sort: 'bind' }, { label: 'App', sort: 'app' }, { label: 'PID', sort: 'pid', cls: 'num' }, { label: 'Reach', sort: 'reach', title: 'Sort by reach, exposed first' }], cols, 'ell'),
     pg.slice.map((r) => h('button', { class: 'tr ell', style: cols, onClick: () => { $('q').value = ''; rec({ view: 'apps', sel: r.g.key, filter: 'all', q: '', page: {} }); } },
       h('span', { class: 'num', style: 'font-weight:500' }, r.c.local_port), h('span', { class: 'mut small' }, r.c.proto), h('span', { class: 'mut small' }, r.c.local_addr),
       h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'num mut' }, r.c.pid), h('span', {}, reach(r)))),
-    shown.length ? null : h('div', { class: 'item' }, h('p', {}, S.q ? 'No listeners match "' + S.q + '".' : 'No listeners match.')), pg.pager);
-  return [h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px' }, chips), table,
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, S.q ? 'No listeners match "' + S.q + '". ' : 'No listeners match the current filters. '), clearBtn()), pg.pager);
+  return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), dropdown('f-listen-proto', proto, [['all', 'Any protocol'], ['TCP', 'TCP'], ['UDP', 'UDP']], (v) => setFil('listen-proto', v), 'Protocol filter', true)), table,
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.' + (missed > 0 ? ' ' + missed + ' more listening sockets belong to processes that exited before they could be read.' : ''))];
 }
 

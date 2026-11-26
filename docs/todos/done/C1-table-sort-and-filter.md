@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `C1` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/c1-table-sort-and-filter` |
 | PR title | `feat(web): add sortable columns and filters to the dashboard tables` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#12](https://github.com/laudebugs/system-monitor/pull/12) |
 
 ## Goal
 
@@ -97,9 +97,21 @@ cargo run --release -- serve
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-26.
+
+- **Built:** shared helpers in `web/index.html` (`sortRows`, `nextSort`, `sortHeader`, `fv`, `setFil`, `clearFilters`, `clearBtn`) and a `down` option on `dropdown` so filter menus at the top of a page open downward. Header cells are buttons with an arrow; a click cycles ascending, descending, then the default order. Sort and filter state live in `S.sorts` and `S.fil`, so both survive the 10 second refresh; the page returns to 1 on any change.
+- **Tables wired:** Apps (7 sortable columns; filters Label and Signing next to the existing chips), Listeners (6 columns; filter Protocol), Privilege launches (Time, Command) and authorization requests (Time, Result, Right, Requester; filter Result). Labels sort most worrying first; empty values sort last in both directions; ties keep the original order.
+- **Empty states** name the filters and carry a Clear filters button.
+- **Verified:** a script (kept out of the repo) rendered each page in a simulated DOM against a running server and ran 39 checks: for each sortable column ascending, descending and the third click restoring the default order; a numeric sort that starts at the real maximum (Procs descending); the sort surviving `load()`; each filter's count against the page's own current data, chip, dropdown and search combined with AND; the empty state and Clear filters; the label menu opening downward. 39 of 39 passed on two consecutive runs. Early failures were my script comparing against a snapshot fetched at another moment (the data shifts every 10 s), not the page.
+- **Not verified:** layout and interaction in a real browser; the visual check is **pending**. `/code-review` and `/writing-review` have not yet been run on this change.
+- **Open:** header buttons sit inside `div` rows with no `aria-sort` or table roles, a known gap now covering more of the UI: it needs its own accessibility todo. The Persistence, Network and History pages will adopt these helpers in A2, A4 and A5.
+
