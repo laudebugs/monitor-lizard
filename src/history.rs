@@ -158,15 +158,15 @@ fn remove_stale_backups(backup: &std::path::Path) {
 /// read before anything changed. The caller holds the open lock, so the copy cannot be of a database
 /// another process has already migrated.
 fn write_backup(c: &Connection, backup: &std::path::Path, version_before: usize) -> rusqlite::Result<()> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     let mut name = backup.as_os_str().to_owned();
     name.push(format!(".{}.tmp", std::process::id()));
     let tmp = TempFile(PathBuf::from(name));
     // VACUUM INTO accepts an existing empty file. Creating it first with mode 0600 keeps the copy of
     // the sudo-launch history private; letting SQLite create it would apply the umask (usually 0644).
-    std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp.0).map_err(|e| file_error("create the backup file", &tmp.0, e))?;
+    crate::paths::create_new_private_file(&tmp.0).map_err(|e| file_error("create the backup file", &tmp.0, e))?;
     c.execute("VACUUM INTO ?1", [tmp.0.to_string_lossy().as_ref()])?;
-    std::fs::set_permissions(&tmp.0, std::fs::Permissions::from_mode(0o600)).map_err(|e| file_error("make the backup owner-only", &tmp.0, e))?;
+    std::fs::set_permissions(&tmp.0, std::fs::Permissions::from_mode(crate::paths::FILE_MODE)).map_err(|e| file_error("make the backup owner-only", &tmp.0, e))?;
     let copy = Connection::open_with_flags(&tmp.0, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| file_error("reopen the backup", &tmp.0, e))?;
     let copied = user_version(&copy).map_err(|e| file_error("read the version of the backup", &tmp.0, e))?;
     drop(copy);
@@ -206,21 +206,13 @@ fn migrate(c: &mut Connection, steps: &[&str], backup: Option<&std::path::Path>)
     Ok(())
 }
 
-/// Creates the data folder owner-only when it does not exist yet. An existing folder is left as the
-/// user set it.
-fn create_private_dir(dir: &std::path::Path) {
-    use std::os::unix::fs::DirBuilderExt;
-    if !dir.exists() { let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir); }
-}
-
 /// Takes the exclusive lock file that sits next to the database. The lock is released when the
 /// returned file is dropped, or when the process dies.
 fn open_lock(db: &std::path::Path) -> rusqlite::Result<std::fs::File> {
     let mut name = db.as_os_str().to_owned();
     name.push(".lock");
     let path = PathBuf::from(name);
-    use std::os::unix::fs::OpenOptionsExt;
-    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(&path).map_err(|e| file_error("open the lock file for", &path, e))?;
+    let f = crate::paths::create_private_file(&path).map_err(|e| file_error("open the lock file for", &path, e))?;
     f.lock().map_err(|e| file_error("lock", &path, e))?;
     Ok(f)
 }
@@ -244,13 +236,17 @@ fn path() -> PathBuf { crate::paths::data_dir().join("history.db") }
 impl History {
     pub fn open() -> rusqlite::Result<Self> { Self::at(&path()) }
     pub fn at(p: &std::path::Path) -> rusqlite::Result<Self> {
-        if let Some(d) = p.parent() { create_private_dir(d); }
+        // The data folder already exists (paths::data_dir makes it); this covers a caller-chosen path.
+        if let Some(d) = p.parent() { let _ = crate::paths::create_private_dir(d); }
         // One opener at a time reads the version, backs up and migrates, across processes and across
         // threads (each open() of the lock file is its own lock owner, so threads exclude each other
         // too). Without it a second opener could read version 0 after the first had migrated and
         // back up the already-migrated file.
         let _lock = open_lock(p)?;
         remove_stale_backups(&backup_path(p));
+        // Created here at 0600 so SQLite opens an existing file and the -wal and -shm files it
+        // makes copy this mode; letting SQLite create it would apply the umask (usually 0644).
+        crate::paths::create_private_file(p).map_err(|e| file_error("create the database file", p, e))?;
         let mut c = Connection::open(p)?;
         c.busy_timeout(std::time::Duration::from_secs(10))?;
         // Migrate before switching journal mode so a file from a newer version is refused untouched.
@@ -1175,5 +1171,21 @@ mod tests {
         assert_eq!(mem_backlog, vec![(100, 5000.0)]);
         assert!(h.query_metrics("1m", 0).unwrap().is_empty(), "nothing written when disabled");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_fresh_database_and_its_wal_and_shm_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("monlizard-hist-modes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = dir.join("h.db");
+        let mut h = History::at(&db).unwrap();
+        h.record_persistence(&["/x"], 1).unwrap(); // a write, so the -wal exists
+        for suffix in ["", "-wal", "-shm"] {
+            let p = PathBuf::from(format!("{}{suffix}", db.display()));
+            assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600, "{}", p.display());
+        }
+        drop(h);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

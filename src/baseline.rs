@@ -174,12 +174,11 @@ pub fn notice() -> Option<String> { NOTICE.lock().unwrap().as_ref().map(|(n, _)|
 /// Writes through a uniquely named temporary file that is flushed to disk, then renamed over the
 /// real file, then the folder is flushed, so a crash leaves either the old list or the new one.
 fn save_to(path: &Path, b: &Baseline) -> std::io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     let dir = path.parent().unwrap_or(Path::new("."));
-    fs::create_dir_all(dir)?;
+    crate::paths::create_private_dir(dir)?;
     let tmp = PathBuf::from(format!("{}.{}-{}.tmp", path.display(), std::process::id(), TMP_COUNTER.fetch_add(1, Ordering::Relaxed)));
     let written = (|| {
-        let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        let mut f = crate::paths::create_new_private_file(&tmp)?;
         f.write_all(serde_json::to_string_pretty(&b.entries()).unwrap().as_bytes())?;
         f.sync_all()?;
         fs::rename(&tmp, path)?;
@@ -232,9 +231,8 @@ fn change_at(path: &Path, kind: Kind, key: &str, mark: bool, audit: impl Fn(Kind
 
 /// An exclusive lock on a file next to the baseline, released when the returned file is dropped.
 fn lock_file(path: &Path) -> std::io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    if let Some(d) = path.parent() { fs::create_dir_all(d)?; }
-    let f = fs::OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(format!("{}.lock", path.display()))?;
+    if let Some(d) = path.parent() { crate::paths::create_private_dir(d)?; }
+    let f = crate::paths::create_private_file(Path::new(&format!("{}.lock", path.display())))?;
     f.lock()?;
     Ok(f)
 }
@@ -492,5 +490,19 @@ mod tests {
         for mut k in kids { assert!(k.wait().unwrap().success()); }
         assert_eq!(read(&p).entries().len(), 20, "no write was lost");
         cleanup(&p);
+    }
+
+    #[test]
+    fn a_new_folder_made_by_a_save_or_a_lock_is_0700_and_the_files_are_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let m = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let root = std::env::temp_dir().join(format!("monlizard-baseline-modes-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (a, b) = (root.join("a").join("baseline.json"), root.join("b").join("baseline.json"));
+        save_to(&a, &Baseline::default()).unwrap();
+        assert_eq!((m(a.parent().unwrap()), m(&a)), (0o700, 0o600));
+        let _lock = lock_file(&b).unwrap();
+        assert_eq!((m(b.parent().unwrap()), m(Path::new(&format!("{}.lock", b.display())))), (0o700, 0o600));
+        let _ = fs::remove_dir_all(&root);
     }
 }
