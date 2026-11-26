@@ -96,3 +96,12 @@ Plan status; `README.md` page list if it names pages.
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Status (2026-11-26)
+
+Built and checked in a real browser on a synthetic home (see the PR). Kept in `ongoing/` because these are open:
+
+- `/code-review` and `/writing-review` are not run (the owner's session does them).
+- Not checked: a scan of a real developer home, a physical keyboard (arrow keys were sent as synthetic events), and the 1360 px layout at exactly that width.
+- The server answers a Rescan inside its minute with 200 and the old result, not 429; the page handles both.
+- The tiles add up to the used total through an extra "Not measured" strip (used minus measured), because the scan reads known folders only.

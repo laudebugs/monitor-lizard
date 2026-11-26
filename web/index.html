@@ -155,6 +155,17 @@ button.tr:hover{background:var(--sel)}.tr.on{background:var(--sel);box-shadow:in
 .modal h2{margin:0;font-size:17px}
 .code{font-size:12px;background:var(--bg);border:1px solid var(--line);padding:8px 10px;word-break:break-all}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:var(--panel2);border:1px solid var(--acc);padding:10px 12px 10px 16px;font-size:13px;z-index:11;max-width:calc(100% - 32px)}
+.tm{display:flex;gap:6px;min-height:300px}
+.tm-col{display:flex;flex-direction:column;gap:6px;min-width:120px}
+.tm-rest{margin-top:6px}.tm-rest .tm-tile{width:100%;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:4px 14px;min-height:0}
+.tm-tile{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;min-height:76px;padding:10px 12px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);text-align:left;overflow:hidden}
+.tm-tile:hover{border-color:var(--acc)}
+.tm-tile.on{border-color:var(--acc);background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
+.tm-tile.na{border-style:dashed;background:repeating-linear-gradient(135deg,var(--panel2) 0 7px,color-mix(in srgb,var(--line) 60%,var(--panel2)) 7px 8px)}
+.tm-name{font-weight:600}.tm-size{font:500 13px/1.3 var(--font-mono);overflow-wrap:anywhere}
+.tm-bar{display:none;width:100%;margin-top:4px}
+/* Narrow: the treemap becomes a list of bars, one section per row, in the same order. */
+@media(max-width:700px){.tm{flex-direction:column;min-height:0}.tm-col{display:contents;min-width:0}.tm-tile{flex:none!important;min-height:0}.tm-bar{display:block}}
 .mut{color:var(--mut)}.small{font-size:12px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 </style>
@@ -242,7 +253,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -266,14 +277,15 @@ const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved t
      result   the Privilege result filter (all, failed, ok)
      topic, tab, entry   the Guide's topic filter, Commands or Glossary, and selected entry (see PAGE_PARAMS)
      tab   on Performance, the open tab: overview, cpugpu or disknet
+     filter, tile, item   on Storage, the label chip (safe, review, yours), the selected treemap tile and the selected folder's id
    Read-only link shortcuts for pre-filtered views: host=<addr> (Network), port=<n> and exposed=1 (Listeners),
    failed=1 (Privilege). Every key and value is checked against the lists below: an address is typed or pasted
    by anyone, so nothing in it is trusted as a property name, a column or a filter value.
    Never put the per-run write token here: a hash is copied, bookmarked and shared. */
-const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History', performance: 'Performance', guide: 'Guide' };
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History', performance: 'Performance', guide: 'Guide', storage: 'Storage' };
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
 const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history', 'guide'];
-const PAGE_FILTER = { apps: ['filter', ['all', 'review', 'approved', 'macOS']], listeners: ['lfilter', ['all', 'exposed', 'local']], persist: ['pfilter', ['all', 'new', 'user', 'system']], network: ['nfilter', ['all', 'public', 'lan', 'new']] };
+const PAGE_FILTER = { apps: ['filter', ['all', 'review', 'approved', 'macOS']], listeners: ['lfilter', ['all', 'exposed', 'local']], persist: ['pfilter', ['all', 'new', 'user', 'system']], network: ['nfilter', ['all', 'public', 'lan', 'new']], storage: ['stfilter', ['all', 'safe', 'review', 'yours']] };
 // Dropdown filters per page: S.fil name -> [hash key, allowed values]. Must match the dropdowns the views draw.
 const PAGE_DROPDOWNS = {
   apps: { 'apps-label': ['label', ['all', 'trusted', 'unknown', 'suspicious']], 'apps-sig': ['signing', ['all', 'apple', 'signed', 'unsigned', 'unchecked']] },
@@ -285,8 +297,11 @@ const PAGE_DROPDOWNS = {
 // longer exists falls back to the first result when the page draws.
 const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(v);
 const PERF_TABS = ['overview', 'cpugpu', 'disknet'];
+// The Storage page's treemap tiles: every section the scanner names, the merged small ones and the unmeasured rest.
+const ST_TILES = ['all', 'developer', 'caches', 'logs', 'downloads', 'mail', 'applications', 'other', 'rest'];
 const PAGE_PARAMS = {
   performance: { tab: ['perfTab', 'overview', (v) => PERF_TABS.includes(v), 'filters'] },
+  storage: { tile: ['stTile', 'all', (v) => ST_TILES.includes(v), 'sel'], item: ['stItem', null, isId, 'sel'] },
   guide: { tab: ['gtab', 'commands', (v) => v === 'glossary', 'filters'], topic: ['gtopic', 'all', isId, 'filters'], entry: ['gsel', null, isId, 'sel'] },
 };
 // Sortable columns per page and table key. Must match the sortHeader calls; a test compares them.
@@ -297,6 +312,7 @@ const PAGE_SORTS = {
   network: { net: ['app', 'remote', 'scope', 'sockets', 'seen'] },
   priv: { sudo: ['time', 'command'], auth: ['time', 'result', 'right', 'requester'] },
   history: { hist: ['when', 'app', 'host', 'hits'], act: ['when', 'signal', 'sent', 'refused'] },
+  storage: { store: ['folder', 'section', 'label', 'size', 'share'] },
 };
 const HASH_MAX = 2048; // browsers and chat apps start truncating long addresses around here
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -366,7 +382,7 @@ function writeHash(st) {
 function historyMode(prev, next) {
   if (prev === next) return 'none';
   const a = parseHash(prev), b = parseHash(next);
-  return a.view !== b.view || a.sel !== b.sel || a.ex.gsel !== b.ex.gsel || a.ex.perfTab !== b.ex.perfTab ? 'push' : 'replace';
+  return a.view !== b.view || a.sel !== b.sel || a.ex.gsel !== b.ex.gsel || a.ex.perfTab !== b.ex.perfTab || a.ex.stTile !== b.ex.stTile || a.ex.stItem !== b.ex.stItem ? 'push' : 'replace';
 }
 
 const toHashState = (s) => {
@@ -634,6 +650,7 @@ const EXPORT = {
   pers: { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen },
   net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(', '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
   hist: { when: (s) => s.first_seen, app: (s) => labelOf(s.group_key), host: (s) => s.remote, hits: (s) => s.hits },
+  store: { folder: (r) => r.path, section: (r) => r.category || '', label: (r) => r.label || '', size: (r) => sizeText(r), share: (r) => noDash(shareText(r)), measured: (r) => r.measuredText },
   act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => noDash(refusedText(a)) },
 };
 /* export-cols:end */
@@ -648,6 +665,7 @@ const TABLE_META = {
   pers: { file: 'persistence', info: 'startup item names and program paths', time: ['added'] },
   net: { file: 'network', info: 'app names and the remote hosts they contacted', time: ['seen'] },
   hist: { file: 'new-hosts', info: 'app names and the hosts they first contacted', time: ['when'] },
+  store: { file: 'storage', info: 'folder paths and their sizes as shown, with the words "at least" or the reason where a size is a lower bound or unavailable', time: [] },
   act: { file: 'actions', info: 'which processes you stopped and when', time: ['when'] },
 };
 // The filtered, sorted rows of each table (all pages), left by paginate() for the toolbar and the row buttons.
@@ -739,7 +757,7 @@ function setFloor(sec, head, tracks, name, viewportW) {
 const nameAttrs = (text, style) => ({ style: 'font-weight:500' + (style ? ';' + style : ''), title: String(text) });
 /* floor:end */
 const warned = new Set();
-const TABLE_NAME = { apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions' };
+const TABLE_NAME = { apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', store: 'Storage folders' };
 function decorateTables() {
   for (const head of document.querySelectorAll('.tr.h[data-table]')) {
     const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');
@@ -890,7 +908,7 @@ const failedAuth = () => S.priv.filter((e) => !e.ok).length;
 const failedSudo = () => S.priv.filter((e) => !e.ok && e.client.endsWith('/sudo')).length;
 const reviewCount = () => (S.snap ? countReview(S.snap.groups, status) : 0);
 // What each verdict title waits for (see TITLE_NEEDS).
-const loadedNow = () => ({ snap: !!S.snap, priv: S.privOk, pers: S.persOk, hist: S.histOk });
+const loadedNow = () => ({ stor: !!(S.stData && typeof S.stData.scanned_at === 'number'), snap: !!S.snap, priv: S.privOk, pers: S.persOk, hist: S.histOk });
 const verdict = (view, facts) => verdictTitle(view, titleReady(view, loadedNow()) ? facts : null);
 const mute = (id) => { S.muted.add(id); localStorage.setItem('monitor-lizard-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -1431,6 +1449,128 @@ function performanceView_() {
     body: S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : S.perfTab === 'disknet' ? h('div', {}, ...perfDiskNetTab_(win, last)) : perfOverviewTab_(win, last, stale, winLabel) });
 }
 
+// ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
+// page can say how long it has taken and show the result the moment it lands.
+const ST_RULE_TEXT = { 'user-content': 'Your own files', mail: 'Mail data', 'xcode-derived-data': 'Xcode rebuilds this build cache', 'homebrew-cache': 'Homebrew downloads this again', 'package-manager-cache': 'A package manager downloads this again', 'app-cache': 'An app cache; some apps keep offline data here', 'docker-data': 'Docker images and containers', simulators: 'Simulator runtimes and devices', logs: 'Log files', 'idle-node-modules': 'node_modules of a project untouched for 90 days', 'node-modules': 'node_modules of a project that is in use or has no lockfile', applications: 'An installed app', 'outside-home': 'Outside your home folder', 'unclear-path': 'The path could not be checked' };
+let stTimer = 0;
+async function loadStorage(fresh) {
+  if (S.view !== 'storage' || (document.hidden && !fresh)) return;
+  clearTimeout(stTimer);
+  try {
+    const r = await fetch('/api/storage' + (fresh ? '?fresh=1' : ''), { headers: { 'X-MonitorLizard-Token': TOKEN } });
+    if (r.status === 429) {
+      const wait = Number(r.headers.get('Retry-After'));
+      quiet({ stNote: 'The server asked for a pause' + (Number.isFinite(wait) && wait > 0 ? ' of ' + Math.ceil(wait) + ' s' : '') + ' before the next scan. The result below is the last one.' });
+      return;
+    }
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    // The server answers a Rescan inside its minute with the old result and scanning false: say so, do not pretend a scan began.
+    quiet({ stData: data, stFailed: false, stNote: fresh && !data.scanning ? rescanInfo(data, Date.now() / 1000).text || 'The server did not start a scan.' : null });
+  } catch (e) { quiet({ stFailed: true }); }
+  const wait = S.stData && S.stData.scanning ? 2000 : S.stFailed ? 10000 : 0;
+  if (wait && S.view === 'storage') stTimer = setTimeout(() => loadStorage(false), wait);
+}
+function rescanNow() {
+  const info = rescanInfo(S.stData, Date.now() / 1000);
+  if (info.ok) loadStorage(true); else rec({ stNote: info.text });
+}
+// Picking the tile that is already picked clears it. Focus goes back to the tile, since render() rebuilds it.
+function pickTile(id) {
+  rec({ stTile: id === S.stTile ? 'all' : id, stItem: null, page: {} });
+  const el = document.querySelector('[data-tile="' + id + '"]'); if (el) el.focus();
+}
+function tileKeys(e) {
+  const ids = [...e.currentTarget.querySelectorAll('.tm-tile')].map((el) => el.dataset.tile), to = nextTile(ids, document.activeElement && document.activeElement.dataset.tile, e.key);
+  if (!to) return;
+  e.preventDefault();
+  e.currentTarget.querySelector('[data-tile="' + to + '"]').focus();
+}
+const labelTag = (label) => (label ? h('span', { class: 'tag ' + ({ safe: 'ok', review: 'warn' }[label] || '') }, label) : h('span', { class: 'mut small' }, '-'));
+function stWaiting(state, d, now) {
+  const skeleton = h('section', { class: 'card', 'aria-hidden': 'true' }, [70, 45, 30, 20].map((w) => h('div', { class: 'tr', style: 'min-width:0;grid-template-columns:1fr 90px 90px' }, h('span', { class: 'bar' }, h('i', { style: 'width:' + w + '%;opacity:.5' })), h('span', { class: 'bar' }), h('span', { class: 'bar' }))));
+  const say = { loading: 'Reading the storage scan...', failed: 'Could not read the storage scan. Trying again in a few seconds.', empty: 'No scan result yet.', refused: 'No scan was made: ' + (d && d.refused), scanning: scanningText(d, now) }[state];
+  return h('div', {}, h('p', { class: 'mut', role: 'status' }, say), state === 'refused' || state === 'failed' ? null : skeleton);
+}
+function stStrip(d, state, now) {
+  const snaps = d.snapshots || {}, n = rv(snaps.count);
+  const snapText = n == null ? 'unavailable: ' + rReason(snaps.count) : plural(n, 'snapshot', 'snapshots') + (rv(snaps.size) == null ? ', size unavailable: ' + rReason(snaps.size) : ', ' + formatBytes(rv(snaps.size)));
+  return card(h('h2', { class: 'sec', style: 'margin:0 0 10px' }, 'Startup disk'), capacityBar(volumeBarArgs(d.capacity)),
+    h('p', { class: 'small', style: 'margin:12px 0 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
+      h('span', { class: 'tag ' + (state === 'complete' ? 'ok' : 'warn') }, state === 'complete' ? 'Complete' : 'Partial'), staleScan(d.scanned_at, now) ? h('span', { class: 'tag warn', title: 'Older than 15 minutes; Rescan reads it again' }, 'Stale') : null,
+      h('span', {}, coverageText(d) + ', ' + measuredText(d.scanned_at, now))),
+    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Local snapshots: ' + snapText));
+}
+function stTile(t, tile, state) {
+  const na = t.bytes == null, rest = t.kind === 'rest', on = tile === t.id;
+  const size = na ? 'unavailable' : rest ? formatBytes(t.bytes) : atLeast(t.bytes, t.lowerBound);
+  const share = t.diskPct == null ? null : shareText({ share: t.diskPct }) + ' of the disk';
+  const note = na ? t.reason : rest ? 'Used space outside the folders this scan reads' : t.kind === 'other' ? plural(t.members.length, 'small section', 'small sections') : t.unmeasured ? plural(t.unmeasured, 'location', 'locations') + ' not fully measured' : null;
+  return h('button', { class: 'tm-tile' + (na || rest ? ' na' : '') + (on ? ' on' : ''), type: 'button', 'data-tile': t.id, 'aria-pressed': String(on), style: 'flex:' + t.pct.toFixed(3) + ' 1 0',
+    'aria-label': t.name + ': ' + size + (share ? ', ' + share : '') + (note ? '. ' + note : '') + (state === 'partial' ? '. Scan is partial' : '') + (on ? '. Selected' : '') + '. Select to filter the folder table.', onClick: () => pickTile(t.id) },
+    h('span', { class: 'tm-name' }, t.name), h('span', { class: 'tm-size' }, size), share ? h('span', { class: 'small mut' }, share) : null, note ? h('span', { class: 'small mut' }, note) : null,
+    h('span', { class: 'bar tm-bar', 'aria-hidden': 'true' }, h('i', { style: 'width:' + Math.min(100, t.pct).toFixed(1) + '%' })));
+}
+function stInspector(d, state, rows, tiles, tile, sel, now) {
+  const part = (title, ...kids) => h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, title), ...kids);
+  const link = h('a', { href: writeHash({ view: 'performance', ex: { perfTab: 'disknet' } }) }, 'Disk throughput on Performance');
+  if (sel) {
+    const gone = sel.kind === 'pending', yours = sel.label === 'yours';
+    return h('aside', { class: 'drawer card', 'aria-label': 'Folder detail' },
+      h('div', { class: 'insp-head' }, h('div', { class: 'grow', style: 'font-size:16px;font-weight:600;word-break:break-all' }, sel.name), labelTag(sel.label), h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stItem: null }) }, 'Close')),
+      h('dl', { class: 'kv' }, h('dt', {}, 'Path'), h('dd', {}, sel.path), h('dt', {}, 'Size'), h('dd', {}, sizeText(sel)),
+        sel.apparent != null && sel.bytes != null && sel.apparent > sel.bytes ? [h('dt', {}, 'Apparent'), h('dd', {}, formatBytes(sel.apparent) + ' (sparse: the files claim more than they use)')] : null,
+        gone ? null : [h('dt', {}, 'Section'), h('dd', {}, ST_CATEGORIES[sel.category] || sel.category), h('dt', {}, 'Files'), h('dd', {}, String(sel.entries)), h('dt', {}, 'Measured'), h('dd', {}, timeCell(sel.at, 'mut'))],
+        sel.unreadable ? [h('dt', {}, 'Unreadable'), h('dd', {}, plural(sel.unreadable, 'subfolder', 'subfolders') + ' could not be read, so the size is at least this')] : null),
+      gone ? part('Not yet scanned', h('p', { style: 'margin:0;font-size:13px' }, 'The scan ran out of time before this location. Rescan reads it again.'))
+        : part('Why ' + sel.label.toUpperCase(), h('p', { style: 'margin:0;font-size:13px' }, ST_RULE_TEXT[sel.rule] || 'Not on the safe list, so it needs a look first.')),
+      h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
+        gone ? null : h('button', { class: 'btn sm', type: 'button', onClick: () => copyRow('store', sel) }, 'Copy as JSON'),
+        gone || yours ? null : h('button', { class: 'btn btn-danger quiet sm', type: 'button', disabled: true, title: 'Available after the removal route ships', 'aria-label': 'Move to Trash, disabled: available after the removal route ships' }, 'Move to Trash')),
+      yours ? h('p', { class: 'small mut', style: 'margin:0;padding:0 16px 14px' }, 'These are your own files, so no removal is offered.') : null,
+      part('Related', link));
+  }
+  const t = tiles.find((x) => x.id === tile), mine = visibleRows(rows, tiles, tile, 'all'), c = labelCounts(mine), safe = safeTotal(d, mine);
+  const name = t ? t.name : 'All sections', total = t ? (t.bytes == null ? 'unavailable: ' + t.reason : atLeast(t.bytes, t.lowerBound)) : atLeast(d.coverage.bytes_measured, state !== 'complete');
+  return h('aside', { class: 'drawer card', 'aria-label': 'Section detail' },
+    h('div', { class: 'insp-head' }, h('h2', { class: 'grow', style: 'font-size:16px;font-weight:600;margin:0' }, name), tile !== 'all' ? h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stTile: 'all', stItem: null, page: {} }) }, 'Show all') : null),
+    h('dl', { class: 'kv' }, h('dt', {}, 'Measured'), h('dd', {}, total), h('dt', {}, 'Folders'), h('dd', {}, String(mine.filter((r) => r.kind === 'item').length) + (mine.some((r) => r.kind === 'pending') ? ', ' + plural(mine.filter((r) => r.kind === 'pending').length, 'location', 'locations') + ' not yet scanned' : '')),
+      h('dt', {}, 'Labels'), h('dd', {}, c.safe + ' safe, ' + c.review + ' review, ' + c.yours + ' yours'), h('dt', {}, 'Safe to remove'), h('dd', {}, safe.text)),
+    t && t.kind === 'rest' ? part('What this is', h('p', { style: 'margin:0;font-size:13px' }, 'Used space the scan does not look inside: system files, other apps\' data and anything outside the known folders. It is the used total minus what was measured.')) : null,
+    t && t.kind === 'other' ? part('In Other', h('ul', { style: 'margin:0;padding:0;list-style:none;font-size:13px' }, t.members.map((m) => h('li', {}, m.name + ': ' + (m.bytes == null ? 'unavailable: ' + m.reason : atLeast(m.bytes, m.lowerBound)))))) : null,
+    part('Related', link));
+}
+function storage() {
+  const d = S.stData, now = Date.now() / 1000, state = storageState({ data: d, failed: S.stFailed }), info = rescanInfo(d, now), busy = !!(d && d.scanning);
+  const actions = [busy ? h('span', { class: 'small mut', role: 'status' }, scanningText(d, now)) : null,
+    h('button', { class: 'btn sm', type: 'button', disabled: busy, title: info.ok || busy ? 'Scans the known folders again. It only reads, and takes up to 20 seconds.' : info.text, onClick: rescanNow }, busy ? 'Scanning...' : 'Rescan')];
+  const note = S.stNote ? h('p', { class: 'small mut', role: 'status' }, S.stNote) : null;
+  const title = verdict('storage', storageFacts(d));
+  if (state !== 'partial' && state !== 'complete') return pageShell({ title, actions, body: [note, stWaiting(state, d, now)] });
+  const rows = storageRows(d), tiles = storageTiles(d), tile = resolveTile(S.stTile, tiles), lab = S.stfilter;
+  for (const r of rows) r.measuredText = r.kind === 'pending' ? 'not yet scanned' : measuredText(r.at, now);
+  const counts = labelCounts(visibleRows(rows, tiles, tile, 'all'));
+  const chips = [['all', 'All'], ['safe', 'Safe'], ['review', 'Review'], ['yours', 'Yours']].map(([id, l]) => h('button', { class: 'chip ' + (lab === id ? 'on' : ''), type: 'button', 'aria-pressed': String(lab === id), onClick: () => rec({ stfilter: id, page: {} }) }, l + ' ', counts[id]));
+  const shown = sortRows(visibleRows(rows, tiles, tile, lab).sort(bySize), 'store', { folder: (r) => r.path, section: (r) => r.category, label: (r) => r.label, size: (r) => r.bytes, share: (r) => r.share });
+  const pg = paginate(shown, 'store'), cols = 'grid-template-columns:minmax(170px,2fr) 100px 84px minmax(150px,1fr) minmax(110px,.9fr) 96px';
+  const sel = rows.find((r) => r.id === S.stItem) || null;
+  const treemap = h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-label': 'Storage by section' },
+    h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px' }, h('h2', { class: 'sec', style: 'margin:0' }, state === 'complete' ? 'Sections' : 'Sections measured so far, not final'), state === 'partial' ? h('span', { class: 'tag warn' }, 'Partial') : null),
+    !tiles.length ? h('p', { class: 'mut', style: 'margin:0' }, 'No section has been measured yet.') : h('div', { role: 'group', 'aria-label': 'Sections by size. Arrow keys move between sections; Enter selects one and filters the table.', onKeydown: tileKeys }, h('div', { class: 'tm' }, treemapColumns(tiles.filter((t) => t.kind !== 'rest')).map((c) => h('div', { class: 'tm-col', style: 'flex:' + c.pct.toFixed(3) + ' 1 0' }, c.tiles.map((t) => stTile(t, tile, state))))),
+    tiles.find((t) => t.kind === 'rest') ? h('div', { class: 'tm-rest' }, stTile(tiles.find((t) => t.kind === 'rest'), tile, state)) : null));
+  const banner = state === 'partial' ? h('section', { class: 'card', role: 'note', 'aria-label': 'Partial scan', style: 'padding:12px 16px;margin-bottom:14px;border-color:var(--warn)' }, h('span', { class: 'tag warn' }, 'Partial'),
+    ' This scan did not finish every folder (' + coverageText(d) + '). Sizes marked "at least" can only grow, the treemap is not final and no safe-to-remove total is shown until a scan completes.') : null;
+  const table = h('section', { class: 'card tbl', style: 'min-width:0' },
+    sortHeader('store', [{ label: 'Folder', sort: 'folder' }, { label: 'Section', sort: 'section' }, { label: 'Label', sort: 'label' }, { label: 'Size', sort: 'size', cls: 'num' }, { label: 'Share of disk', sort: 'share' }, { label: 'Measured' }], cols, 'ell'),
+    pg.slice.map((r) => h('button', { class: 'tr ell' + (sel && sel.id === r.id ? ' on' : ''), type: 'button', style: cols, 'aria-pressed': String(!!sel && sel.id === r.id), onClick: () => rec({ stItem: r.id }) },
+      h('span', nameAttrs(r.path), r.name), h('span', { class: 'mut small' }, ST_CATEGORIES[r.category] || '-'), h('span', {}, labelTag(r.label)),
+      h('span', { class: 'num' + (r.bytes == null ? ' mut small' : '') }, sizeText(r)),
+      h('span', { style: 'display:flex;align-items:center;gap:8px' }, r.share == null ? null : h('span', { class: 'bar', style: 'flex:1 1 auto;min-width:30px' }, h('i', { style: 'width:' + Math.min(100, r.share).toFixed(1) + '%' })), h('span', { class: 'mut small' }, shareText(r))),
+      r.kind === 'pending' ? h('span', { class: 'mut small' }, '-') : timeCell(r.at, 'mut small'))),
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, tile === 'rest' ? 'This part of the disk is not in any folder this scan reads, so there are no rows.' : 'No folders match the current filters. '), h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stTile: 'all', stfilter: 'all', page: {} }) }, 'Show all folders')), pg.pager);
+  return pageShell({ title, subtitle: coverageText(d) + ', ' + measuredText(d.scanned_at, now), actions, filters: chips, body: h('div', { style: 'flex:999 1 640px;min-width:0' }, note, stStrip(d, state, now), banner, treemap, table), inspector: stInspector(d, state, rows, tiles, tile, sel, now) });
+}
+
 const SAFETY_TAG = { 'read-only': 'ok', 'changes files': 'warn', 'needs sudo': 'bad' };
 // render() rebuilds every control, so a keyboard user would lose their place; put focus back on the one just used.
 const guideAct = (id, m) => { rec(m); const el = $(id); if (el) el.focus(); };
@@ -1504,6 +1644,7 @@ const NAV = [
   { id: 'persist', label: 'Persistence', icon: 'M4 6h16M4 12h16M4 18h10', group: 'Security' },
   { id: 'history', label: 'History', icon: 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18', group: 'Security' },
   { id: 'performance', label: 'Performance', icon: 'M3 17l5-9 4 5 3-6 6 10', group: 'Machine' },
+  { id: 'storage', label: 'Storage', icon: 'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5', group: 'Machine' },
   { id: 'guide', label: 'Guide', icon: 'M6 4h12v16H6zM6 16h12M9 8h6', group: 'Help' },
 ];
 const countText = (n) => (n > 99 ? '99+' : String(n));
@@ -1522,15 +1663,16 @@ function navBadges(f) {
 // One count of apps that need review, used by the title, the badge and the Overview tile. `statusOf` is the page's status().
 const countReview = (groups, statusOf) => groups.filter((g) => statusOf(g) === 'review').length;
 // Which data each verdict title counts. A title says "nothing" only after all of it has loaded; before that the page name is used.
-const TITLE_NEEDS = { overview: ['snap', 'priv', 'pers'], apps: ['snap'], priv: ['priv'], listeners: ['snap'], persist: ['pers'], network: ['snap', 'hist'] };
+const TITLE_NEEDS = { overview: ['snap', 'priv', 'pers'], apps: ['snap'], priv: ['priv'], listeners: ['snap'], persist: ['pers'], network: ['snap', 'hist'], storage: ['stor'] };
 const titleReady = (view, loaded) => !Object.prototype.hasOwnProperty.call(TITLE_NEEDS, view) || TITLE_NEEDS[view].every((k) => !!(loaded && loaded[k]));
 // The page title is one sentence that says what the page found. A page with no verdict yet, and a page whose data has
 // not loaded (facts missing), uses its name instead, so a title never claims "nothing" before anything was read.
 function verdictTitle(view, f) {
   const name = Object.prototype.hasOwnProperty.call(TITLES, view) ? TITLES[view] : '';
   const get = (k) => (f && Number.isFinite(f[k]) && f[k] >= 0 ? f[k] : null);
-  const n = view === 'overview' ? get('attention') : view === 'apps' ? get('review') : view === 'priv' ? get('failed') : view === 'listeners' ? get('exposed') : view === 'persist' ? get('fresh') : view === 'network' ? get('newHosts') : null;
+  const n = view === 'storage' ? get('measured') : view === 'overview' ? get('attention') : view === 'apps' ? get('review') : view === 'priv' ? get('failed') : view === 'listeners' ? get('exposed') : view === 'persist' ? get('fresh') : view === 'network' ? get('newHosts') : null;
   if (n === null) return name;
+  if (view === 'storage') return f.complete === true ? 'Scan complete: ' + plural(n, 'location', 'locations') + ' measured' : 'Scan partial: ' + n + (get('total') === null ? '' : ' of ' + get('total')) + ' locations measured';
   if (view === 'overview') return n ? plural(n, 'item needs', 'items need') + ' your attention' : 'Nothing needs your attention';
   if (view === 'apps') return n ? plural(n, 'app needs', 'apps need') + ' review' : 'Nothing needs review';
   if (view === 'priv') return n ? plural(n, 'failed authorization request', 'failed authorization requests') : 'No failed authorization requests';
@@ -1563,6 +1705,140 @@ function relatedLinks(counts, label, path) {
   return out;
 }
 /* page-shell:end */
+/* storage-page:begin */
+// Pure logic for the Storage page: which state the scan is in, the "at least" wording, the treemap tiles and
+// their columns, and the table rows. No DOM or storage access, so a test loads it with disk-net and page-shell.
+const ST_CATEGORIES = { developer: 'Developer', caches: 'Caches', logs: 'Logs', downloads: 'Downloads', mail: 'Mail', applications: 'Applications' };
+const ST_LABELS = ['safe', 'review', 'yours'];
+// Folders that hold the person's own files. The scanner never labels these safe; the page does not trust that alone.
+const ST_USER_PARTS = ['documents', 'desktop', 'pictures', 'movies', 'music', 'downloads', 'mail'];
+const ST_STALE_SEC = 900;
+// The server starts a scan at most this often (src/storage/cache.rs MIN_INTERVAL); it also says when the last one began.
+const ST_SCAN_INTERVAL = 60;
+// A section under this share of the disk joins "Other"; every tile gets at least this share of the treemap so a
+// zero or tiny section stays a readable tile instead of vanishing.
+const ST_OTHER_PCT = 1, ST_MIN_SHARE = 6;
+const stNum = (v) => (v && typeof v === 'object' && 'value' in v ? goodBytes(v.value) : null);
+const stReason = (v) => (v && typeof v === 'object' && typeof v.unavailable === 'string' ? v.unavailable : v === 'restricted' ? 'restricted' : DISK_REASON_UNKNOWN);
+
+// loading: nothing asked yet. failed: the request failed and nothing is held. scanning: the first scan is running, no
+// result yet. refused: the scanner could not start. partial: a result that is not complete (or does not say it is).
+// complete: only when the server says so, exactly.
+function storageState({ data, failed }) {
+  if (!data) return failed ? 'failed' : 'loading';
+  if (data.refused) return 'refused';
+  if (typeof data.scanned_at !== 'number') return data.scanning ? 'scanning' : 'empty';
+  return data.complete === true ? 'complete' : 'partial';
+}
+const atLeast = (bytes, lowerBound) => (goodBytes(bytes) == null ? 'unavailable' : (lowerBound ? 'at least ' : '') + formatBytes(bytes));
+const staleScan = (scannedAt, now) => typeof scannedAt === 'number' && now - scannedAt > ST_STALE_SEC;
+const measuredText = (scannedAt, now) => (typeof scannedAt === 'number' ? 'measured ' + relTime(scannedAt, now) : 'not measured yet');
+const coverageText = (d) => {
+  const c = d && d.coverage, missed = d && Array.isArray(d.not_reached) ? d.not_reached.length : 0;
+  return c ? c.locations_measured + ' of ' + c.locations_total + ' locations measured' + (missed ? ', ' + missed + ' not yet scanned' : '') : 'coverage unknown';
+};
+// Facts for the page title (see verdictTitle); null until a scan result is held.
+const storageFacts = (d) => (d && typeof d.scanned_at === 'number' && d.coverage ? { measured: d.coverage.locations_measured, total: d.coverage.locations_total, complete: d.complete === true } : null);
+// Seconds since the running scan began (the server says when the next one may start, one interval after the start).
+const scanElapsed = (d, now) => (d && typeof d.next_scan_allowed_at === 'number' ? Math.max(0, Math.round(now - (d.next_scan_allowed_at - ST_SCAN_INTERVAL))) : null);
+const scanningText = (d, now) => { const s = scanElapsed(d, now); return s == null ? 'Scanning' : 'Scanning, ' + s + ' s so far'; };
+// What Rescan may do now: refuse while a scan runs or inside the server's minute, and say how long to wait.
+function rescanInfo(d, now) {
+  if (d && d.scanning) return { ok: false, wait: 0, text: 'A scan is running.' };
+  const wait = d && typeof d.next_scan_allowed_at === 'number' ? Math.ceil(d.next_scan_allowed_at - now) : 0;
+  return wait > 0 ? { ok: false, wait, text: 'A scan started less than a minute ago. The next one can start in ' + wait + ' s.' } : { ok: true, wait: 0, text: '' };
+}
+// A user-content folder is never shown as safe, whatever the server sent: a wrong "safe" tells a person to delete their files.
+function shownLabel(item) {
+  const label = ST_LABELS.includes(item && item.label) ? item.label : 'review';
+  if (label !== 'safe') return label;
+  const parts = String(item.path || '').toLowerCase().split('/');
+  const userContent = item.rule === 'user-content' || item.rule === 'mail' || item.category === 'downloads' || item.category === 'mail' || parts.some((p) => ST_USER_PARTS.includes(p));
+  return userContent ? 'review' : 'safe';
+}
+const homeRelative = (p) => String(p).replace(/^\/Users\/[^/]+(?=\/|$)/, '~');
+// One table row per measured folder, then one per location the scan did not reach.
+function storageRows(d) {
+  const total = d && d.capacity ? stNum(d.capacity.total) : null, at = d && d.scanned_at;
+  const items = (d && Array.isArray(d.items) ? d.items : []).map((it) => {
+    const bytes = stNum(it.size), share = bytes != null && total ? bytes / total * 100 : null;
+    return { kind: 'item', id: String(it.id), path: String(it.path), name: homeRelative(it.path), category: it.category, label: shownLabel(it), rule: it.rule, bytes, reason: bytes == null ? stReason(it.size) : null,
+      lowerBound: it.complete === false, apparent: goodBytes(it.apparent_bytes), entries: it.entries, unreadable: it.unreadable | 0, share, at };
+  });
+  const pending = (d && Array.isArray(d.not_reached) ? d.not_reached : []).map((p) => ({ kind: 'pending', id: 'nr-' + p, path: String(p), name: homeRelative(p), category: null, label: null, rule: null, bytes: null, reason: 'not yet scanned', lowerBound: false, apparent: null, entries: 0, unreadable: 0, share: null, at: null }));
+  return items.concat(pending);
+}
+const sizeText = (r) => (r.kind === 'pending' ? 'not yet scanned' : r.bytes == null ? 'unavailable: ' + r.reason : atLeast(r.bytes, r.lowerBound));
+const shareText = (r) => (r.share == null ? '-' : r.share < 0.1 ? '<0.1%' : (r.share < 10 ? r.share.toFixed(1) : Math.round(r.share)) + '%');
+// The default order: biggest first, unmeasured and unavailable last.
+const bySize = (a, b) => (a.bytes == null) - (b.bytes == null) || (b.bytes || 0) - (a.bytes || 0);
+
+// The treemap's tiles. A section under ST_OTHER_PCT of the disk joins "Other" (never all of them: at least one stays),
+// an unavailable section stays its own tile with its reason, and "rest" is the used space this scan did not measure,
+// so the tiles add up to the used total when capacity is readable.
+function storageTiles(d) {
+  const cats = d && Array.isArray(d.categories) ? d.categories : [], items = d && Array.isArray(d.items) ? d.items : [];
+  const cap = d && d.capacity ? d.capacity : {}, total = stNum(cap.total), used = stNum(cap.used);
+  const made = cats.map((c) => {
+    const mine = items.filter((it) => it.category === c.category), bytes = goodBytes(c.bytes);
+    const allGone = mine.length > 0 && mine.every((it) => stNum(it.size) == null);
+    const known = hasOwn(ST_CATEGORIES, c.category);
+    const reason = allGone ? stReason(mine[0].size) : bytes == null ? 'bad reading' : null;
+    return { id: String(c.category), realId: String(c.category), kind: 'category', name: known ? ST_CATEGORIES[c.category] : String(c.category), bytes: reason ? null : bytes, reason, lowerBound: c.lower_bound === true, unmeasured: c.unmeasured | 0, count: c.items | 0, known };
+  });
+  const measured = made.reduce((n, t) => n + (t.bytes || 0), 0), base = total || measured;
+  const small = (t) => !t.known || (t.bytes != null && (base > 0 ? t.bytes / base * 100 : 0) < ST_OTHER_PCT);
+  const merge = made.filter(small), keep = made.filter((t) => !small(t));
+  const tiles = merge.length && keep.length ? keep.concat([{ id: 'other', kind: 'other', name: 'Other', bytes: merge.reduce((n, t) => n + (t.bytes || 0), 0), reason: null, lowerBound: merge.some((t) => t.lowerBound), unmeasured: merge.reduce((n, t) => n + t.unmeasured, 0), count: merge.reduce((n, t) => n + t.count, 0), members: merge }]) : made.slice();
+  if (used != null && used > measured) tiles.push({ id: 'rest', kind: 'rest', name: 'Not measured', bytes: used - measured, reason: null, lowerBound: false, unmeasured: 0, count: 0 });
+  const raw = tiles.reduce((n, t) => n + (t.bytes || 0), 0);
+  // The unmeasured rest is often most of the disk; sharing the treemap with it would squeeze every real section to a sliver,
+  // so it gets no share (pct 0) and the page draws it as its own full-width strip.
+  const sized = tiles.filter((t) => t.kind !== 'rest'), rawSized = sized.reduce((n, t) => n + (t.bytes || 0), 0), floorSized = rawSized * ST_MIN_SHARE / 100;
+  const weights = tiles.map((t) => (t.kind === 'rest' ? 0 : rawSized > 0 ? Math.max(t.bytes || 0, floorSized) : 1)), sum = weights.reduce((a, b) => a + b, 0);
+  return tiles.map((t, i) => Object.assign(t, { pct: sum > 0 ? weights[i] / sum * 100 : 0, diskPct: t.bytes != null && (total || raw) ? t.bytes / (total || raw) * 100 : null }));
+}
+// Flex columns for the treemap: the largest tiles first, each placed in the lightest column, columns largest first.
+function treemapColumns(tiles) {
+  const n = tiles.length, count = n <= 2 ? Math.max(1, n) : n <= 4 ? 2 : 3;
+  const cols = Array.from({ length: count }, () => ({ pct: 0, tiles: [] }));
+  for (const t of [...tiles].sort((a, b) => b.pct - a.pct)) { const c = cols.reduce((m, x) => (x.pct < m.pct ? x : m), cols[0]); c.tiles.push(t); c.pct += t.pct; }
+  return cols.filter((c) => c.tiles.length).sort((a, b) => b.pct - a.pct);
+}
+// A selected id that is not a tile now falls back: a merged section selects "Other", anything else selects all.
+function resolveTile(id, tiles) {
+  if (id === 'all' || tiles.some((t) => t.id === id)) return id;
+  return tiles.some((t) => t.kind === 'other' && t.members.some((m) => m.realId === id)) ? 'other' : 'all';
+}
+// The categories a tile stands for: null is every row, an empty list is no folder row (the unmeasured rest).
+function tileCategories(id, tiles) {
+  if (id === 'all') return null;
+  const t = tiles.find((x) => x.id === id);
+  return !t || t.kind === 'rest' ? [] : t.kind === 'other' ? t.members.map((m) => m.realId) : [t.realId];
+}
+// Rows for the table: the selected tile, then the label chip. A location not reached has no section and no label,
+// so it shows only with no tile and no label chosen.
+function visibleRows(rows, tiles, tileId, label) {
+  const cats = tileCategories(tileId, tiles);
+  return rows.filter((r) => (cats == null ? true : r.kind === 'item' && cats.includes(r.category)) && (label === 'all' || r.label === label));
+}
+const labelCounts = (rows) => ({ all: rows.length, safe: rows.filter((r) => r.label === 'safe').length, review: rows.filter((r) => r.label === 'review').length, yours: rows.filter((r) => r.label === 'yours').length });
+// The "safe to remove" total exists only for a complete scan. Before that there is no number to misread.
+function safeTotal(d, rows) {
+  if (storageState({ data: d }) !== 'complete') return { shown: false, text: 'Not shown until the scan is complete.' };
+  const safe = rows.filter((r) => r.kind === 'item' && r.label === 'safe');
+  const lower = safe.some((r) => r.bytes == null || r.lowerBound);
+  return { shown: true, bytes: safe.reduce((n, r) => n + (r.bytes || 0), 0), text: atLeast(safe.reduce((n, r) => n + (r.bytes || 0), 0), lower) };
+}
+// Arrow keys walk the tiles in reading order; the ends stay put.
+function nextTile(ids, current, key) {
+  const i = ids.indexOf(current);
+  if (i < 0 || !ids.length) return null;
+  if (key === 'Home') return ids[0];
+  if (key === 'End') return ids[ids.length - 1];
+  return ids[Math.min(ids.length - 1, Math.max(0, i + (key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : key === 'ArrowRight' || key === 'ArrowDown' ? 1 : 0)))];
+}
+/* storage-page:end */
 // The cell stays one element: the short text for the eye, the exact time as visible-on-hover title, and a
 // full sentence for a screen reader and for touch, where there is no hover.
 function timeCell(sec, cls) {
@@ -1602,7 +1878,7 @@ function drawNav() {
     const b = own(badges, id), svg = h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' });
     svg.innerHTML = '<path d="' + icon + '" stroke-linecap="round" stroke-linejoin="round"/>'; // createElement has no SVG namespace for innerHTML children
     return h('div', { class: 'navrow' },
-      h('button', { class: 'nav' + (S.view === id ? ' on' : '') + (b ? ' has-badge' : ''), type: 'button', 'data-nav': id, 'aria-current': S.view === id ? 'page' : null, onClick: () => { rec({ view: id }); if (id === 'performance') loadMetrics(); } }, svg, h('span', { class: 'grow' }, label)),
+      h('button', { class: 'nav' + (S.view === id ? ' on' : '') + (b ? ' has-badge' : ''), type: 'button', 'data-nav': id, 'aria-current': S.view === id ? 'page' : null, onClick: () => { rec({ view: id }); if (id === 'performance') loadMetrics(); if (id === 'storage') loadStorage(); } }, svg, h('span', { class: 'grow' }, label)),
       b ? h('a', { class: 'badge ' + b.tone, href: badgeHash(id), 'data-nav': 'badge-' + id, title: b.label, 'aria-label': b.label }, b.text) : null);
   };
   nav.replaceChildren(...NAV_GROUPS.map((g) => h('div', { role: 'group', 'aria-labelledby': 'navg-' + g.toLowerCase() }, h('div', { class: 'navgroup', id: 'navg-' + g.toLowerCase() }, g), NAV.filter((n) => n.group === g).map(item))));
@@ -1620,7 +1896,7 @@ function render() {
   const c = $('content');
   if (S.view !== 'guide') S.gsig = null;
   let page = null;
-  if (!S.snap && S.view !== 'guide') page = pageShell({ title: TITLES[S.view] || '', body: h('p', { class: 'mut' }, 'Collecting the first snapshot...') }); // the Guide needs no snapshot
+  if (!S.snap && S.view !== 'guide' && S.view !== 'storage') page = pageShell({ title: TITLES[S.view] || '', body: h('p', { class: 'mut' }, 'Collecting the first snapshot...') }); // the Guide needs no snapshot
   else if (S.view === 'overview') page = overview();
   else if (S.view === 'apps') page = apps();
   else if (S.view === 'priv') page = priv();
@@ -1629,6 +1905,7 @@ function render() {
   else if (S.view === 'performance') page = performanceView_();
   else if (S.view === 'network') page = network();
   else if (S.view === 'history') page = historyView();
+  else if (S.view === 'storage') page = storage();
   if (page) show(page);
   else if (S.view === 'guide') {
     // Rebuilt only when what the Guide shows changes: a poll must not drop focus or the selected command.
@@ -1661,7 +1938,7 @@ $('skip').addEventListener('click', () => $('main').focus());
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
-window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); });
+window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadStorage(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 // "/" jumps to the search box on the Guide unless a field has focus (the key must still type a slash there).
 document.addEventListener('keydown', (e) => {
@@ -1669,13 +1946,14 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && S.view === 'guide' && !S.modal && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); $('q').focus(); }
 });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); fromHash(); render(); loadVolume(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
+applyTheme(); fromHash(); render(); loadVolume(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
 setInterval(loadVolume, 30000);
 setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that checks S.perfLive, document.hidden and the active view
 // A tab backgrounded for a while is caught up in this one listener-driven fetch, not by the interval
 // above firing a burst once visible again (it only ever requests what's new since the last ts held).
 document.addEventListener('visibilitychange', loadMetrics);
+document.addEventListener('visibilitychange', loadStorage);
 document.addEventListener('visibilitychange', loadVolume); // the first read is skipped while the page is hidden
 </script>
 </body>

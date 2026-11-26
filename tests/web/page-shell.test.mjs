@@ -26,7 +26,7 @@ test('NAV ids are the pages the address knows, once each', () => {
 test('sidebar groups hold the pages the design names, in order', () => {
   const by = (g) => P.NAV.filter((n) => n.group === g).map((n) => n.label);
   assert.deepEqual(by('Security'), ['Overview', 'Apps', 'Network', 'Listeners', 'Privilege', 'Persistence', 'History']);
-  assert.deepEqual(by('Machine'), ['Performance']);
+  assert.deepEqual(by('Machine'), ['Performance', 'Storage']);
   assert.deepEqual(by('Help'), ['Guide']);
 });
 
@@ -177,12 +177,14 @@ test('the review count is one function over all groups, with or without connecti
 
 // ---- a title never says "nothing" before the data it counts has loaded
 test('every verdict title names the data it waits for, and waits for it', () => {
-  for (const v of ['overview', 'apps', 'priv', 'listeners', 'persist', 'network']) assert.ok(P.TITLE_NEEDS[v] && P.TITLE_NEEDS[v].length, v);
+  for (const v of ['overview', 'apps', 'priv', 'listeners', 'persist', 'network', 'storage']) assert.ok(P.TITLE_NEEDS[v] && P.TITLE_NEEDS[v].length, v);
   assert.deepEqual(P.TITLE_NEEDS.network, ['snap', 'hist'], 'new hosts need the host history');
   assert.ok(!P.titleReady('network', { snap: true, hist: false }));
   assert.ok(P.titleReady('network', { snap: true, hist: true }));
   assert.ok(!P.titleReady('overview', { snap: true, priv: true, pers: false }));
   assert.ok(!P.titleReady('priv', {}) && !P.titleReady('persist', null));
+  assert.ok(!P.titleReady('storage', { snap: true }), 'the Storage title waits for a scan result');
+  assert.ok(P.titleReady('storage', { stor: true }));
   assert.ok(P.titleReady('history', {}), 'a page with no verdict has nothing to wait for');
 });
 
@@ -197,7 +199,7 @@ test('the page sets each load flag when its data arrives', () => {
 
 test('a page title is drawn through verdict(), never verdictTitle() with its own guard', () => {
   const pages = html.slice(html.indexOf('function overview()'), html.indexOf('function perfOverviewTab_'));
-  for (const m of pages.matchAll(/title: (\w+)\('(\w+)'/g)) if (['overview', 'apps', 'priv', 'listeners', 'persist', 'network'].includes(m[2])) assert.equal(m[1], 'verdict', m[2]);
+  for (const m of pages.matchAll(/title: (\w+)\('(\w+)'/g)) if (['overview', 'apps', 'priv', 'listeners', 'persist', 'network', 'storage'].includes(m[2])) assert.equal(m[1], 'verdict', m[2]);
 });
 
 // ---- related links
