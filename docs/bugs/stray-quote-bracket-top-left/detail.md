@@ -4,7 +4,7 @@ Resolution: [resolution.md](resolution.md)
 
 ## What we saw
 
-A literal `">` in the top left corner of the dashboard, in a browser tab and in the Tauri spike's webview, on every page. Reported by the A17a spike on 2026-11-26.
+A literal `">` in the top left corner of the dashboard, in a browser tab and in the Tauri spike's webview, on every page. Reported by the Tauri shell spike on 2026-11-26.
 
 ## How to reproduce
 
