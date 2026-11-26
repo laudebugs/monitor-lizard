@@ -34,12 +34,17 @@ struct RawUsage {
     disk_write: Option<u64>,
 }
 
+// Unlike host_processor_info/host_statistics64 (used elsewhere in this codebase via libc, since
+// mach2 doesn't expose those), mach2 does expose this one directly, so no deprecated libc path is
+// needed here.
 fn mach_timebase() -> (u32, u32) {
+    // SAFETY: mach_timebase_info is a plain value type; an all-zero bit pattern is a valid value
+    // for it (every field is a plain integer), and the struct is only read after the call below
+    // has written into it.
     let mut info: mach2::mach_time::mach_timebase_info = unsafe { std::mem::zeroed() };
-    // SAFETY: mach_timebase_info is a plain value type, valid zeroed; the call writes into it and
-    // is documented to always succeed on a real Mac (there is no failure mode to check for). Unlike
-    // host_processor_info/host_statistics64 (used elsewhere in this codebase via libc, since mach2
-    // doesn't expose those), mach2 does expose this one directly, so no deprecated libc path is needed.
+    // SAFETY: `&mut info` is a valid pointer to a correctly-sized buffer for this call to write
+    // into; the call is documented to always succeed on a real Mac, so there is no failure mode
+    // to check for beyond the numer/denom sanity fallback below.
     unsafe { mach2::mach_time::mach_timebase_info(&mut info) };
     if info.numer == 0 || info.denom == 0 { (1, 1) } else { (info.numer, info.denom) }
 }
@@ -50,8 +55,8 @@ fn abstime_to_ns(ticks: u64, (numer, denom): (u32, u32)) -> u64 {
 }
 
 /// `proc_pid_rusage(pid, V4, ...)` first (has disk I/O); on failure that is not a permission error
-/// (an unsupported flavor is rare but real, per the todo's own edge case), falls back to V0 (always
-/// present, no disk fields) so the row still reports CPU and memory rather than nothing at all.
+/// (an unsupported flavor is rare but real on some sandboxed or older processes), falls back to V0
+/// (always present, no disk fields) so the row still reports CPU and memory rather than nothing.
 fn read_rusage(pid: i32, timebase: (u32, u32)) -> Result<RawUsage, String> {
     match pidrusage::<RUsageInfoV4>(pid) {
         Ok(r) => Ok(RawUsage {
@@ -62,6 +67,9 @@ fn read_rusage(pid: i32, timebase: (u32, u32)) -> Result<RawUsage, String> {
             disk_read: Some(r.ri_diskio_bytesread),
             disk_write: Some(r.ri_diskio_byteswritten),
         }),
+        // `libproc` reports errors as free-form text, not a typed errno, so this is matched on
+        // wording rather than a stable code -- a real fragility if that wording ever changes
+        // upstream, worth revisiting if a future libproc version's error text diverges from this.
         Err(e) if e.contains("Permission") || e.contains("EPERM") || e.contains("EACCES") => Err(e),
         Err(_) => pidrusage::<RUsageInfoV0>(pid).map(|r| RawUsage {
             start_abstime: r.ri_proc_start_abstime,
@@ -121,7 +129,7 @@ impl Tracker {
                 self.prev.remove(&p.pid);
                 continue;
             };
-            let prev = self.prev.get(&p.pid).filter(|pv| pv.start_abstime == raw.start_abstime);
+            let prev = prev_for(&self.prev, p.pid, raw.start_abstime);
             let usage = build_usage(p.pid, p.command.clone(), &raw, prev, now);
             self.prev.insert(p.pid, Prev {
                 start_abstime: raw.start_abstime, at: now, user_ns: raw.user_ns, system_ns: raw.system_ns,
@@ -134,30 +142,32 @@ impl Tracker {
     }
 }
 
+/// The one place "is this the same process as last time" is decided: a pid match alone is not
+/// enough, since pids are recycled -- only a matching `start_abstime` too means it is genuinely
+/// the same process, not a new one that happens to have reused the old pid. Pulled out of
+/// `Tracker::sample` as its own named function (rather than an inline `.filter(...)` call) so a
+/// test can exercise the real decision directly instead of a copy of its logic.
+fn prev_for(cache: &HashMap<u32, Prev>, pid: u32, start_abstime: u64) -> Option<&Prev> {
+    cache.get(&pid).filter(|pv| pv.start_abstime == start_abstime)
+}
+
 /// Pure: the rate math, separated from the `proc_pid_rusage` call itself so it can be tested
 /// without a real process to read. `prev` being `None` (first sample, or `start_abstime` changed
 /// because the pid was recycled) reports no rate, never a zero rate -- `cpu_pct`/`mem_bytes` are
 /// never a rate, so they are always reported from `raw` directly.
 fn build_usage(pid: u32, command: String, raw: &RawUsage, prev: Option<&Prev>, now: Instant) -> ProcessUsage {
     let no_disk = || Some(Reading::Unavailable("disk I/O not available for this process (rusage fell back to an older version)"));
-    let Some(prev) = prev else {
-        return ProcessUsage {
-            pid, command, restricted: false,
-            cpu_pct: Reading::Unavailable("not sampled yet"),
-            mem_bytes: Reading::Value(raw.mem_bytes),
-            disk_read_bytes_per_sec: if raw.disk_read.is_some() { None } else { no_disk() },
-            disk_write_bytes_per_sec: if raw.disk_write.is_some() { None } else { no_disk() },
-        };
+    let no_rate = |reason: &'static str| ProcessUsage {
+        pid, command: command.clone(), restricted: false,
+        cpu_pct: Reading::Unavailable(reason),
+        mem_bytes: Reading::Value(raw.mem_bytes),
+        disk_read_bytes_per_sec: if raw.disk_read.is_some() { None } else { no_disk() },
+        disk_write_bytes_per_sec: if raw.disk_write.is_some() { None } else { no_disk() },
     };
+    let Some(prev) = prev else { return no_rate("not sampled yet") };
     let elapsed = now.duration_since(prev.at).as_secs_f64();
     if elapsed <= 0.0 {
-        return ProcessUsage {
-            pid, command, restricted: false,
-            cpu_pct: Reading::Unavailable("not sampled yet"),
-            mem_bytes: Reading::Value(raw.mem_bytes),
-            disk_read_bytes_per_sec: if raw.disk_read.is_some() { None } else { no_disk() },
-            disk_write_bytes_per_sec: if raw.disk_write.is_some() { None } else { no_disk() },
-        };
+        return no_rate("sampled again at the same instant as the last reading");
     }
     let cpu_ns = (raw.user_ns + raw.system_ns).saturating_sub(prev.user_ns + prev.system_ns);
     let cpu_pct = Reading::Value(((cpu_ns as f64 / 1e9) / elapsed * 100.0) as f32);
@@ -242,17 +252,14 @@ mod tests {
 
     #[test]
     fn recycled_pid_is_a_new_process_not_diffed_against_the_old_one() {
-        // Tracker::sample is what applies the start_abstime filter; exercised at that level since
-        // build_usage itself just trusts whatever `prev` it's given.
-        let mut t = Tracker { prev: HashMap::new(), timebase: (1, 1) };
-        let me = "me";
-        let old = Proc { pid: 100, ppid: 1, user: me.into(), cpu: 0.0, rss_kb: 0, command: "old".into(), exe: String::new() };
-        // Can't call the real proc_pid_rusage in a unit test; directly seed the cache as if an
-        // earlier real sample had happened, then check the filter a second call would apply.
-        t.prev.insert(100, Prev { start_abstime: 111, at: Instant::now(), user_ns: 0, system_ns: 0, disk_read: Some(0), disk_write: Some(0) });
-        let cached = t.prev.get(&100).filter(|pv| pv.start_abstime == 222); // a recycled pid's new start time
-        assert!(cached.is_none(), "a different start_abstime for the same pid must not be treated as the same process");
-        let _ = old;
+        // Exercises the real decision function `Tracker::sample` itself calls, not a copy of its
+        // logic: seed the cache as if an earlier real sample had happened, then ask `prev_for` the
+        // question a second sample would ask it, with the pid's new (recycled) start time.
+        let mut cache = HashMap::new();
+        cache.insert(100, Prev { start_abstime: 111, at: Instant::now(), user_ns: 0, system_ns: 0, disk_read: Some(0), disk_write: Some(0) });
+        assert!(prev_for(&cache, 100, 222).is_none(), "a different start_abstime for the same pid must not be treated as the same process");
+        assert!(prev_for(&cache, 100, 111).is_some(), "the same start_abstime for the same pid is genuinely the same process");
+        assert!(prev_for(&cache, 999, 111).is_none(), "a pid never seen before has no previous sample");
     }
 
     #[test]
@@ -274,6 +281,9 @@ mod tests {
         assert!(matches!(rows[0].disk_read_bytes_per_sec, Some(Reading::Unavailable(_))));
     }
 
+    /// Manual, real-machine timing check: not run by `cargo test` or CI (every process on the
+    /// real machine, not a fixture). `cargo test -- --ignored real_full_pass_timing_on_this_mac`
+    /// reproduces the cost-of-one-pass figure recorded in the Implementation Record.
     #[test]
     #[ignore]
     fn real_full_pass_timing_on_this_mac() {
