@@ -7,9 +7,9 @@
 //! a group's trust *label* from its signals; this one decides what the label *allows*, and builds
 //! the evidence record, once a label already exists.
 use crate::{history::History, model::{Direction, Group, Label}, persistence, snapshot};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Serialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     Approve, Ignore, Investigate, Quit, ForceQuit,

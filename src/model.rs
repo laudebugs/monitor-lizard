@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -28,7 +28,7 @@ pub struct Conn {
 pub struct Signing { pub signed: bool, pub team: Option<String>, pub authority: Option<String>, pub apple: bool }
 
 /// How far an app group can be trusted, decided by rules only (see `rules::classify`).
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Label { Trusted, Unknown, Suspicious }
 

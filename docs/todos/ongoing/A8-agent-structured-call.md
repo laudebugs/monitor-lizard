@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `A8` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [classifier-agent](../../plans/classifier-agent.md) |
 | Depends on | A7 |
 | ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
