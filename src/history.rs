@@ -139,6 +139,14 @@ fn migrate(c: &mut Connection, steps: &[&str], backup: Option<&std::path::Path>)
     Ok(())
 }
 
+/// Step 2 is IF NOT EXISTS so a development database that already has `baseline_changes` is safe, but
+/// an early build of that table had no `note` column and IF NOT EXISTS cannot add one. Add it here.
+fn add_missing_note_column(c: &Connection) -> rusqlite::Result<()> {
+    let has_note = c.prepare("PRAGMA table_info(baseline_changes)")?.query_map([], |r| r.get::<_, String>(1))?.any(|n| n.is_ok_and(|n| n == "note"));
+    if !has_note { c.execute_batch("ALTER TABLE baseline_changes ADD COLUMN note TEXT NOT NULL DEFAULT ''")?; }
+    Ok(())
+}
+
 /// Creates the data folder owner-only when it does not exist yet. An existing folder is left as the
 /// user set it.
 fn create_private_dir(dir: &std::path::Path) {
@@ -188,6 +196,7 @@ impl History {
         c.busy_timeout(std::time::Duration::from_secs(10))?;
         // Migrate before switching journal mode so a file from a newer version is refused untouched.
         migrate(&mut c, MIGRATIONS, Some(&backup_path(p)))?;
+        add_missing_note_column(&c)?;
         // WAL so a process killed mid-batch leaves the file intact (the write-ahead log is simply
         // replayed or rolled back on next open) rather than the default rollback journal's larger
         // window for a half-written page; every table shares one connection and one journal mode.
@@ -804,6 +813,22 @@ mod tests {
         assert_eq!(h.recent_baseline_changes(10).unwrap().len(), 1);
         drop(h);
         assert_eq!(version_of(&db), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_development_baseline_table_without_the_note_column_gets_it() {
+        let dir = scratch("dev-table");
+        let db = dir.join("h.db");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE baseline_changes(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, marked INTEGER NOT NULL);
+            INSERT INTO baseline_changes(ts,kind,key,marked) VALUES(1,'app','/old.app',1);").unwrap();
+        drop(c);
+        let h = History::at(&db).unwrap();
+        h.record_baseline_change(2, "app", "/new.app", true, "").unwrap();
+        let rows = h.recent_baseline_changes(10).unwrap();
+        assert_eq!(rows.len(), 2, "the old row is kept");
+        assert_eq!(rows[1].note, "");
         let _ = std::fs::remove_dir_all(dir);
     }
 

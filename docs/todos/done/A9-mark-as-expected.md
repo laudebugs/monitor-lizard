@@ -108,13 +108,13 @@ make test
 
 **Never expected.** `unsigned-network` and `debug-port` are refused at write time, as are unknown rules and `unreviewed`. Marked findings are listed in a collapsed Overview section with their scope and an Unmark button, and the heading counts them.
 
-**Audit and limits.** The `baseline_changes` table is migration step 2, created with `IF NOT EXISTS`. Each change is written to it before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
+**Audit and limits.** The `baseline_changes` table is migration step 2, created with `IF NOT EXISTS`. An early development copy of the table lacked the `note` column, so opening the database adds it if missing. Each change is written to it before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
 
 **Corrupt files.** A corrupt file is moved to `.bad`, `.bad-1` and so on, never over an older copy. The Overview shows a banner until dismissed, saying earlier marks are not in effect. An unreadable file pauses marking and is never replaced.
 
 **Startup items.** A real change to a startup item patches the cached list at once and rescans in the background. A repeated request does nothing.
 
-**Interface.** Buttons sit on the Overview cards, the Persistence page and the Network page. The server sends each finding's mark key and each group's expected hosts, so the page builds no baseline keys. The History page lists every change, including failed saves.
+**Interface.** The Persistence and Network tables have an action column that is drawn and aligned but never exported or offered in the column chooser. Buttons sit on the Overview cards, the Persistence page and the Network page. The server sends each finding's mark key and each group's expected hosts, so the page builds no baseline keys. The History page lists every change, including failed saves.
 
 **Tests.** 32 new Rust tests. The suite passes with 170 run and 2 ignored, plus 31 Node tests. Two real processes marking at once lose no write.
 

@@ -22,7 +22,7 @@
 | `src/notify.rs` | Deduplicated macOS notifications for high findings via `osascript`, off by default |
 | `src/llm.rs` | One blocking call to a local llama-server with a JSON-schema response format, parsed into a `Verdict`; clamping against the rules is A10 |
 | `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token |
-| `tests/web/` | Node logic tests for the dashboard (`node --test`); they extract the marked `url-state` block from `web/index.html`, so keep that block free of DOM access |
+| `tests/web/` | Node logic tests for the dashboard (`node --test`); they extract the marked `url-state` and `export` blocks from `web/index.html`, so keep those blocks free of DOM and storage access |
 | `web/fonts/` | IBM Plex Sans, bundled (three static weights, subsetted, WOFF2), embedded and served by `src/server.rs`; see `THIRD-PARTY-NOTICES.md` |
 
 ## One home per concept
@@ -37,6 +37,7 @@
 - Each step runs in its own transaction. A failing step rolls back and `open()` returns the error.
 - The first time an unversioned database is migrated, `history.db.bak` is written next to it (once; never overwritten).
 - Step 1 relies on `IF NOT EXISTS`, so an old database with a table that lacks a column is not repaired. Fix that with a later step, not by editing step 1.
+- A step that is `IF NOT EXISTS` never adds a column to a table that already exists. `add_missing_note_column` repairs the one such case, an early `baseline_changes` without `note`.
 - Opening takes an exclusive lock on `history.db.lock`, so one process at a time reads the version, makes the backup and migrates.
 - A database whose version is higher than the list is refused untouched. Downgrades are not supported.
 - A new table that nothing alters later can still be a `CREATE TABLE IF NOT EXISTS` inside a new step.
