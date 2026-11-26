@@ -1,0 +1,453 @@
+{
+  "commands": [
+    {
+      "appears_in": "Overview",
+      "command": "monitor-lizard snapshot",
+      "description": "Lists every process and network socket grouped by app, with listening ports and signing state. This is also what plain `monitor-lizard` prints.",
+      "example": null,
+      "id": "sm-snapshot",
+      "safety": "read-only",
+      "tags": [
+        "processes",
+        "sockets",
+        "groups"
+      ],
+      "title": "Print the grouped snapshot",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": "Persistence",
+      "command": "monitor-lizard persistence",
+      "description": "Lists launch agents, launch daemons and cron jobs. Items not seen before are marked NEW.",
+      "example": null,
+      "id": "sm-persistence",
+      "safety": "read-only",
+      "tags": [
+        "startup",
+        "launchagent",
+        "launchdaemon",
+        "cron"
+      ],
+      "title": "List startup items",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": "Performance",
+      "command": "monitor-lizard metrics",
+      "description": "Prints one CPU, memory, network, disk and GPU sample as JSON.",
+      "example": null,
+      "id": "sm-metrics",
+      "safety": "read-only",
+      "tags": [
+        "cpu",
+        "memory",
+        "disk",
+        "gpu",
+        "json"
+      ],
+      "title": "Print one metrics sample",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": "Apps",
+      "command": "monitor-lizard classify <group-key>",
+      "description": "Prints the trust label, the rules that fired and the actions allowed for one app group.",
+      "example": null,
+      "id": "sm-classify",
+      "safety": "read-only",
+      "tags": [
+        "label",
+        "rules",
+        "trust"
+      ],
+      "title": "Explain why a group got its label",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": null,
+      "command": "monitor-lizard llm-classify <group-key> [port=8090]",
+      "description": "Sends the evidence for one group to a model server on this Mac (default port 8090) and prints its reply. Nothing leaves the machine.",
+      "example": null,
+      "id": "sm-llm-classify",
+      "safety": "read-only",
+      "tags": [
+        "llm",
+        "model",
+        "classify"
+      ],
+      "title": "Ask a local model about a group",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": "Privilege",
+      "command": "monitor-lizard watch",
+      "description": "Prints each sudo or su run, with the chain of parent processes, until you press Ctrl-C. Each event is also saved to the history database.",
+      "example": null,
+      "id": "sm-watch",
+      "safety": "changes files",
+      "tags": [
+        "sudo",
+        "su",
+        "privilege"
+      ],
+      "title": "Watch for sudo and su",
+      "topic": "monitor-lizard",
+      "undo": "Quit and delete ~/.monitor-lizard/history.db to drop the saved events."
+    },
+    {
+      "appears_in": "Privilege",
+      "command": "monitor-lizard sudo-log [n]",
+      "description": "Prints the last n (default 20) events saved by `watch`.",
+      "example": null,
+      "id": "sm-sudo-log",
+      "safety": "read-only",
+      "tags": [
+        "sudo",
+        "su",
+        "history"
+      ],
+      "title": "Show recent sudo and su events",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": "Privilege",
+      "command": "monitor-lizard privilege [minutes]",
+      "description": "Prints authorization attempts from the last n minutes (default 60), including failures and the parent process.",
+      "example": null,
+      "id": "sm-privilege",
+      "safety": "read-only",
+      "tags": [
+        "authd",
+        "authorization",
+        "sudo"
+      ],
+      "title": "Show recent privilege prompts",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": null,
+      "command": "monitor-lizard json",
+      "description": "Prints the same data the dashboard loads, for scripts and agents.",
+      "example": null,
+      "id": "sm-json",
+      "safety": "read-only",
+      "tags": [
+        "json",
+        "export"
+      ],
+      "title": "Print the full snapshot as JSON",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": null,
+      "command": "monitor-lizard serve [port]",
+      "description": "Serves the dashboard on 127.0.0.1 (default port 4747). The dashboard can stop your own processes after you confirm, and saves history to ~/.monitor-lizard/.",
+      "example": null,
+      "id": "sm-serve",
+      "safety": "changes files",
+      "tags": [
+        "dashboard",
+        "server",
+        "web"
+      ],
+      "title": "Start the dashboard",
+      "topic": "monitor-lizard",
+      "undo": "Press Ctrl-C to stop the server. A stopped process cannot be restarted from the dashboard."
+    },
+    {
+      "appears_in": "Apps",
+      "command": "monitor-lizard approve <group-key>...",
+      "description": "Adds each group to the baseline of expected apps, so it is no longer reported as new.",
+      "example": null,
+      "id": "sm-approve",
+      "safety": "changes files",
+      "tags": [
+        "baseline",
+        "approve",
+        "expected"
+      ],
+      "title": "Mark app groups as expected",
+      "topic": "monitor-lizard",
+      "undo": "Remove the key from the baseline file in ~/.monitor-lizard/."
+    },
+    {
+      "appears_in": "Guide",
+      "command": "monitor-lizard help [word]",
+      "description": "Prints the commands and terms whose title, command or tags contain the word. With no word it prints all of them.",
+      "example": null,
+      "id": "sm-help",
+      "safety": "read-only",
+      "tags": [
+        "help",
+        "usage",
+        "guide"
+      ],
+      "title": "Search this guide",
+      "topic": "monitor-lizard",
+      "undo": null
+    },
+    {
+      "appears_in": "Storage",
+      "command": "df -h /",
+      "description": "Shows size, used and available space of the startup volume. Used can look small because macOS counts the other volumes in the same container separately.",
+      "example": {
+        "macos": "macOS 27.0.1",
+        "output": "Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on\n/dev/disk3s1s1   460Gi    13Gi    36Gi    27%    484k  374M    0%   /"
+      },
+      "id": "df-root",
+      "safety": "read-only",
+      "tags": [
+        "disk",
+        "space",
+        "free",
+        "df"
+      ],
+      "title": "Free space on the startup disk",
+      "topic": "storage",
+      "undo": null
+    },
+    {
+      "appears_in": "Storage",
+      "command": "diskutil apfs list",
+      "description": "Lists each APFS container with the space its volumes use and how much is not allocated, then every volume with its role and size.",
+      "example": {
+        "macos": "macOS 27.0.1",
+        "output": "APFS Containers (6 found)\n|\n+-- Container disk3 <uuid>\n|   ====================================================\n|   APFS Container Reference:     disk3\n|   Size (Capacity Ceiling):      494384795648 B (494.4 GB)\n|   Capacity In Use By Volumes:   456152682496 B (456.2 GB) (92.3% used)\n|   Capacity Not Allocated:       38232113152 B (38.2 GB) (7.7% free)"
+      },
+      "id": "diskutil-apfs-list",
+      "safety": "read-only",
+      "tags": [
+        "apfs",
+        "volume",
+        "container",
+        "diskutil"
+      ],
+      "title": "APFS containers and volumes",
+      "topic": "storage",
+      "undo": null
+    },
+    {
+      "appears_in": "Storage",
+      "command": "tmutil listlocalsnapshots /",
+      "description": "Lists the dates of local snapshots on the startup volume. It shows dates only, not sizes.",
+      "example": {
+        "macos": "macOS 27.0.1",
+        "output": "Snapshots for disk /:"
+      },
+      "id": "tmutil-list",
+      "safety": "read-only",
+      "tags": [
+        "snapshot",
+        "time machine",
+        "tmutil",
+        "local"
+      ],
+      "title": "List local Time Machine snapshots",
+      "topic": "storage",
+      "undo": null
+    },
+    {
+      "appears_in": "Storage",
+      "command": "tmutil deletelocalsnapshots <date>",
+      "description": "Deletes every local Time Machine snapshot with that date (format YYYY-MM-DD-HHMMSS, as listed above) on all mounted disks. The man page does not say it needs root; the usual instruction is to run it with sudo and to give the terminal Full Disk Access. Labelled needs sudo as the safe assumption.",
+      "example": null,
+      "id": "tmutil-delete",
+      "safety": "needs sudo",
+      "tags": [
+        "snapshot",
+        "time machine",
+        "tmutil",
+        "delete"
+      ],
+      "title": "Delete one local snapshot",
+      "topic": "storage",
+      "undo": "None. The snapshot is gone; Time Machine makes a new one at its next run."
+    },
+    {
+      "appears_in": "Storage",
+      "command": "du -sh ~/Library/* | sort -h",
+      "description": "Sums each folder in your Library and sorts them smallest to largest. It can take a minute on a large Library. The example shortens the absolute paths that `du` prints to `~`.",
+      "example": {
+        "macos": "macOS 27.0.1",
+        "output": " 11G\t~/Library/Containers\n 19G\t~/Library/pnpm\n 29G\t~/Library/Caches\n 33G\t~/Library/Application Support"
+      },
+      "id": "du-library",
+      "safety": "read-only",
+      "tags": [
+        "library",
+        "folders",
+        "size",
+        "du",
+        "caches"
+      ],
+      "title": "Largest folders in your Library",
+      "topic": "storage",
+      "undo": null
+    },
+    {
+      "appears_in": "Storage",
+      "command": "xcrun simctl delete unavailable",
+      "description": "Deletes simulator devices that the installed Xcode no longer supports, and their data.",
+      "example": null,
+      "id": "simctl-delete-unavailable",
+      "safety": "changes files",
+      "tags": [
+        "xcode",
+        "simulator",
+        "simctl",
+        "developer"
+      ],
+      "title": "Delete unusable Xcode simulators",
+      "topic": "developer",
+      "undo": "None. Create new simulators in Xcode if you need them again."
+    },
+    {
+      "appears_in": "Storage",
+      "command": "docker system df",
+      "description": "Shows the space used by images, containers, local volumes and build cache. It needs the Docker daemon to be running.",
+      "example": null,
+      "id": "docker-df",
+      "safety": "read-only",
+      "tags": [
+        "docker",
+        "images",
+        "containers",
+        "developer"
+      ],
+      "title": "Docker disk use",
+      "topic": "developer",
+      "undo": null
+    },
+    {
+      "appears_in": "Storage",
+      "command": "docker system prune",
+      "description": "Asks for confirmation, then removes stopped containers, networks no container uses, dangling images and dangling build cache. `--all` also removes every unused image, `--volumes` also removes anonymous volumes, and `-f` skips the question.",
+      "example": null,
+      "id": "docker-prune",
+      "safety": "changes files",
+      "tags": [
+        "docker",
+        "prune",
+        "cleanup",
+        "developer"
+      ],
+      "title": "Remove unused Docker data",
+      "topic": "developer",
+      "undo": "None. Images can be pulled or rebuilt again; files in removed containers and anonymous volumes are lost."
+    },
+    {
+      "appears_in": "Storage",
+      "command": "brew cleanup -n",
+      "description": "Lists the old versions and cached downloads that `brew cleanup` would remove, and how much space that frees. The -n flag removes nothing.",
+      "example": {
+        "macos": "macOS 27.0.1",
+        "output": "Would remove: /opt/homebrew/Library/Homebrew/vendor/portable-ruby/<version> (1,707 files, 34.6MB)\n==> This operation would free approximately 69.3MB of disk space."
+      },
+      "id": "brew-cleanup-n",
+      "safety": "read-only",
+      "tags": [
+        "homebrew",
+        "brew",
+        "cleanup",
+        "developer"
+      ],
+      "title": "Preview Homebrew clean-up",
+      "topic": "developer",
+      "undo": null
+    }
+  ],
+  "terms": [
+    {
+      "id": "apfs",
+      "meaning": "Apple File System, the format of the startup disk. Volumes in one container share its free space, so each volume's size changes as the others grow.",
+      "tags": [
+        "disk",
+        "volume"
+      ],
+      "term": "APFS"
+    },
+    {
+      "id": "local-snapshot",
+      "meaning": "A copy of the disk's state that Time Machine keeps on the Mac. macOS removes it when space runs low.",
+      "tags": [
+        "snapshot",
+        "time machine"
+      ],
+      "term": "Local snapshot"
+    },
+    {
+      "id": "purgeable",
+      "meaning": "Space held by caches and snapshots that macOS frees on demand. It counts as available in Finder and as used in `df`.",
+      "tags": [
+        "space",
+        "cache"
+      ],
+      "term": "Purgeable space"
+    },
+    {
+      "id": "system-data",
+      "meaning": "The Storage settings category for everything that is not an app, document or media file: caches, logs, snapshots and developer files.",
+      "tags": [
+        "storage",
+        "settings"
+      ],
+      "term": "System Data"
+    },
+    {
+      "id": "full-disk-access",
+      "meaning": "A privacy permission an app needs before it can read protected folders such as Mail and Messages.",
+      "tags": [
+        "permission",
+        "privacy"
+      ],
+      "term": "Full Disk Access"
+    },
+    {
+      "id": "launch-agent",
+      "meaning": "A property-list file that starts a program when you log in. Launch daemons do the same at boot, with system rights.",
+      "tags": [
+        "startup",
+        "launchagent",
+        "launchdaemon"
+      ],
+      "term": "Launch agent"
+    },
+    {
+      "id": "listener",
+      "meaning": "A process waiting for incoming network connections on a port. A star marks one reachable from other machines.",
+      "tags": [
+        "port",
+        "network",
+        "socket"
+      ],
+      "term": "Listener"
+    },
+    {
+      "id": "group",
+      "meaning": "All processes and sockets that belong to one app, shown as one row.",
+      "tags": [
+        "app",
+        "process"
+      ],
+      "term": "App group"
+    },
+    {
+      "id": "trust-label",
+      "meaning": "The verdict a rule gives a group, such as yours, Apple or unknown. Rules set it, never a model.",
+      "tags": [
+        "label",
+        "rules",
+        "classify"
+      ],
+      "term": "Trust label"
+    }
+  ]
+}
