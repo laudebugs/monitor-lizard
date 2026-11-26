@@ -134,7 +134,7 @@ pub static COMMANDS: &[Command] = &[
     Command {
         id: "sm-approve", topic: OWN_TOPIC, title: "Mark items as expected",
         command: "monitor-lizard approve <key>...",
-        description: "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path> or finding:<app key>:<rule>.",
+        description: "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path> or finding:<app key>:<rule>#<ports>.",
         example: None, safety: Safety::ChangesFiles, appears_in: Some("Apps"),
         undo: Some("Press Unmark on the item in the dashboard, or remove its entry from baseline.json in ~/.monitor-lizard/."),
         tags: &["baseline", "approve", "expected"],

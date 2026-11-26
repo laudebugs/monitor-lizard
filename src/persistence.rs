@@ -102,9 +102,28 @@ pub fn take() -> Vec<Item> {
     items
 }
 
+/// Sets `expected` on one item of a cached startup list and clears `is_new` when it becomes expected.
+/// Anything that cannot be parsed is returned as it was.
+pub fn patch_expected(json: &str, path: &str, expected: bool) -> String {
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(json) else { return json.into() };
+    for item in v.as_array_mut().into_iter().flatten().filter(|i| i["path"] == path) {
+        item["expected"] = expected.into();
+        if expected { item["is_new"] = false.into(); }
+    }
+    serde_json::to_string(&v).unwrap_or_else(|_| json.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn patching_the_cached_list_marks_only_the_named_item() {
+        let json = r#"[{"path":"/a","is_new":true,"expected":false},{"path":"/b","is_new":true,"expected":false}]"#;
+        let v: serde_json::Value = serde_json::from_str(&patch_expected(json, "/a", true)).unwrap();
+        assert_eq!((v[0]["expected"].as_bool(), v[0]["is_new"].as_bool()), (Some(true), Some(false)));
+        assert_eq!((v[1]["expected"].as_bool(), v[1]["is_new"].as_bool()), (Some(false), Some(true)));
+        assert_eq!(patch_expected("not json", "/a", true), "not json");
+    }
     #[test]
     fn plist_json() {
         let v: serde_json::Value = serde_json::from_str(r#"{"Label":"com.x.agent","ProgramArguments":["/opt/x/bin/agent","--run"],"RunAtLoad":true,"KeepAlive":{"SuccessfulExit":false}}"#).unwrap();

@@ -4,7 +4,7 @@ Local-first macOS monitor that groups every process and network socket by app an
 
     cargo run --release              # grouped snapshot + findings
     cargo run --release -- serve          # dashboard at http://127.0.0.1:4747 (Stop/Quit need the per-run token the page carries)
-    cargo run --release -- approve "/Applications/Notion.app"   # also: host:<app key>|<address>, startup:<plist path>, finding:<app key>:<rule>
+    cargo run --release -- approve "/Applications/Notion.app"   # also: host:<app key>|<address>, startup:<plist path>, finding:<app key>:<rule>#<ports>
     cargo run --release -- json      # full snapshot as JSON
     cargo run --release -- privilege 60   # sudo/admin authorization requests, last 60 min
     cargo run --release -- watch          # live: catch every sudo/su launch with its parent chain

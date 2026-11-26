@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     fn finding(group_key: &str, rule: &'static str, severity: Severity) -> Finding {
-        Finding { severity, group: group_key.into(), group_key: group_key.into(), rule, detail: "detail".into() }
+        Finding::new(severity, group_key.into(), group_key.into(), rule, "detail".into(), String::new())
     }
 
     #[test]

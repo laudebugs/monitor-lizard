@@ -104,14 +104,13 @@ pub fn serve(port: u16) {
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
             }
-            (Method::Get, "/api/baseline") => json_resp(serde_json::json!({ "entries": baseline::load().entries(), "notice": baseline::notice() }).to_string()),
-            (Method::Post, "/api/approve" | "/api/unapprove") if write_ok => {
-                let res = baseline_change(query, path == "/api/approve");
-                // The startup-item list is cached for a minute; without this the row would keep its old state after the click.
-                if res.status_code().0 == 200 && query_param(query, "kind").as_deref() == Some("startup") {
-                    *pers.lock().unwrap() = Some(serde_json::to_string(&persistence::take()).unwrap_or_default());
+            (Method::Get, "/api/baseline") => { let (b, notice) = baseline::peek(); json_resp(serde_json::json!({ "entries": b.entries(), "notice": notice }).to_string()) }
+            (Method::Post, "/api/approve" | "/api/unapprove") if write_ok => match apply_change(query, path == "/api/approve") {
+                Ok(c) => {
+                    if c.needs_startup_rescan() { refresh_startup_cache(&pers, &c.key, c.mark); }
+                    Response::from_string(if c.changed { "ok" } else { "unchanged" }).boxed()
                 }
-                res
+                Err((code, msg)) => Response::from_string(msg).with_status_code(code).boxed(),
             }
             (Method::Post, "/api/kill") if write_ok => {
                 match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {
@@ -140,17 +139,41 @@ pub fn serve(port: u16) {
     }
 }
 
-/// Marks or unmarks one item: `kind` is `app` (the default, as before kinds existed), `host`, `startup` or `finding`.
-fn baseline_change(query: &str, mark: bool) -> tiny_http::ResponseBox {
-    let bad = |msg: String| Response::from_string(msg).with_status_code(400).boxed();
+/// The outcome of a mark or unmark request that passed validation.
+struct Change { kind: Kind, key: String, mark: bool, changed: bool }
+
+impl Change {
+    /// Only a real change to a startup item can alter the cached list, so a repeated request costs nothing.
+    fn needs_startup_rescan(&self) -> bool { self.changed && self.kind == Kind::Startup }
+}
+
+/// Marks or unmarks one item: `kind` is `app` (the default, as before kinds existed), `host`, `startup`
+/// or `finding`. A host is given as `app` and `addr` (or a ready `key`), so the page never builds keys.
+fn apply_change(query: &str, mark: bool) -> Result<Change, (u16, String)> {
     let kind_name = query_param(query, "kind").unwrap_or_else(|| "app".into());
-    let Some(kind) = Kind::parse(&kind_name) else { return bad(format!("unknown kind {kind_name:?}: use app, host, startup or finding")) };
-    let key = query_param(query, "key").unwrap_or_default();
-    if let Err(e) = baseline::validate(kind, &key) { return bad(e); }
+    let Some(kind) = Kind::parse(&kind_name) else { return Err((400, format!("unknown kind {kind_name:?}: use app, host, startup or finding"))) };
+    let key = match (kind, query_param(query, "app"), query_param(query, "addr")) {
+        (Kind::Host, Some(app), Some(addr)) => baseline::host_key(&app, &addr),
+        _ => query_param(query, "key").unwrap_or_default(),
+    };
     match baseline::change(kind, &key, mark) {
-        Ok(_) => Response::from_string("ok").boxed(),
-        Err(e) => Response::from_string(e).with_status_code(500).boxed(),
+        Ok(changed) => Ok(Change { kind, key, mark, changed }),
+        Err(baseline::ChangeError::Rejected(m)) => Err((400, m)),
+        Err(baseline::ChangeError::Failed(m)) => Err((500, m)),
     }
+}
+
+/// Updates the cached startup list at once so the next read shows the change, then rescans in the
+/// background to correct anything the patch cannot know (such as an item becoming new again).
+fn refresh_startup_cache(cache: &Cache, path: &str, expected: bool) {
+    if let Some(json) = cache.lock().unwrap().as_mut() { *json = persistence::patch_expected(json, path, expected); }
+    static RESCANNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if RESCANNING.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
+    let cache = cache.clone();
+    thread::spawn(move || {
+        *cache.lock().unwrap() = Some(serde_json::to_string(&persistence::take()).unwrap_or_default());
+        RESCANNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
 }
 
 fn urldecode(s: &str) -> String {
@@ -169,7 +192,23 @@ fn urldecode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::PAGE;
+    use super::*;
+
+    #[test]
+    fn a_repeated_mark_triggers_no_startup_rescan_and_a_real_one_does() {
+        let c = |kind, changed| Change { kind, key: "/p.plist".into(), mark: true, changed };
+        assert!(!c(Kind::Startup, false).needs_startup_rescan(), "a no-op must not scan");
+        assert!(c(Kind::Startup, true).needs_startup_rescan());
+        assert!(!c(Kind::Host, true).needs_startup_rescan(), "other kinds never touch the startup list");
+    }
+
+    #[test]
+    fn requests_with_a_bad_kind_or_key_are_400_before_anything_changes() {
+        assert_eq!(apply_change("kind=planet&key=x", true).err().map(|e| e.0), Some(400));
+        assert_eq!(apply_change("kind=host&key=nopipe", true).err().map(|e| e.0), Some(400));
+        assert_eq!(apply_change("kind=app&key=", true).err().map(|e| e.0), Some(400));
+        assert_eq!(apply_change("kind=finding&key=%2FA.app%3Aunsigned-network%23x", true).err().map(|e| e.0), Some(400));
+    }
 
     /// A data: URI in an attribute may not contain a raw double quote or angle bracket: the first quote
     /// ends the attribute and the rest of the SVG is parsed as page markup, leaving stray text on screen.
