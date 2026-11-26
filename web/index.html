@@ -20,8 +20,8 @@
 @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/IBMPlexMono-Medium.woff2') format('woff2')}
 @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('/fonts/IBMPlexMono-SemiBold.woff2') format('woff2')}
 /* Fonts: IBM Plex Sans for text, IBM Plex Mono for data, both only if installed; otherwise the system fonts. No remote font loading (local-first, ADR 0002). */
-:root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6)}
-:root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35)}
+:root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#120d1d;--panel:#170f26;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#120d1d;--ok:#7ee2b8;--warn:#f6c565;--bad:#ff8f7e;--badfg:#2a0a05;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6);--cut:8px;--chip-ok-bg:#14382b;--chip-ok-fg:#7ee2b8;--chip-warn-bg:#3f2e0b;--chip-warn-fg:#f6c565;--chip-bad-bg:#40150e;--chip-bad-fg:#ff8f7e;--chip-n-bg:#2b2442;--chip-n-fg:#d3c9f0}
+:root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35);--chip-ok-bg:#d4f1e4;--chip-ok-fg:#0b5a3e;--chip-warn-bg:#f9e7bd;--chip-warn-fg:#6b4500;--chip-bad-bg:#fbdcd5;--chip-bad-fg:#8f1d0e;--chip-n-bg:#e6dff4;--chip-n-fg:#3d3160}
 *{box-sizing:border-box;border-radius:0}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}
 .num,.code,.mono,.search{font-family:var(--font-mono)}
@@ -37,8 +37,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
 .nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
 .grow{flex:1 1 auto;min-width:0}
-.badge{font-size:11px;min-width:22px;text-align:center;padding:2px 6px;background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
-.badge.warn{color:var(--warn);border-color:var(--warn)}.badge.bad{color:var(--bad);border-color:var(--bad)}
+.badge{font:500 11px/1.2 var(--font-mono);letter-spacing:.08em;min-width:22px;text-align:center;padding:2px 6px;background:var(--chip-n-bg);color:var(--chip-n-fg);border:1px solid color-mix(in srgb,var(--chip-n-fg) 35%,var(--chip-n-bg))}
+.badge.warn{background:var(--chip-warn-bg);color:var(--chip-warn-fg);border-color:color-mix(in srgb,var(--chip-warn-fg) 35%,var(--chip-warn-bg))}.badge.bad{background:var(--chip-bad-bg);color:var(--chip-bad-fg);border-color:color-mix(in srgb,var(--chip-bad-fg) 35%,var(--chip-bad-bg))}
 .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
 .top h1{margin:0;font-size:20px;font-weight:600}
 .search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
@@ -53,24 +53,36 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 /* Nothing on this page animates today, but this page polls and redraws every 2s indefinitely, so
    any transition added here later is exactly the kind of persistent motion this media query exists
    for; stated up front rather than left to be remembered when that first transition is added. */
-@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *{transition:none!important;animation:none!important}}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:13px;font-weight:500;white-space:nowrap}
-.btn:hover{border-color:var(--acc)}.btn.pri{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
-.btn.danger{background:transparent;color:var(--bad);border-color:var(--bad)}.btn.danger:hover{background:var(--bad);color:var(--badfg)}
-.btn.solid{background:var(--bad);color:var(--badfg);border-color:var(--bad)}.btn.sm{height:28px;padding:0 10px;font-size:12px}
-.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{border-color:var(--line)}
+@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *,.btn,.btn::before,.chip,.tag,.sel-btn{transition:none!important;animation:none!important}}
+/* The chamfer is a clip-path, which also clips borders and outlines. So the edge is the button's own
+   background and ::before paints the fill inset by --bw (hover and focus only change --edge and --bw).
+   --ci shortens the inner cut by bw*(2 - sqrt2) so both diagonals stay parallel. */
+.btn{--edge:var(--line);--fill:var(--panel2);--ink:var(--fg);--bw:1px;--ci:.59px;--cutpath:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut));position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 18px;border:0;background:var(--edge);color:var(--ink);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;text-align:center;clip-path:var(--cutpath)}
+.btn::before{content:"";position:absolute;inset:var(--bw);z-index:-1;background:var(--fill);clip-path:polygon(calc(var(--cut) - var(--ci)) 0,100% 0,100% calc(100% - var(--cut) + var(--ci)),calc(100% - var(--cut) + var(--ci)) 100%,0 100%,0 calc(var(--cut) - var(--ci)))}
+.btn:hover{--edge:var(--acc)}
+.btn:focus-visible{outline:none;--edge:var(--fg);--bw:3px;--ci:1.76px}
+.btn.btn-acc{--fill:var(--acc);--edge:var(--acc);--ink:var(--accfg)}
+.btn.btn-danger{--fill:var(--bad);--edge:var(--bad);--ink:var(--badfg)}
+.btn.btn-acc:hover,.btn.btn-danger:hover{--edge:var(--fg)}
+.btn.btn-danger.quiet{--fill:var(--panel);--edge:var(--bad);--ink:var(--bad)}
+.btn.btn-danger.quiet:hover{--fill:var(--bad);--ink:var(--badfg)}
+.btn.sm{min-height:28px;padding:4px 12px;font-size:11px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover{--edge:var(--line)}
+/* Windows High Contrast and other forced-colors modes recolor backgrounds, so name the edge and fill explicitly. */
+@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge:ButtonText;--fill:ButtonFace;--ink:ButtonText}.btn:hover,.btn:focus-visible{--edge:Highlight}.btn[disabled]{--edge:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
 .sec{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 8px;font-weight:500}
 .sev{width:9px;height:9px;flex:none;margin-top:5px}.sev.high{background:var(--bad)}.sev.medium{background:var(--warn)}.sev.low{background:var(--mut)}
 .item{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
 .item h3{margin:0 0 2px;font-size:14px;font-weight:600}.item p{margin:0;font-size:13px;color:var(--mut);line-height:1.45}
-.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;font-size:12px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
-.tag.ok{color:var(--ok);border-color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
-.tag.warn{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
-.tag.bad{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+/* Chips carry their meaning in the text as well as the color. */
+.tag{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;border:1px solid color-mix(in srgb,var(--chip-n-fg) 35%,var(--chip-n-bg));background:var(--chip-n-bg);color:var(--chip-n-fg);white-space:nowrap}
+.tag.ok{background:var(--chip-ok-bg);color:var(--chip-ok-fg);border-color:color-mix(in srgb,var(--chip-ok-fg) 35%,var(--chip-ok-bg))}
+.tag.warn{background:var(--chip-warn-bg);color:var(--chip-warn-fg);border-color:color-mix(in srgb,var(--chip-warn-fg) 35%,var(--chip-warn-bg))}
+.tag.bad{background:var(--chip-bad-bg);color:var(--chip-bad-fg);border-color:color-mix(in srgb,var(--chip-bad-fg) 35%,var(--chip-bad-bg))}
 .tbl{overflow-x:auto}
 .pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
 .sel{position:relative;display:inline-block}
-.sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;height:28px;padding:0 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:12px}
+.sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;min-height:28px;padding:3px 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
 .sel-btn:hover,.sel-btn[aria-expanded=true]{border-color:var(--acc)}
 .sel-btn .caret{color:var(--mut);font-size:10px}
 .sel-menu{position:absolute;bottom:calc(100% + 4px);left:0;min-width:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--acc);box-shadow:0 12px 30px rgba(0,0,0,.35)}
@@ -90,7 +102,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .tr.ell{min-width:0}.tr.ell>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip{height:30px;padding:0 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:13px}.chip:hover{color:var(--fg)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
+.chip{min-height:30px;padding:4px 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.chip:hover{color:var(--fg);border-color:var(--mut)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
 .drawer{flex:1 1 380px;max-width:460px;min-width:320px;position:relative;z-index:3}
 .drawer.sized{flex:0 0 var(--dw);max-width:none;width:var(--dw)}
 .handle{display:none;width:10px;margin:0 -4px;cursor:col-resize;position:relative;z-index:3;touch-action:none}
@@ -390,8 +402,8 @@ function drawer(g, listen, sig) {
     h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, unprefixed(g.key))),
       h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
-      !g.approved && !apple(g) ? h('button', { class: 'btn pri sm', onClick: () => approve(g) }, 'Approve app') : null,
-      mine.length ? h('button', { class: 'btn danger sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
+      !g.approved && !apple(g) ? h('button', { class: 'btn btn-acc sm', onClick: () => approve(g) }, 'Approve app') : null,
+      mine.length ? h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
       h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
     (g.rules_fired || []).length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Label: ' + g.trust + ' (decided by rules)'), g.rules_fired.map((r) => h('p', { style: 'margin:0 0 4px;font-size:13px' }, h('span', { class: 'mut' }, r + ': '), RULE_TEXT[r] || r))) : null,
     flags.length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
@@ -399,7 +411,7 @@ function drawer(g, listen, sig) {
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),
       (S.expand.procs ? g.procs : g.procs.slice(0, 12)).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
         h('span', { class: 'num' }, p.cpu.toFixed(1) + '%'), h('span', { class: 'num' }, Math.round(p.rss_kb / 1024) + 'M'),
-        p.user === 'root' ? h('span', { class: 'tag', title: 'Sys Monitor never signals root processes' }, 'root') : h('button', { class: 'btn danger sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
+        p.user === 'root' ? h('span', { class: 'tag', title: 'Sys Monitor never signals root processes' }, 'root') : h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
       g.procs.length > 12 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { procs: !S.expand.procs }) }) }, S.expand.procs ? 'Show fewer' : 'Show all ' + g.procs.length) : null),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Connections (' + g.conns.length + ')')),
       (S.expand.conns ? g.conns : g.conns.slice(0, 20)).map((c) => h('div', { class: 'pr', style: 'grid-template-columns:70px minmax(0,1fr) auto' }, h('span', { class: 'tag' }, c.direction), h('span', { class: 'small', style: 'word-break:break-all' }, c.proto + ' ' + c.local_addr + ':' + c.local_port + (c.remote_addr ? ' -> ' + c.remote_addr + ':' + c.remote_port : '')), h('span', { class: 'mut small' }, c.scope + (c.exposed ? ', EXPOSED' : '')))),
@@ -665,7 +677,7 @@ function render() {
     h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
-    h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn danger', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn solid', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
+    h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   $('layer').replaceChildren(...layer);
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
