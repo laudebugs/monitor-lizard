@@ -1,4 +1,4 @@
-use crate::{actions, baseline, history::History, persistence, privilege, sampler, settings, snapshot, watcher};
+use crate::{actions, baseline, history::History, persistence, privilege, procusage, sampler, settings, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -52,6 +52,7 @@ pub fn serve(port: u16) {
     refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
     refresh(&pers, Duration::from_secs(60), persistence::take);
     let metrics = sampler::start();
+    let processes = procusage::start(actions::my_username());
     thread::spawn(|| {
         let h = History::open().ok();
         watcher::watch(|e| { if let Some(h) = &h { let _ = h.record_sudo(&e); } })
@@ -75,6 +76,12 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/privilege") => cached(&privs),
             (Method::Get, "/api/persistence") => cached(&pers),
             (Method::Get, "/api/metrics") => json_resp(serde_json::to_string(&sampler::since(&metrics, query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0))).unwrap_or_default()),
+            (Method::Get, "/api/processes") => {
+                let sort = query_param(query, "sort").unwrap_or_else(|| "cpu".into());
+                let limit = query_param(query, "limit").and_then(|s| s.parse().ok()).unwrap_or(50);
+                let rows = processes.read().map(|r| r.clone()).unwrap_or_default();
+                json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
+            }
             (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?))) {
                 Ok((seen, actions)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions }).to_string()),
                 // An unreadable database must not look like "no history".

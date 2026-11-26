@@ -36,6 +36,7 @@ pub(crate) fn check(pid: u32, my_uid: &str) -> Result<(), &'static str> {
 }
 
 pub(crate) fn my_uid() -> String { out("id", &["-u"]) }
+pub(crate) fn my_username() -> String { out("id", &["-un"]) }
 
 pub fn execute(pids: &[u32], sig: Sig) -> Outcome {
     let me = my_uid();
