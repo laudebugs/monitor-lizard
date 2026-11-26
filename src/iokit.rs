@@ -46,13 +46,22 @@ unsafe fn find_services(class_name: &str) -> Vec<io_service_t> {
     out
 }
 
+/// A property this codebase only ever reads as a dictionary (`PerformanceStatistics`, `Statistics`)
+/// could in principle be any CF type if a future macOS version changes its shape; checked against
+/// `CFDictionaryGetTypeID()` before being treated as one, rather than trusting the caller's intent.
 // SAFETY: IORegistryEntryCreateCFProperty returns either null or a `+1`-retained CFTypeRef the
-// caller owns; `CFDictionary::wrap_under_create_rule` takes ownership of exactly that retain,
-// matching its contract, and releases it when the returned value is dropped.
+// caller owns. `CFGetTypeID` only reads the object's header to classify it and does not consume
+// the retain; once confirmed to be a dictionary, `CFDictionary::wrap_under_create_rule` takes
+// ownership of that same `+1` retain, matching its contract, and releases it when dropped. If the
+// type check fails, the retain is released directly (`CFRelease`) since nothing else will own it.
 unsafe fn dict_property(service: io_service_t, key: &str) -> Option<CFDictionary<CFString, core_foundation::base::CFType>> {
     let cfkey = CFString::new(key);
     let raw = IORegistryEntryCreateCFProperty(service, cfkey.as_concrete_TypeRef(), std::ptr::null(), 0);
     if raw.is_null() {
+        return None;
+    }
+    if core_foundation_sys::base::CFGetTypeID(raw) != core_foundation_sys::dictionary::CFDictionaryGetTypeID() {
+        core_foundation_sys::base::CFRelease(raw);
         return None;
     }
     Some(CFDictionary::wrap_under_create_rule(raw as _))
@@ -70,6 +79,8 @@ pub struct Gpu(io_service_t);
 impl Gpu {
     /// `None` on a machine with no `IOAccelerator` entry (a VM, or an unsupported chip).
     pub fn open() -> Option<Self> {
+        // SAFETY: `find_service`'s own invariant (above its definition): "IOAccelerator" is a
+        // valid NUL-terminatable class name, satisfied by the string literal here.
         unsafe { find_service("IOAccelerator") }.map(Gpu)
     }
 
@@ -77,6 +88,8 @@ impl Gpu {
     /// `PerformanceStatistics` (seen on some chips/driver versions) even though the entry itself
     /// exists.
     pub fn utilization(&self) -> Option<(Option<u8>, Option<u8>, Option<u8>)> {
+        // SAFETY: `self.0` is a service this struct owns for its whole lifetime (see `Gpu`'s own
+        // doc comment and `Drop` impl); `dict_property`'s own invariant covers the rest.
         let dict = unsafe { dict_property(self.0, "PerformanceStatistics") }?;
         let pct = |k: &str| number_in(&dict, k).map(|v| v.clamp(0, 100) as u8);
         Some((pct("Device Utilization %"), pct("Renderer Utilization %"), pct("Tiler Utilization %")))
@@ -104,22 +117,30 @@ pub struct Disks(Vec<io_service_t>);
 
 impl Disks {
     pub fn open() -> Self {
+        // SAFETY: `find_services`'s own invariant (above its definition); "IOBlockStorageDriver"
+        // is a valid NUL-terminatable class name, satisfied by the string literal here.
         Disks(unsafe { find_services("IOBlockStorageDriver") })
     }
 
     /// Bytes and operations, read and write, for whichever cached entry currently has the most
     /// combined lifetime bytes -- not necessarily the same entry from call to call if a busier
     /// device appears, but stable in practice since the boot disk's lifetime total only grows.
-    /// `None` if no entry has a `Statistics` dictionary at all.
-    pub fn boot_volume_stats(&self) -> Option<(u64, u64, u64, u64)> {
+    /// `Err` if no entry has a `Statistics` dictionary with all four keys this reads: confirmed on
+    /// this Mac via `ioreg -r -d 1 -c IOBlockStorageDriver` (`Statistics` = {"Bytes (Read)",
+    /// "Bytes (Write)", "Operations (Read)", "Operations (Write)", ...}), so an entry missing any
+    /// one of them is a real anomaly to report, not silently averaged in as a true zero.
+    pub fn boot_volume_stats(&self) -> Result<(u64, u64, u64, u64), &'static str> {
         self.0
             .iter()
             .filter_map(|&svc| {
+                // SAFETY: `svc` is a service this struct owns for its whole lifetime (see `Disks`'
+                // own doc comment and `Drop` impl); `dict_property`'s own invariant covers the rest.
                 let dict = unsafe { dict_property(svc, "Statistics") }?;
-                let get = |k: &str| number_in(&dict, k).unwrap_or(0).max(0) as u64;
-                Some((get("Bytes (Read)"), get("Bytes (Write)"), get("Operations (Read)"), get("Operations (Write)")))
+                let get = |k: &str| number_in(&dict, k).map(|v| v.max(0) as u64);
+                Some((get("Bytes (Read)")?, get("Bytes (Write)")?, get("Operations (Read)")?, get("Operations (Write)")?))
             })
             .max_by_key(|&(rb, wb, _, _)| rb.saturating_add(wb))
+            .ok_or("no IOBlockStorageDriver entry has a complete Statistics dictionary")
     }
 }
 
@@ -176,7 +197,52 @@ mod tests {
     fn disks_open_finds_at_least_one_entry_on_a_real_mac() {
         let disks = Disks::open();
         assert!(!disks.0.is_empty(), "every real Mac has at least one IOBlockStorageDriver");
-        assert!(disks.boot_volume_stats().is_some());
+        assert!(disks.boot_volume_stats().is_ok());
+    }
+
+    /// `number_in` is the one place that actually parses a registry dictionary's keys; these use
+    /// synthetic `CFDictionary` values built in-process (no real IOKit call), covering what the
+    /// real `PerformanceStatistics`/`Statistics` dictionaries confirmed on this Mac (via
+    /// `ioreg -r -d 1 -c IOAccelerator` / `-c IOBlockStorageDriver`) actually contain: an integer
+    /// value under the expected key, a key absent entirely, and a value of the wrong CF type.
+    fn canned_dict(pairs: &[(&str, core_foundation::base::CFType)]) -> CFDictionary<CFString, core_foundation::base::CFType> {
+        let pairs: Vec<_> = pairs.iter().map(|(k, v)| (CFString::new(k), v.clone())).collect();
+        CFDictionary::from_CFType_pairs(&pairs)
+    }
+
+    #[test]
+    fn number_in_reads_a_present_integer_key() {
+        let d = canned_dict(&[("Device Utilization %", CFNumber::from(4).as_CFType())]);
+        assert_eq!(number_in(&d, "Device Utilization %"), Some(4));
+    }
+
+    #[test]
+    fn number_in_is_none_for_a_key_the_dictionary_does_not_have() {
+        let d = canned_dict(&[("Device Utilization %", CFNumber::from(4).as_CFType())]);
+        assert_eq!(number_in(&d, "Tiler Utilization %"), None);
+    }
+
+    #[test]
+    fn number_in_is_none_for_a_key_whose_value_is_the_wrong_cf_type() {
+        // A real registry dictionary could in principle hold a string or boolean under a key this
+        // code expects to be numeric; `number_in` must not panic, just report nothing.
+        let d = canned_dict(&[("Bytes (Read)", CFString::new("not a number").as_CFType())]);
+        assert_eq!(number_in(&d, "Bytes (Read)"), None);
+    }
+
+    #[test]
+    fn number_in_reads_real_disk_statistics_key_names_confirmed_on_this_mac() {
+        // Exact keys from a real `ioreg -r -d 1 -c IOBlockStorageDriver` run on this Mac:
+        // "Statistics" = {"Bytes (Read)"=..., "Bytes (Write)"=..., "Operations (Read)"=...,
+        // "Operations (Write)"=..., ...}.
+        let d = canned_dict(&[
+            ("Bytes (Read)", CFNumber::from(6_931_016_622_080i64).as_CFType()),
+            ("Bytes (Write)", CFNumber::from(3_227_257_466_880i64).as_CFType()),
+            ("Operations (Read)", CFNumber::from(269_577_277i64).as_CFType()),
+            ("Operations (Write)", CFNumber::from(135_704_229i64).as_CFType()),
+        ]);
+        assert_eq!(number_in(&d, "Bytes (Read)"), Some(6_931_016_622_080));
+        assert_eq!(number_in(&d, "Operations (Write)"), Some(135_704_229));
     }
 
     #[test]

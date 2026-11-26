@@ -685,6 +685,7 @@ name = "sys-monitor"
 version = "0.1.0"
 dependencies = [
  "core-foundation",
+ "core-foundation-sys",
  "io-kit-sys",
  "libc",
  "libproc",

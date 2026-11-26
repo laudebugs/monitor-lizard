@@ -221,7 +221,7 @@ impl Sampler {
 
         let gpu = build_gpu(self.gpu.as_ref().and_then(|g| g.utilization()));
         let disk_now = self.disks.boot_volume_stats();
-        let disk = build_disk(disk_now, self.prev.as_ref().and_then(|p| p.disk), elapsed, crate::iokit::boot_volume_capacity());
+        let disk = build_disk(disk_now.clone(), self.prev.as_ref().and_then(|p| p.disk), elapsed, crate::iokit::boot_volume_capacity());
 
         let load = load_average();
         let vm = vm_stats();
@@ -253,7 +253,7 @@ impl Sampler {
             cpu_ticks: ticks_now.unwrap_or_default(),
             net: net_now.unwrap_or((0, 0)),
             self_micros: self_now.map(|(u, s)| u + s).unwrap_or(0),
-            disk: disk_now,
+            disk: disk_now.ok(),
         });
 
         Sample {
@@ -286,15 +286,33 @@ fn build_gpu(util: Option<(Option<u8>, Option<u8>, Option<u8>)>) -> GpuSample {
 /// Diffs this tick's cumulative (read_bytes, write_bytes, read_ops, write_ops) against the last
 /// tick's, the same wraparound-vs-reset reasoning `build_network` uses: `wrapping_sub` repairs a
 /// real counter wrap, and an implausibly large delta for the elapsed time is treated as a reset
-/// (the edge case "Counter reset -> Sample dropped") rather than a huge or negative rate.
-fn build_disk(now: Option<(u64, u64, u64, u64)>, prev: Option<(u64, u64, u64, u64)>, elapsed: Option<f64>, capacity: Option<(u64, u64)>) -> DiskSample {
+/// (the edge case "Counter reset -> Sample dropped") rather than a huge or negative rate. `now`
+/// being `Err` (a `Statistics` key missing from every disk entry) reports the edge case "Disk
+/// statistics key absent -> Unavailable, capacity still reported" directly, distinct from "no
+/// previous tick yet", which reports `None` (no rate claimed either way) instead.
+fn build_disk(now: Result<(u64, u64, u64, u64), &'static str>, prev: Option<(u64, u64, u64, u64)>, elapsed: Option<f64>, capacity: Option<(u64, u64)>) -> DiskSample {
     let capacity_bytes = Reading::or(capacity.map(|c| c.0).ok_or("statfs(\"/\") failed"));
     let capacity_used_bytes = Reading::or(capacity.map(|c| c.1).ok_or("statfs(\"/\") failed"));
-    let (Some((rb, wb, ro, wo)), Some((prb, pwb, pro, pwo)), Some(e)) = (now, prev, elapsed) else {
+    let now = match now {
+        Ok(v) => v,
+        Err(reason) => {
+            return DiskSample {
+                read_bytes_per_sec: Some(Reading::Unavailable(reason)), write_bytes_per_sec: Some(Reading::Unavailable(reason)),
+                read_ops_per_sec: Some(Reading::Unavailable(reason)), write_ops_per_sec: Some(Reading::Unavailable(reason)),
+                capacity_bytes, capacity_used_bytes,
+            };
+        }
+    };
+    let (rb, wb, ro, wo) = now;
+    let (Some((prb, pwb, pro, pwo)), Some(e)) = (prev, elapsed) else {
         return DiskSample { read_bytes_per_sec: None, write_bytes_per_sec: None, read_ops_per_sec: None, write_ops_per_sec: None, capacity_bytes, capacity_used_bytes };
     };
-    let plausible_max_bytes = (e * 4_000_000_000.0).max(4_000_000_000.0); // no real disk sustains >4 GB/s
-    let plausible_max_ops = (e * 1_000_000.0).max(1_000_000.0);
+    // Apple Silicon's internal NVMe can sustain multiple GB/s, so the bound is set far above any
+    // real consumer SSD's throughput (tens of GB/s), not just above today's hardware: wide enough
+    // to never misclassify genuine heavy I/O as a reset, while a real reset's wrapped delta would
+    // still be many orders of magnitude past it.
+    let plausible_max_bytes = (e * 50_000_000_000.0).max(50_000_000_000.0);
+    let plausible_max_ops = (e * 10_000_000.0).max(10_000_000.0);
     let d_rb = rb.wrapping_sub(prb);
     let d_wb = wb.wrapping_sub(pwb);
     let d_ro = ro.wrapping_sub(pro);
@@ -479,7 +497,7 @@ mod tests {
     #[test]
     fn gpu_with_a_missing_key_is_unavailable_for_just_that_key() {
         // The entry exists (Some(..)) but one key -- Tiler Utilization % -- wasn't in the dictionary,
-        // as seen on some chips/driver versions per the todo's own research.
+        // which some chips and driver versions genuinely omit even when the entry itself is present.
         let gpu = build_gpu(Some((Some(12), Some(8), None)));
         assert_eq!(gpu.device_pct, Reading::Value(12));
         assert_eq!(gpu.renderer_pct, Reading::Value(8));
@@ -487,8 +505,17 @@ mod tests {
     }
 
     #[test]
+    fn disk_statistics_key_absent_is_unavailable_not_a_silent_zero_and_capacity_is_still_reported() {
+        // The exact edge case: "Disk statistics key absent -> Unavailable, capacity still reported."
+        let disk = build_disk(Err("no IOBlockStorageDriver entry has a complete Statistics dictionary"), None, None, Some((1_000_000, 400_000)));
+        assert_eq!(disk.read_bytes_per_sec, Some(Reading::Unavailable("no IOBlockStorageDriver entry has a complete Statistics dictionary")));
+        assert_eq!(disk.write_ops_per_sec, Some(Reading::Unavailable("no IOBlockStorageDriver entry has a complete Statistics dictionary")));
+        assert_eq!(disk.capacity_bytes, Reading::Value(1_000_000), "capacity is independent of whether disk rate stats are available");
+    }
+
+    #[test]
     fn disk_first_tick_has_no_rates_but_still_reports_capacity() {
-        let disk = build_disk(Some((100, 50, 10, 5)), None, None, Some((1_000_000, 400_000)));
+        let disk = build_disk(Ok((100, 50, 10, 5)), None, None, Some((1_000_000, 400_000)));
         assert!(disk.read_bytes_per_sec.is_none() && disk.write_ops_per_sec.is_none());
         assert_eq!(disk.capacity_bytes, Reading::Value(1_000_000));
         assert_eq!(disk.capacity_used_bytes, Reading::Value(400_000));
@@ -496,7 +523,7 @@ mod tests {
 
     #[test]
     fn disk_rate_from_two_ticks() {
-        let disk = build_disk(Some((1100, 600, 20, 15)), Some((100, 50, 10, 5)), Some(1.0), None);
+        let disk = build_disk(Ok((1100, 600, 20, 15)), Some((100, 50, 10, 5)), Some(1.0), None);
         assert_eq!(disk.read_bytes_per_sec, Some(Reading::Value(1000.0)));
         assert_eq!(disk.write_bytes_per_sec, Some(Reading::Value(550.0)));
         assert_eq!(disk.read_ops_per_sec, Some(Reading::Value(10.0)));
@@ -508,7 +535,7 @@ mod tests {
     fn disk_counter_reset_is_unavailable_not_a_huge_number() {
         // Lifetime counters go backwards: a real reset, not a wrap (far beyond any plausible
         // multi-GB/s sustained rate for the 1 s elapsed).
-        let disk = build_disk(Some((10, 10, 1, 1)), Some((5_000_000_000_000, 0, 0, 0)), Some(1.0), None);
+        let disk = build_disk(Ok((10, 10, 1, 1)), Some((5_000_000_000_000, 0, 0, 0)), Some(1.0), None);
         assert_eq!(disk.read_bytes_per_sec, Some(Reading::Unavailable("disk counters went backwards")));
         assert_eq!(disk.write_ops_per_sec, Some(Reading::Unavailable("disk counters went backwards")));
     }

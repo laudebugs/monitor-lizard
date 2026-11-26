@@ -7,6 +7,7 @@ description = "Local-first macOS security monitor: is everything on this machine
 
 [dependencies]
 core-foundation = "0.10.1"
+core-foundation-sys = "0.8.7"
 io-kit-sys = "0.5.0"
 libc = "0.2.191"
 libproc = "0.15.0"
