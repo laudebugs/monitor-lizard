@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `6ecc2f1`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [prior art](../research/prior-art/README.md), [local classifier](../research/local-classifier/README.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [A1](../todos/done/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/done/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/done/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md). The classifier agent's technical design is [classifier-agent](classifier-agent.md).
+- **Todos:** [A1](../todos/done/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/done/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/done/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md), [C1](../todos/ongoing/C1-table-sort-and-filter.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md). The classifier agent's technical design is [classifier-agent](classifier-agent.md).
 
 ## 1. Goal
 
@@ -55,6 +55,7 @@ See [prior art](../research/prior-art/README.md): the Objective-See tools cover 
 | A15 | Rationale and actions in the UI, shadow mode first | A13 |
 | A16 | Eval corpus and pass^k runner | A10 |
 | A14 | Notifications for high-severity findings | none |
+| C1 | Sortable columns and filters on the tables | none |
 | A11 | Rename to system-monitor | none; do last, it touches every file |
 
 Not yet written (IDs A9, A17 to A19 are free): the feedback baseline ("mark as expected"), the menu-bar app, enrichment (reverse DNS and ASN: reverse DNS tells a resolver which IPs you look up, so it needs an opt-in), and optional Endpoint Security.
