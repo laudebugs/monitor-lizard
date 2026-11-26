@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `A4` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | A1 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
