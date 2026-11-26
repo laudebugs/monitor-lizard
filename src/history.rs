@@ -113,7 +113,7 @@ impl History {
 mod tests {
     use super::*;
     fn group(key: &str, remote: &str) -> Group {
-        Group { key: key.into(), label: key.into(), category: "Apps".into(), procs: vec![], signing: None, approved: true,
+        Group { key: key.into(), label: key.into(), category: "Apps".into(), procs: vec![], signing: None, approved: true, trust: Label::Unknown, rules_fired: vec![],
             conns: vec![Conn { pid: 1, name: "x".into(), proto: "TCP".into(), state: "ESTABLISHED".into(), local_addr: "10.0.0.2".into(), local_port: 1,
                 remote_addr: Some(remote.into()), remote_port: Some(443), direction: Direction::Outbound, scope: Scope::Public, exposed: false }] }
     }

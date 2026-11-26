@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `d310e18`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [local classifier research](../research/local-classifier/README.md), [buildanagent adoption research](../research/buildanagent-adoption/README.md), [ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md), [system-monitor plan](system-monitor.md) decisions D4 and D7
-- **Todos:** [A6](../todos/ready/A6-rule-based-labels.md), [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). Not yet written: the "mark as expected or suspicious" feedback baseline.
+- **Todos:** [A6](../todos/done/A6-rule-based-labels.md), [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). Not yet written: the "mark as expected or suspicious" feedback baseline.
 
 ## 1. Goal
 
@@ -23,7 +23,7 @@ For one app group on this Mac, produce a short, honest assessment and a ranked l
 As of 2026-11-26 on `main`:
 
 - `src/group.rs` and `src/snapshot.rs` build app groups from processes and sockets; `src/rules.rs` produces findings (exposed listener, unsigned binary with sockets, unreviewed app, open debug port, new remote host); `src/actions.rs` signals own-user processes behind a confirm dialog.
-- There is no label field: the dashboard derives a status in JavaScript (`status()` in `web/index.html`). [A6](../todos/ready/A6-rule-based-labels.md) moves that into Rust.
+- There is no label field: the dashboard derives a status in JavaScript (`status()` in `web/index.html`). [A6](../todos/done/A6-rule-based-labels.md) moves that into Rust.
 - There is no model, no HTTP client crate, and no `classify` module.
 
 ## 3. What others do
@@ -70,7 +70,7 @@ collectors -> Group{procs, conns, signing, approved}
 
 ## 5. Data contracts
 
-### 5.1 Label table (rules, [A6](../todos/ready/A6-rule-based-labels.md))
+### 5.1 Label table (rules, [A6](../todos/done/A6-rule-based-labels.md))
 
 | Situation | Label |
 |---|---|

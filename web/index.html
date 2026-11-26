@@ -58,7 +58,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .theme-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
 @media(min-width:1101px){.tbl{overflow-x:clip}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
-.tr{display:grid;grid-template-columns:minmax(0,1.6fr) 56px 56px minmax(0,1.4fr) minmax(0,1.2fr) 96px;gap:12px;align-items:center;min-height:46px;padding:0 16px;width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
+.tr{display:grid;grid-template-columns:minmax(0,1.6fr) 56px 56px minmax(0,1.4fr) minmax(0,1.2fr) 96px 96px;gap:12px;align-items:center;min-height:46px;padding:0 16px;width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
 .tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
 button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -106,6 +106,9 @@ const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
 const status = (g) => (g.approved ? 'approved' : apple(g) ? 'macOS' : net(g) ? 'review' : 'idle');
 const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
+// The trust label comes from rules in the server (trusted, unknown, suspicious); the page only colors it.
+const trustCls = (t) => ({ trusted: 'ok', unknown: 'warn', suspicious: 'bad' }[t] || '');
+const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved this app', unreviewed: 'Uses the network and is not approved yet', unverified: 'Not approved and not verified as an Apple program', 'unsigned-network': 'Unsigned program using the network', 'exposed-listener': 'Listening on all interfaces', 'exposed-listener-apple': 'Apple service reachable from your network', 'new-remote': 'Contacted hosts first seen in the last hour', 'debug-port': 'Remote-debugging port is open' };
 const rec = (m) => { Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
 const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
@@ -222,10 +225,10 @@ function apps() {
   const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
   const pg = paginate(list, 'apps');
   const table = h('section', { class: 'card tbl', style: 'flex:999 1 640px;min-width:0' },
-    h('div', { class: 'tr h ell' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Trust'), h('span', {}, 'Status')),
+    h('div', { class: 'tr h ell' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Signing'), h('span', {}, 'Status'), h('span', {}, 'Label')),
     pg.slice.map((g) => h('button', { class: 'tr ell ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
       h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
-      h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))))),
+      h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))), h('span', {}, h('span', { class: 'tag ' + trustCls(g.trust), title: (g.rules_fired || []).join(', ') }, g.trust)))),
     list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match.')), pg.pager);
   const g = S.snap.groups.find((x) => x.key === S.sel);
   return [h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px' }, chips), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, g ? drawer(g, listen(g), sig(g)) : null)];
@@ -237,11 +240,12 @@ function drawer(g, listen, sig) {
   const outs = g.conns.filter((c) => c.direction === 'outbound');
   return h('aside', { class: 'drawer card', 'aria-label': 'App detail' },
     h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, g.key.replace(/^(apple|dev|other):/, ''))),
-      h('span', { class: 'tag ' + tagOf(st) }, st), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
+      h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
       !g.approved && !apple(g) ? h('button', { class: 'btn pri sm', onClick: () => approve(g) }, 'Approve app') : null,
       mine.length ? h('button', { class: 'btn danger sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
       h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
+    (g.rules_fired || []).length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Label: ' + g.trust + ' (decided by rules)'), g.rules_fired.map((r) => h('p', { style: 'margin:0 0 4px;font-size:13px' }, h('span', { class: 'mut' }, r + ': '), RULE_TEXT[r] || r))) : null,
     flags.length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
     h('dl', { class: 'kv' }, h('dt', {}, 'Signing'), h('dd', {}, sig), h('dt', {}, 'Listening'), h('dd', {}, listen), h('dt', {}, 'Outbound'), h('dd', {}, outs.length + ' sockets to ' + new Set(outs.map((c) => c.remote_addr)).size + ' hosts')),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),

@@ -30,11 +30,16 @@ pub fn take() -> Snapshot {
         for (key, hosts) in h.recent_new(now).unwrap_or_default() {
             if let Some(g) = groups.iter().find(|g| g.key == key && g.approved) {
                 let shown = hosts.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
-                findings.push(Finding { severity: Severity::Medium, group: g.label.clone(), rule: "new-remote",
+                findings.push(Finding { severity: Severity::Medium, group: g.label.clone(), group_key: g.key.clone(), rule: "new-remote",
                     detail: format!("{} host(s) first seen in the last hour: {shown}{}", hosts.len(), if hosts.len() > 4 { ", ..." } else { "" }) });
             }
         }
         findings.sort_by_key(|f| f.severity);
+    }
+    for g in groups.iter_mut() {
+        let (trust, fired) = rules::classify(g, &findings);
+        g.trust = trust;
+        g.rules_fired = fired;
     }
     Snapshot {
         at: now,
