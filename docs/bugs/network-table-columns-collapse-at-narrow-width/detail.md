@@ -16,10 +16,21 @@ Dark and light themes look the same. The document itself does not scroll sideway
 
 ## Measurements
 
-- The Network row grid has four fixed tracks (80, 90, 110 and 190 px) and three flexible tracks. Those four tracks, six 12 px gaps and the 32 px row padding come to 574 px.
-- The table card is about 344 px wide at 400 px, so the flexible tracks get nothing and collapse to their `minmax(0, ...)` floor.
-- The table has no minimum width of its own. Rows use the class `tr ell`, and `.tr.ell` sets `min-width:0`.
+From the CSS, by arithmetic; the numbers were not re-measured in a browser this round.
+
+- The Network row grid has four fixed tracks (80, 90, 110 and 190 px), three flexible tracks and six 12 px gaps. The fixed tracks and gaps come to 542 px.
+- A table with the copy button gets 16 px left and 64 px right padding on each row, so 80 px.
+- At a viewport of 700 px or less the row has a 640 px floor. That leaves 640 - 80 - 542 = 18 px for the three flexible tracks, about 6 px each. In the 400 px screenshots the first three columns were about one character wide.
+- Above 700 px the floor does not apply. At 795 px the Apps and Listeners tables have no floor and clip their columns.
 
 ## Cause
 
-Probable, not yet confirmed by a fix. The `ell` row class lets rows shrink below the sum of their fixed tracks, so the flexible columns lose all their space. The rule that keeps a 640 px minimum on narrow screens (`.tbl.has-copy>.tr`) is overridden by `.tr.ell`. Two definitions of the row minimum width disagree. The fix belongs with the table-style work in the page-shell todo, because it touches every table.
+A hypothesis, not confirmed by a fix. Two changes pulled against each other. One PR added the 64 px right padding and the 640 px row floor to stop this collapse. A later PR added a 190 px Expected column to Network and Persistence.
+
+The fixed tracks grew from about 280 px to about 470 px. The 640 px floor is the same, so the flexible columns went from about 270 px to about 18 px in total.
+
+The rule `.tbl.has-copy>.tr` (specificity 0,3,0) beats `.tr.ell` (0,2,0), so the floor wins whenever the copy button is present. The `ell` class is not the cause.
+
+## Likely fix direction
+
+Raise the floor in proportion to the fixed tracks, so it never leaves the flexible columns under a readable width. Or let the Expected column shrink, or move it into the inspector, at narrow widths. The 700 px limit on the floor also needs a look for Apps and Listeners. This is left for its own pull request.

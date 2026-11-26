@@ -64,7 +64,7 @@ Move the dashboard's shared styles to the Console look from the design canvas: v
 - [x] A contrast check of tokens passes; the result is recorded in the Implementation Record.
 - [x] Every page is checked in a real browser in both themes at 795 px (the extension's window, which cannot be resized) and at 400 px (a 400 px same-origin frame), with the horizontal-scroll width measured.
 - Scoped out: the 1360 px width, because the window cannot be resized. The side-by-side inspector layout (1101 px and wider) was not seen this round. Moved to the follow-up todo T1c.
-- Scoped out: forced-colors mode and `prefers-reduced-motion`, because the browser extension cannot switch either on. Read in the CSS only. Moved to T1c.
+- Scoped out: forced-colors mode and `prefers-reduced-motion`, because the browser extension cannot switch either on and DevTools emulation was not used. Read in the CSS only. Moved to T1c.
 
 ## Tests
 
@@ -154,7 +154,7 @@ cargo run --release -- serve   # visit every page in both themes
 
 **Forced-colors and reduced-motion** (read in the CSS, not run):
 
-- The browser extension cannot switch on forced colors or reduced motion, so neither was run.
+- The browser extension cannot switch on forced colors or reduced motion, and DevTools emulation was not used, so neither was run.
 - No `transition`, `animation` or `@keyframes` is declared anywhere in `web/index.html`; the words appear only in a comment and in the reduced-motion rule. No `scroll-behavior: smooth` is set.
 - The forced-colors block names an edge and a fill for `.btn` and its `btn-acc`, `btn-danger` and quiet danger variants, and their disabled forms. It names only an edge, `border-color`, for `.chip`, `.tag`, `.badge` and `.sel-btn`; their fills are left to the browser. `.chip.on` also gets a Highlight outline.
 - The tag and badge color variants (`ok`, `warn`, `bad`) share that border rule. Their meaning is in their text. No variant in the CSS is missed by name.
