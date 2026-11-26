@@ -163,8 +163,9 @@ function sortRows(rows, key, getters) {
   const s = S.sorts[key];
   if (!s || !getters[s.col]) return rows;
   const dir = s.dir === 'desc' ? -1 : 1;
+  const empty = (v) => isEmpty(v) || (typeof v === 'number' && Number.isNaN(v));
   return rows.map((r, i) => ({ r, i, v: getters[s.col](r) })).sort((x, y) => {
-    if (isEmpty(x.v) || isEmpty(y.v)) return isEmpty(x.v) === isEmpty(y.v) ? x.i - y.i : isEmpty(x.v) ? 1 : -1;
+    if (empty(x.v) || empty(y.v)) return empty(x.v) === empty(y.v) ? x.i - y.i : empty(x.v) ? 1 : -1;
     const c = typeof x.v === 'number' && typeof y.v === 'number' ? x.v - y.v : String(x.v).localeCompare(String(y.v), undefined, { sensitivity: 'base' });
     return c * dir || x.i - y.i;
   }).map((o) => o.r);
@@ -323,7 +324,7 @@ function priv() {
     h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
       dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
     h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
-      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, 'No requests match the filter. '), clearBtn()), ap.pager),
+      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
   ];
 }
 

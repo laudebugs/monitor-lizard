@@ -99,7 +99,7 @@ cargo run --release -- serve
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -113,5 +113,6 @@ cargo run --release -- serve
 - **Empty states** name the filters and carry a Clear filters button.
 - **Verified:** a script (kept out of the repo) rendered each page in a simulated DOM against a running server and ran 39 checks: for each sortable column ascending, descending and the third click restoring the default order; a numeric sort that starts at the real maximum (Procs descending); the sort surviving `load()`; each filter's count against the page's own current data, chip, dropdown and search combined with AND; the empty state and Clear filters; the label menu opening downward. 39 of 39 passed on two consecutive runs. Early failures were my script comparing against a snapshot fetched at another moment (the data shifts every 10 s), not the page.
 - **Not verified:** layout and interaction in a real browser; the visual check is **pending**. `/code-review` and `/writing-review` have not yet been run on this change.
+- **Review (2026-11-26):** `/code-review high 12` ran a standards and a spec review. Fixed: the authorization-requests empty state said "No requests match the filter" even when there was no filter and no data; it now distinguishes "no requests yet" from a filter leaving nothing, and hides Clear filters in the first case. `sortRows` now treats NaN as empty, matching empty strings. Not changed, as judgement calls, for follow-up: the filter bar, empty-state and chip-building code is duplicated across three table views (a shared component would help); Status and Signing sort by their displayed text, which is alphabetical but not especially meaningful; sudo Time sorts epoch seconds while authorization Time sorts an ISO-like string (both correct within their own column); the Signing filter adds a "Not checked" option beyond the todo's four; `clearFilters` clears chips and search everywhere, not only the current view's filters. `/writing-review` on this todo's prose was not run.
 - **Open:** header buttons sit inside `div` rows with no `aria-sort` or table roles, a known gap now covering more of the UI: it needs its own accessibility todo. The Persistence, Network and History pages will adopt these helpers in A2, A4 and A5.
 
