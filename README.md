@@ -17,6 +17,8 @@ State (baseline and history) lives in `~/.sys-monitor/`; a one-time migration co
 
 `sys-monitor help [word]` lists every command and term, filtered by the word, with what each one changes and how to undo it. The dashboard serves the same table at `/api/guide`.
 
+The dashboard's Guide page shows the same table with search, topic filters and a glossary. It copies a command and never runs one.
+
 ## Working on this repo
 
 Rules for people and AI agents are in [AGENTS.md](AGENTS.md). Work comes from the todo board (`make todos`), one todo per branch and pull request, each in its own git worktree. Run `make check` before pushing; CI runs the same targets and one `gate` check. Docs live in [docs/](docs/README.md). Structure adopted from the owner's `scaffold` template.

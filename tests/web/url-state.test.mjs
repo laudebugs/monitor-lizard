@@ -11,7 +11,7 @@ const m = html.match(/\/\* url-state:begin \*\/([\s\S]*?)\/\* url-state:end \*\/
 assert.ok(m, 'url-state block not found in web/index.html');
 const L = new Function(m[1] + '\nreturn { parseHash, writeHash, historyMode, toHashState, patchFromHash, selPatch, syncHash, crumbParts, PAGE_SORTS };')();
 
-const base = { view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, dd: {} };
+const base = { view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: {} };
 const fakeEnv = (hash) => {
   const calls = [];
   const loc = { hash };
@@ -29,7 +29,7 @@ test('empty, unknown and malformed hashes fall back to Overview', () => {
 });
 
 test('page, filter, search, sort and selection round-trip', () => {
-  const s = { view: 'apps', filter: 'review', sel: 'dev:/Applications/Foo.app', q: 'foo', sorts: { apps: { col: 'procs', dir: 'desc' } }, dd: { 'apps-label': 'unknown', 'apps-sig': 'apple' } };
+  const s = { view: 'apps', filter: 'review', sel: 'dev:/Applications/Foo.app', q: 'foo', sorts: { apps: { col: 'procs', dir: 'desc' } }, dd: { 'apps-label': 'unknown', 'apps-sig': 'apple' }, ex: {} };
   assert.deepEqual(L.parseHash(L.writeHash(s)), s);
 });
 
@@ -290,4 +290,65 @@ test('fuzz: parseHash, writeHash and the apply path never throw and settle in on
     assert.equal(again, w, 'writing is stable for ' + JSON.stringify(hash));
     assert.ok(w.length <= 2048);
   }
+});
+
+const guideBase = { ...base, view: 'guide', ex: { gtab: 'commands', gtopic: 'all', gsel: null } };
+
+test('Guide: search, topic, tab and entry round-trip', () => {
+  const s = { ...guideBase, q: 'time machine', ex: { gtab: 'glossary', gtopic: 'storage', gsel: 'tmutil-list' } };
+  assert.equal(L.writeHash(s), '#guide?entry=tmutil-list&q=time%20machine&tab=glossary&topic=storage');
+  assert.deepEqual(L.parseHash(L.writeHash(s)), s);
+});
+
+test('Guide: defaults are omitted, and its keys mean nothing on other pages', () => {
+  assert.equal(L.writeHash(guideBase), '#guide');
+  assert.equal(L.writeHash({ ...base, ex: { gtab: 'glossary', gtopic: 'storage', gsel: 'x' } }), '#apps');
+  assert.deepEqual(L.parseHash('#apps?entry=x&topic=storage&tab=glossary').ex, {});
+  assert.equal(L.parseHash('#guide?q=docker').q, 'docker');
+});
+
+test('Guide: unknown tab, odd entry and topic values fall back to the defaults', () => {
+  for (const bad of ['', 'a b', '-x', '../x', '<b>', 'x'.repeat(65), '%00']) {
+    const ex = L.parseHash('#guide?entry=' + encodeURIComponent(bad) + '&topic=' + encodeURIComponent(bad) + '&tab=' + encodeURIComponent(bad)).ex;
+    assert.deepEqual(ex, guideBase.ex, JSON.stringify(bad));
+  }
+  assert.deepEqual(L.parseHash('#guide?tab=commands').ex, guideBase.ex);
+  assert.equal(L.writeHash({ ...guideBase, ex: { gtab: 'nope', gtopic: 'a b', gsel: '../x' } }), '#guide');
+});
+
+test('Guide: Object.prototype names are plain values, never keys', () => {
+  for (const w of ['__proto__', 'constructor', 'toString']) {
+    assert.doesNotThrow(() => L.parseHash('#guide?' + w + '=' + w + '&entry=' + w + '&topic=' + w));
+    assert.doesNotThrow(() => L.writeHash({ ...guideBase, ex: { gtab: w, gtopic: w, gsel: w } }));
+  }
+  assert.equal(L.parseHash('#guide?entry=__proto__').ex.gsel, null);
+});
+
+test('Guide: a long hash drops the entry first, then the filters', () => {
+  const big = 'x'.repeat(2100);
+  assert.equal(L.writeHash({ ...guideBase, q: big, ex: { gtab: 'glossary', gtopic: 'storage', gsel: 'tmutil-list' } }), '#guide');
+  assert.equal(L.writeHash({ ...guideBase, ex: { ...guideBase.ex, gtopic: 'storage' }, sorts: {} }), '#guide?topic=storage');
+});
+
+test('Guide: choosing an entry pushes history; search, topic and tab replace', () => {
+  assert.equal(L.historyMode('#guide', '#guide?entry=a'), 'push');
+  assert.equal(L.historyMode('#guide?entry=a', '#guide?entry=b'), 'push');
+  assert.equal(L.historyMode('#guide?entry=a', '#guide?entry=a&q=x'), 'replace');
+  assert.equal(L.historyMode('#guide', '#guide?topic=storage'), 'replace');
+  assert.equal(L.historyMode('#guide', '#guide?tab=glossary'), 'replace');
+});
+
+test('Guide: toHashState and patchFromHash map gtab, gtopic and gsel', () => {
+  const S = { view: 'guide', filter: 'all', sel: null, q: 'snap', sorts: {}, fil: {}, gtab: 'commands', gtopic: 'storage', gsel: 'tmutil-list' };
+  const st = L.toHashState(S);
+  assert.deepEqual(st.ex, { gtab: 'commands', gtopic: 'storage', gsel: 'tmutil-list' });
+  const patch = L.patchFromHash(L.parseHash(L.writeHash(st)), { ...S, gsel: null, gtopic: 'all', q: '' });
+  assert.deepEqual([patch.view, patch.q, patch.gtab, patch.gtopic, patch.gsel], ['guide', 'snap', 'commands', 'storage', 'tmutil-list']);
+  assert.equal(L.patchFromHash(L.parseHash('#apps'), S).gsel, undefined, 'other pages leave the Guide state alone');
+});
+
+test('Guide: the search box filters it and its page has a title', () => {
+  const t = html.match(/const FILTERABLE = \[([^\]]*)\]/);
+  assert.ok(t && t[1].includes("'guide'"));
+  assert.equal(L.parseHash('#guide').view, 'guide');
 });
