@@ -23,6 +23,12 @@ From the CSS, by arithmetic; the numbers were not re-measured in a browser this 
 - At a viewport of 700 px or less the row has a 640 px floor. That leaves 640 - 80 - 542 = 18 px for the three flexible tracks, about 6 px each. In the 400 px screenshots the first three columns were about one character wide.
 - Above 700 px the floor does not apply. At 795 px the Apps and Listeners tables have no floor and clip their columns.
 
+## Also affected
+
+At 1352 px with the inspector open on Apps, the table is squeezed. App names are cut ("Google Ch...", "Claude Co...", "identityse...") and the Listening and Signing columns clip. The owner's session saw this in dark and light.
+
+Apps has no Expected column, so the cause there may differ. A hypothesis: the open inspector takes about 380 to 460 px of the width, which leaves the table about the same width as a narrow window. This was not measured.
+
 ## Cause
 
 A hypothesis, not confirmed by a fix. Two changes pulled against each other. One PR added the 64 px right padding and the 640 px row floor to stop this collapse. A later PR added a 190 px Expected column to Network and Persistence.

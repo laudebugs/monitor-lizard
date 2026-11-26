@@ -63,7 +63,8 @@ Move the dashboard's shared styles to the Console look from the design canvas: v
 - [x] No page shows the old rounded or flat buttons. Checked by eye on all nine pages in both themes (see Browser sweep).
 - [x] A contrast check of tokens passes; the result is recorded in the Implementation Record.
 - [x] Every page is checked in a real browser in both themes at 795 px (the extension's window, which cannot be resized) and at 400 px (a 400 px same-origin frame), with the horizontal-scroll width measured.
-- Scoped out: the 1360 px width, because the window cannot be resized. The side-by-side inspector layout (1101 px and wider) was not seen this round. Moved to the follow-up todo T1c.
+- [x] Verified for these widths and pages, in a real browser: dark at 1352 px on eight pages (Overview, Apps with the inspector open, Performance overview tab, Network, Listeners, Privilege, Persistence, History); light at 1352 px on four pages (Overview, Apps with the inspector open, Persistence, Guide); both themes at 795 px on nine pages; both themes at 400 px on all pages, with the scroll width measured. The 1352 px looks were done by the owner's session, not by this agent.
+- Not covered, and moved to T1c: light at 1352 px on Network, Listeners, Privilege, History and Performance; the CPU and GPU tab at 1352 px; Guide in dark at 1352 px; keyboard focus and hover at 1352 px. No page is claimed verified at 1360 px.
 - Scoped out: forced-colors mode and `prefers-reduced-motion`, because the browser extension cannot switch either on and DevTools emulation was not used. Read in the CSS only. Moved to T1c.
 
 ## Tests
@@ -150,6 +151,11 @@ cargo run --release -- serve   # visit every page in both themes
 - Two defects were found and fixed. The severity chip on each Overview item shrank to "HI..." in the flex row; it now keeps its width. On Privilege, the Right text ran over the Requester text; both cells now wrap.
 - After each fix I reloaded and looked again. No Overview tag is cut. No Privilege cell overflows.
 - One defect is recorded, not fixed: the Network table's first columns shrink to about one character at 400 px, and the Apps and Listeners columns clip at 795 px. See the bug folder `network-table-columns-collapse-at-narrow-width`. It comes from the table grid, not the chips or buttons.
+- The owner's session looked at the build with both fixes in a window 1352 px wide (not this agent). Dark: Overview, Apps with the inspector open beside the table, Performance overview tab, Network, Listeners, Privilege, Persistence and History looked right. Severity chips were whole and Privilege cells did not overlap.
+- Light at 1352 px: Overview, Apps with the inspector open, Persistence and Guide (searched for "docker") looked right. Persistence trust chips truncate with an ellipsis as designed.
+- Not looked at at 1352 px: the CPU and GPU tab; Network, Listeners, Privilege, History and Performance in light; keyboard focus and hover.
+- With the Apps inspector open at 1352 px the table is squeezed. App names are cut ("Google Ch...", "Claude Co...", "identityse...") and the Listening and Signing columns clip. Added to the table bug record as an affected case.
+- Every table carries a three-line export note, which is visually heavy. This is a design note for the page-shell and redesign todos, not a bug.
 - Persistence still cuts team IDs in its Trust chip, as noted above; the full text is in `title`.
 
 **Forced-colors and reduced-motion** (read in the CSS, not run):
@@ -162,7 +168,7 @@ cargo run --release -- serve   # visit every page in both themes
 
 **Not checked:**
 
-- 1360 px, forced colors and reduced motion (T1c).
+- The 1352 px pages and states listed under the acceptance criteria, forced colors and reduced motion (T1c).
 - A focused chip that is not selected, and a focused sidebar item on other pages.
 - Hover on a filled danger button; only the quiet form was hovered.
 

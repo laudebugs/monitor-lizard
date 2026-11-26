@@ -1,4 +1,4 @@
-# T1c: Check forced colors, reduced motion and the 1360 px layout
+# T1c: Check forced colors, reduced motion and the 1352 px pages
 
 | Field | Value |
 |---|---|
@@ -8,13 +8,13 @@
 | Depends on | T1a |
 | ADRs | None |
 | Branch | `chore/t1c-check-forced-colors-and-reduced-motion` |
-| PR title | `chore(todos): check forced colors, reduced motion and the wide layout` |
+| PR title | `chore(todos): check forced colors, reduced motion and the remaining 1352 px pages` |
 | Size | S (under 200 changed lines) |
 | PR | — |
 
 ## Goal
 
-Run the checks the browser extension could not run for T1a: `forced-colors: active`, `prefers-reduced-motion: reduce` and the 1360 px layout. Chrome DevTools emulates both media features on a Mac. Fix any CSS defect that is small and local, and record the rest.
+Run the checks T1a did not cover: `forced-colors: active`, `prefers-reduced-motion: reduce` and the remaining pages and states at 1352 px. Chrome DevTools emulates both media features on a Mac. Fix any CSS defect that is small and local, and record the rest.
 
 ## Context
 
@@ -26,7 +26,7 @@ Run the checks the browser extension could not run for T1a: `forced-colors: acti
 
 **In scope:**
 
-- Forced colors and reduced motion through DevTools emulation, then the 1360 px layout in both themes.
+- Forced colors and reduced motion through DevTools emulation, then the 1352 px pages in both themes.
 - Small CSS fixes for what you see, in new commits.
 
 **Out of scope** (name the todo that covers it):
@@ -48,7 +48,8 @@ Run the checks the browser extension could not run for T1a: `forced-colors: acti
 - [ ] Look at Overview, Apps with an app selected, Network and Guide. Look at each button variant, enabled and disabled: plain, accent, danger and quiet danger. Look at tags, badges, the filter chips with one selected, the select buttons, the focus edge after Tab, and the sidebar. Every button has a visible edge; focus is thicker than rest; chips keep a border and readable text; the selected chip stands out.
 - [ ] Set forced-colors back to no emulation. Set "Emulate CSS media feature prefers-reduced-motion" to `reduce`. Hover, Tab, change page and wait through one 2 s refresh. Nothing slides, fades or pulses; the Animations panel stays empty.
 - [ ] Optional second look: in System Settings, Accessibility, Display, turn on Increase contrast, then Reduce motion, and reload. Say in the record that this does not test the `forced-colors` block.
-- [ ] In a window at least 1360 px wide, look at every page in both themes. The inspector sits beside the table, the header stays put, and no text is clipped or chip misaligned.
+- [ ] In a window at least 1352 px wide, look at every page in both themes. T1a already has looks at 1352 px for dark on eight pages and light on four, so cover what is missing: light on Network, Listeners, Privilege, History and Performance; the CPU and GPU tab in both themes; Guide in dark; keyboard focus and hover.
+- [ ] In that window, check that the inspector sits beside the table, the header stays put, and no text is clipped or chip misaligned.
 
 ## Edge cases (must be covered)
 
@@ -56,7 +57,7 @@ Run the checks the browser extension could not run for T1a: `forced-colors: acti
 |---|---|
 | `forced-colors: active` | Buttons and chips keep an edge; text readable; disabled buttons look disabled |
 | `prefers-reduced-motion: reduce` | No transition or animation runs |
-| 1360 px, both themes | No horizontal scroll; the inspector is beside the table |
+| 1352 px, both themes | No horizontal scroll; the inspector is beside the table |
 
 ## Acceptance criteria
 
