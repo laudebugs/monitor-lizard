@@ -1,4 +1,4 @@
-mod actions; mod baseline; mod classify; mod collect; mod group; mod guide; mod history; mod iokit; mod llm; mod model; mod notify; mod paths; mod persistence; mod privilege; mod procusage; mod rules; mod sampler; mod server; mod settings; mod snapshot; mod storage; mod watcher;
+mod actions; mod baseline; mod classify; mod collect; mod group; mod guide; mod history; mod iokit; mod llm; mod model; mod netif; mod notify; mod paths; mod persistence; mod privilege; mod procusage; mod rules; mod sampler; mod server; mod settings; mod snapshot; mod storage; mod watcher;
 use std::collections::BTreeMap;
 
 fn main() {

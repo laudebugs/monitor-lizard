@@ -48,8 +48,12 @@ pub struct MemorySample {
     pub pressure_level: Reading<u8>,
     pub pressure_pct_available: Reading<u8>,
 }
-#[derive(Clone, Serialize, Debug)]
-pub struct NetworkSample { pub down_bytes_per_sec: Option<Reading<f64>>, pub up_bytes_per_sec: Option<Reading<f64>> }
+#[derive(Clone, Serialize, Debug, Default)]
+pub struct NetworkSample {
+    pub down_bytes_per_sec: Option<Reading<f64>>, pub up_bytes_per_sec: Option<Reading<f64>>,
+    /// Interfaces up with an address; `None` when the list could not be read. Zero means no connection.
+    pub interfaces_up: Option<u32>,
+}
 
 #[derive(Clone, Serialize, Debug)]
 pub struct GpuSample { pub device_pct: Reading<u8>, pub renderer_pct: Reading<u8>, pub tiler_pct: Reading<u8> }
@@ -216,7 +220,8 @@ impl Sampler {
         let elapsed = self.prev.as_ref().map(|p| now.duration_since(p.at).as_secs_f64()).filter(|e| *e > 0.0);
 
         let cpu = build_cpu(&ticks_now, self.prev.as_ref().map(|p| &p.cpu_ticks), elapsed);
-        let network = build_network(&net_now, self.prev.as_ref().map(|p| p.net), elapsed);
+        let mut network = build_network(&net_now, self.prev.as_ref().map(|p| p.net), elapsed);
+        network.interfaces_up = crate::netif::up_count();
         let self_cpu_pct = self_cpu_pct(&self_now, self.prev.as_ref(), elapsed);
 
         let gpu = build_gpu(self.gpu.as_ref().and_then(|g| g.utilization()));
@@ -372,16 +377,16 @@ fn build_cpu(now: &Result<Vec<[u32; 4]>, &'static str>, prev: Option<&Vec<[u32; 
 }
 
 fn build_network(now: &Result<(u64, u64), &'static str>, prev: Option<(u64, u64)>, elapsed: Option<f64>) -> NetworkSample {
-    let &(dn, un) = match now { Ok(v) => v, Err(e) => return NetworkSample { down_bytes_per_sec: Some(Reading::Unavailable(e)), up_bytes_per_sec: Some(Reading::Unavailable(e)) } };
-    let (Some((dp, up)), Some(e)) = (prev, elapsed) else { return NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None } };
+    let &(dn, un) = match now { Ok(v) => v, Err(e) => return NetworkSample { down_bytes_per_sec: Some(Reading::Unavailable(e)), up_bytes_per_sec: Some(Reading::Unavailable(e)), ..Default::default() } };
+    let (Some((dp, up)), Some(e)) = (prev, elapsed) else { return NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None, ..Default::default() } };
     // u64 counters can wrap (rare at these widths, but cheap to handle correctly); a backwards jump
     // outside that (an interface reset) is dropped rather than shown as a huge or negative rate.
     let dd = dn.wrapping_sub(dp);
     let du = un.wrapping_sub(up);
     if dd > u64::MAX / 2 || du > u64::MAX / 2 {
-        return NetworkSample { down_bytes_per_sec: Some(Reading::Unavailable("interface counters reset")), up_bytes_per_sec: Some(Reading::Unavailable("interface counters reset")) };
+        return NetworkSample { down_bytes_per_sec: Some(Reading::Unavailable("interface counters reset")), up_bytes_per_sec: Some(Reading::Unavailable("interface counters reset")), ..Default::default() };
     }
-    NetworkSample { down_bytes_per_sec: Some(Reading::ok(dd as f64 / e)), up_bytes_per_sec: Some(Reading::ok(du as f64 / e)) }
+    NetworkSample { down_bytes_per_sec: Some(Reading::ok(dd as f64 / e)), up_bytes_per_sec: Some(Reading::ok(du as f64 / e)), ..Default::default() }
 }
 
 // ---------- ring buffer and the background thread ----------
@@ -547,7 +552,7 @@ mod tests {
             ts, load1: Reading::Unavailable("x"), load5: Reading::Unavailable("x"), load15: Reading::Unavailable("x"),
             cpu: CpuSample::default(),
             memory: MemorySample { app_bytes: Reading::Unavailable("x"), wired_bytes: Reading::Unavailable("x"), compressed_bytes: Reading::Unavailable("x"), cached_bytes: Reading::Unavailable("x"), total_bytes: Reading::Unavailable("x"), swap_used_bytes: Reading::Unavailable("x"), swap_total_bytes: Reading::Unavailable("x"), pressure_level: Reading::Unavailable("x"), pressure_pct_available: Reading::Unavailable("x") },
-            network: NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None },
+            network: NetworkSample { down_bytes_per_sec: None, up_bytes_per_sec: None, ..Default::default() },
             gpu: GpuSample { device_pct: Reading::Unavailable("x"), renderer_pct: Reading::Unavailable("x"), tiler_pct: Reading::Unavailable("x") },
             disk: DiskSample { read_bytes_per_sec: None, write_bytes_per_sec: None, read_ops_per_sec: None, write_ops_per_sec: None, capacity_bytes: Reading::Unavailable("x"), capacity_used_bytes: Reading::Unavailable("x") },
             self_cpu_pct: None,

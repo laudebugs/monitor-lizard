@@ -42,6 +42,20 @@ pub fn split_capacity(statfs: Option<(u64, u64)>, volume: Option<(u64, u64)>) ->
     }
 }
 
+/// The reply for `/api/volume`: the boot volume's capacity, read as a scan reads it but without the
+/// folder walk or `tmutil`, so a page that only draws the capacity bar never starts a scan. A failure to
+/// write the JSON is a 500 with a short error, never an empty 200 that a page would read as data.
+pub fn boot_capacity_reply() -> (u16, String) {
+    reply(&split_capacity(crate::iokit::boot_volume_capacity(), available_and_important()))
+}
+
+fn reply<T: Serialize>(value: &T) -> (u16, String) {
+    match serde_json::to_string(value) {
+        Ok(body) => (200, body),
+        Err(_) => (500, r#"{"error":"could not write the capacity reply"}"#.to_string()),
+    }
+}
+
 /// (available, important-usage) bytes for `/`, readable without root, through the safe
 /// CoreFoundation wrappers: every object is released by its wrapper, so nothing is hand-released.
 pub fn available_and_important() -> Option<(u64, u64)> {
@@ -111,6 +125,24 @@ pub fn local_snapshots() -> Snapshots {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_capacity_reply_has_one_reading_per_part_and_starts_no_scan() {
+        let v: serde_json::Value = serde_json::from_str(&boot_capacity_reply().1).unwrap();
+        for k in ["total", "used", "purgeable", "free"] { assert!(v.get(k).is_some(), "{k}"); }
+        assert!(v.get("categories").is_none() && v.get("snapshots").is_none());
+        assert!(v["total"]["value"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn a_reply_that_cannot_be_written_is_a_500_with_an_error_not_an_empty_200() {
+        struct Broken;
+        impl Serialize for Broken { fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> { Err(serde::ser::Error::custom("no")) } }
+        let (code, body) = reply(&Broken);
+        assert_eq!(code, 500);
+        assert!(serde_json::from_str::<serde_json::Value>(&body).unwrap().get("error").is_some());
+        assert_eq!(boot_capacity_reply().0, 200);
+    }
 
     #[test]
     fn capacity_splits_purgeable_from_free_and_says_why_when_it_cannot() {

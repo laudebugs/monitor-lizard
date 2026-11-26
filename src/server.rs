@@ -85,6 +85,7 @@ pub fn serve(port: u16) {
             (Method::Get, "/api/privilege") => cached(&privs),
             (Method::Get, "/api/persistence") => cached(&pers),
             (Method::Get, "/api/storage") => json_resp(storage_cache.respond(query, &storage_scan)),
+            (Method::Get, "/api/volume") => { let (code, body) = storage::boot_capacity_reply(); json_resp(body).with_status_code(code) }
             (Method::Get, "/api/metrics") => {
                 let since = query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
                 match query_param(query, "res").as_deref() {
