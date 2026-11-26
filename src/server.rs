@@ -1,4 +1,4 @@
-use crate::{baseline, privilege, snapshot};
+use crate::{baseline, history::History, privilege, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -25,6 +25,10 @@ pub fn serve(port: u16) {
     let (snap, privs): (Cache, Cache) = (Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
+    thread::spawn(|| {
+        let h = History::open().ok();
+        watcher::watch(|e| { if let Some(h) = &h { let _ = h.record_sudo(&e); } })
+    });
     let origins = [format!("http://{addr}"), format!("http://localhost:{port}")];
     let hosts = [addr.clone(), format!("localhost:{port}")];
     for req in server.incoming_requests() {
@@ -40,6 +44,10 @@ pub fn serve(port: u16) {
             _ if !host_ok => Response::from_string("bad host").with_status_code(403).boxed(),
             (Method::Get, "/api/snapshot") => json(&snap),
             (Method::Get, "/api/privilege") => json(&privs),
+            (Method::Get, "/api/sudo") => {
+                let body = History::open().and_then(|h| h.recent_sudo(50)).map(|v| serde_json::to_string(&v).unwrap_or_default()).unwrap_or_else(|_| "[]".into());
+                Response::from_string(body).with_header(Header::from_bytes("content-type", "application/json").unwrap()).boxed()
+            }
             (Method::Post, "/api/approve") => {
                 let ok = hdr("Origin").is_none_or(|o| origins.contains(&o));
                 let key = query.strip_prefix("key=").map(urldecode).unwrap_or_default();

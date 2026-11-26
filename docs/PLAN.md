@@ -32,7 +32,7 @@ Unverified: Lynis, Fleet/Kolide, Vallum, Radio Silence, Murus, commercial EDRs.
 3. **Baselines**: first-seen remote host per app; learning period; Trust / Ignore / Investigate inbox.
 4. **Enrichment**: reverse DNS, ASN/owner.
 5. **Persistence**: LaunchAgents/Daemons, login items, cron, profiles; diff vs baseline.
-6. **Privilege events (done, v1)**: authd log parsed into sudo/admin requests with requester and parent (parent only if still alive). Next: capture parent chain in real time.
+6. **Privilege events (done, v1)**: authd log parsed into admin requests; plus a 20 ms process-table watcher that records every sudo/su launch with args and parent chain (1% CPU). Limit: sub-20 ms invocations can be missed or lose their parent; Endpoint Security would close that gap.
 7. **Real-time (optional)**: Endpoint Security helper. Apply for the entitlement early.
 8. **Menu-bar app** (Tauri v2) and notifications for high findings only.
 

@@ -19,8 +19,24 @@ impl History {
         let c = Connection::open(p)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS seen(
             group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
-            last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));")?;
+            last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
+            CREATE TABLE IF NOT EXISTS sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);")?;
         Ok(Self(c))
+    }
+
+    pub fn record_sudo(&self, e: &crate::watcher::SudoEvent) -> rusqlite::Result<()> {
+        self.0.execute("INSERT INTO sudo_events(ts,pid,tool,args,chain) VALUES(?1,?2,?3,?4,?5)",
+            params![e.ts as i64, e.pid as i64, e.tool, e.args, serde_json::to_string(&e.chain).unwrap_or_default()])?;
+        Ok(())
+    }
+
+    pub fn recent_sudo(&self, limit: usize) -> rusqlite::Result<Vec<crate::watcher::SudoEvent>> {
+        let mut st = self.0.prepare("SELECT ts,pid,tool,args,chain FROM sudo_events ORDER BY id DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(crate::watcher::SudoEvent {
+            ts: r.get::<_, i64>(0)? as u64, pid: r.get::<_, i64>(1)? as u32, tool: r.get(2)?, args: r.get(3)?,
+            chain: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+        }))?;
+        rows.collect()
     }
 
     /// Upsert every outbound remote host seen per group.

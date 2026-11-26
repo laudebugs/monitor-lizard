@@ -1,4 +1,4 @@
-mod baseline; mod collect; mod group; mod history; mod model; mod privilege; mod rules; mod server; mod snapshot;
+mod baseline; mod collect; mod group; mod history; mod model; mod privilege; mod rules; mod server; mod snapshot; mod watcher;
 use std::collections::BTreeMap;
 
 fn main() {
@@ -8,10 +8,24 @@ fn main() {
         Some("privilege") => for e in privilege::recent(args.next().and_then(|m| m.parse().ok()).unwrap_or(60)) {
             println!("{} {} {} right={} {} parent={}", e.time, if e.ok { "OK  " } else { "FAIL" }, e.client, e.right, e.error.unwrap_or_default(), e.parent.unwrap_or("(exited)".into()));
         },
+        Some("watch") => {
+            let h = history::History::open().ok();
+            println!("watching for sudo/su (Ctrl-C to stop)...");
+            watcher::watch(|e| {
+                println!("[{}] {} pid={} {}", e.ts, e.tool, e.pid, e.args);
+                for (i, hop) in e.chain.iter().enumerate() { println!("  {}{} {} {}", "  ".repeat(i), if i == 0 { "parent" } else { "└" }, hop.pid, if hop.command.is_empty() { &hop.exe } else { &hop.command }); }
+                if let Some(h) = &h { let _ = h.record_sudo(&e); }
+            })
+        }
+        Some("sudo-log") => if let Ok(h) = history::History::open() {
+            for e in h.recent_sudo(args.next().and_then(|n| n.parse().ok()).unwrap_or(20)).unwrap_or_default() {
+                println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| h.command.split_whitespace().next().unwrap_or(&h.exe).to_string()).collect::<Vec<_>>().join(" <- "));
+            }
+        },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
-        _ => eprintln!("usage: ownwatch [snapshot | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
+        _ => eprintln!("usage: ownwatch [snapshot | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
     }
 }
 
