@@ -24,6 +24,43 @@ const BASELINE_CHANGE_KEEP: i64 = 10_000;
 /// One time the user marked or unmarked something as expected; `marked` is false for an unmark.
 #[derive(serde::Serialize, Debug, PartialEq)]
 pub struct BaselineChangeRow { pub ts: u64, pub kind: String, pub key: String, pub marked: bool, pub note: String }
+/// What one scan saw of one startup item.
+pub struct Observed<'a> { pub path: &'a str, pub fingerprint: &'a str, pub schedule: &'a str }
+
+/// One stored startup item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistRow {
+    pub path: String, pub first_seen: u64, pub schedule: String, pub fingerprint: Option<String>,
+    pub removed_at: Option<u64>, pub changed_at: Option<u64>, pub change_kind: Option<String>,
+}
+
+/// One entry of the "since the baseline" list; `kind` is added, changed, restored or removed.
+#[derive(serde::Serialize, Debug, PartialEq, Clone)]
+pub struct Change { pub path: String, pub kind: &'static str, pub at: u64 }
+
+/// The baseline date for startup items: the end of the learning period after the very first scan.
+/// Everything recorded before it is the baseline, so a first run has no changes.
+pub fn persistence_baseline(rows: &[PersistRow]) -> u64 {
+    rows.iter().map(|r| r.first_seen).min().unwrap_or(0) + LEARNING_SECS
+}
+
+/// What happened to startup items since the baseline date, newest first. One entry per item: a
+/// removal wins over an addition, and an addition wins over a later edit.
+pub fn persistence_changes(rows: &[PersistRow]) -> Vec<Change> {
+    let base = persistence_baseline(rows);
+    let mut out: Vec<Change> = rows.iter().filter_map(|r| {
+        let (kind, at) = match (r.removed_at, r.changed_at) {
+            (Some(at), _) if at > base => ("removed", at),
+            _ if r.first_seen > base => ("added", r.first_seen),
+            (None, Some(at)) if at > base => (if r.change_kind.as_deref() == Some("restored") { "restored" } else { "changed" }, at),
+            _ => return None,
+        };
+        Some(Change { path: r.path.clone(), kind, at })
+    }).collect();
+    out.sort_by(|a, b| b.at.cmp(&a.at).then(a.path.cmp(&b.path)));
+    out
+}
+
 #[derive(serde::Serialize, Debug)]
 pub struct ActionRow { pub ts: u64, pub sig: String, pub sent: String, pub refused: String }
 
@@ -52,6 +89,14 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE IF NOT EXISTS samples(res TEXT NOT NULL, metric TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL, PRIMARY KEY(res, metric, ts)) WITHOUT ROWID;",
     // IF NOT EXISTS so a development database that already has the table is safe.
     "CREATE TABLE IF NOT EXISTS baseline_changes(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, marked INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '');",
+    // Startup-item fingerprint, schedule and removal. The columns are nullable (or defaulted) so the
+    // rows of an older database stay valid; a NULL fingerprint is filled in by the next scan without
+    // counting as a change. All five run in this one step's transaction.
+    "ALTER TABLE persistence ADD COLUMN fingerprint TEXT;
+    ALTER TABLE persistence ADD COLUMN removed_at INTEGER;
+    ALTER TABLE persistence ADD COLUMN schedule TEXT NOT NULL DEFAULT '';
+    ALTER TABLE persistence ADD COLUMN changed_at INTEGER;
+    ALTER TABLE persistence ADD COLUMN change_kind TEXT;",
 ];
 
 fn backup_path(p: &std::path::Path) -> PathBuf {
@@ -195,17 +240,41 @@ impl History {
         Ok(Self(c))
     }
 
-    /// Upsert startup items; returns (path -> first_seen, earliest first_seen across all items).
-    pub fn record_persistence(&mut self, paths: &[&str], now: u64) -> rusqlite::Result<(std::collections::HashMap<String, u64>, u64)> {
+    /// Records one startup scan and returns every row, removed ones included. `scanned` lists the path
+    /// prefixes the scan could actually read: a folder that failed to open must not make its items
+    /// look removed. A row is written only when something about it changed (new, fingerprint,
+    /// removed, restored), so a quiet scan writes nothing.
+    pub fn record_persistence(&mut self, seen: &[Observed], scanned: &[String], now: u64) -> rusqlite::Result<Vec<PersistRow>> {
         let tx = self.0.transaction()?;
-        for path in paths {
-            tx.execute("INSERT INTO persistence(path,first_seen,last_seen) VALUES(?1,?2,?2) ON CONFLICT(path) DO UPDATE SET last_seen=?2", params![path, now as i64])?;
+        let known: std::collections::HashMap<String, (Option<String>, Option<i64>)> = {
+            let mut st = tx.prepare("SELECT path, fingerprint, removed_at FROM persistence")?;
+            let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?))))?.collect::<Result<_, _>>()?;
+            rows
+        };
+        let now_i = now as i64;
+        for o in seen {
+            match known.get(o.path) {
+                None => { tx.execute("INSERT INTO persistence(path,first_seen,last_seen,fingerprint,schedule) VALUES(?1,?2,?2,?3,?4)", params![o.path, now_i, o.fingerprint, o.schedule])?; }
+                Some((_, Some(_))) => { tx.execute("UPDATE persistence SET removed_at=NULL, fingerprint=?2, schedule=?3, changed_at=?4, change_kind='restored', last_seen=?4 WHERE path=?1", params![o.path, o.fingerprint, o.schedule, now_i])?; }
+                // A row from before fingerprints existed: learn it silently, or every item would read as changed after an upgrade.
+                Some((None, None)) => { tx.execute("UPDATE persistence SET fingerprint=?2, schedule=?3 WHERE path=?1", params![o.path, o.fingerprint, o.schedule])?; }
+                Some((Some(fp), None)) if fp != o.fingerprint => { tx.execute("UPDATE persistence SET fingerprint=?2, schedule=?3, changed_at=?4, change_kind='changed', last_seen=?4 WHERE path=?1", params![o.path, o.fingerprint, o.schedule, now_i])?; }
+                Some(_) => {}
+            }
+        }
+        let present: std::collections::HashSet<&str> = seen.iter().map(|o| o.path).collect();
+        for (path, (_, removed)) in &known {
+            if removed.is_none() && !present.contains(path.as_str()) && scanned.iter().any(|p| path.starts_with(p.as_str())) {
+                tx.execute("UPDATE persistence SET removed_at=?2 WHERE path=?1", params![path, now_i])?;
+            }
         }
         tx.commit()?;
-        let mut st = self.0.prepare("SELECT path, first_seen FROM persistence")?;
-        let rows: Vec<(String, i64)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
-        let earliest = rows.iter().map(|r| r.1).min().unwrap_or(now as i64) as u64;
-        Ok((rows.into_iter().map(|(p, t)| (p, t as u64)).collect(), earliest))
+        let mut st = self.0.prepare("SELECT path, first_seen, schedule, fingerprint, removed_at, changed_at, change_kind FROM persistence")?;
+        let rows = st.query_map([], |r| Ok(PersistRow {
+            path: r.get(0)?, first_seen: r.get::<_, i64>(1)? as u64, schedule: r.get(2)?, fingerprint: r.get(3)?,
+            removed_at: r.get::<_, Option<i64>>(4)?.map(|v| v as u64), changed_at: r.get::<_, Option<i64>>(5)?.map(|v| v as u64), change_kind: r.get(6)?,
+        }))?.collect::<Result<_, _>>()?;
+        Ok(rows)
     }
 
     /// The earliest time this group was ever seen making an outbound connection, if any.
@@ -448,20 +517,97 @@ mod tests {
             conns: vec![Conn { pid: 1, name: "x".into(), proto: "TCP".into(), state: "ESTABLISHED".into(), local_addr: "10.0.0.2".into(), local_port: 1,
                 remote_addr: Some(remote.into()), remote_port: Some(443), direction: Direction::Outbound, scope: Scope::Public, exposed: false }] }
     }
+    fn obs<'a>(path: &'a str, fp: &'a str) -> Observed<'a> { Observed { path, fingerprint: fp, schedule: "at load" } }
+    fn row<'a>(rows: &'a [PersistRow], path: &str) -> &'a PersistRow { rows.iter().find(|r| r.path == path).unwrap() }
+    const ALL: &[&str] = &["/"];
+
     #[test]
-    fn startup_items_keep_their_first_seen_time() {
-        let dir = std::env::temp_dir().join(format!("ow-test-pers-{}", std::process::id()));
+    fn startup_items_keep_their_first_seen_time_across_removal_and_return() {
+        let dir = scratch("pers-first");
         let mut h = History::at(&dir.join("h.db")).unwrap();
-        let (first, earliest) = h.record_persistence(&["a"], 1000).unwrap();
-        assert_eq!((first["a"], earliest), (1000, 1000));
-        let (first, earliest) = h.record_persistence(&["a", "b"], 1120).unwrap();
-        assert_eq!((first["a"], first["b"], earliest), (1000, 1120, 1000));
-        // an item that disappears and comes back keeps its original time
-        h.record_persistence(&["b"], 1200).unwrap();
-        let (first, _) = h.record_persistence(&["a", "b"], 1300).unwrap();
-        assert_eq!(first["a"], 1000);
+        let rows = h.record_persistence(&[obs("/a", "1")], &["/".into()], 1000).unwrap();
+        assert_eq!(row(&rows, "/a").first_seen, 1000);
+        let rows = h.record_persistence(&[obs("/a", "1"), obs("/b", "1")], &["/".into()], 1120).unwrap();
+        assert_eq!((row(&rows, "/a").first_seen, row(&rows, "/b").first_seen), (1000, 1120));
+        h.record_persistence(&[obs("/b", "1")], &["/".into()], 1200).unwrap();
+        let rows = h.record_persistence(&[obs("/a", "1"), obs("/b", "1")], &["/".into()], 1300).unwrap();
+        assert_eq!(rows.len(), 2, "removal and return keep one row");
+        assert_eq!(row(&rows, "/a").first_seen, 1000);
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn an_unchanged_scan_writes_nothing() {
+        let dir = scratch("pers-quiet");
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        h.record_persistence(&[obs("/a", "1"), obs("/b", "2")], &["/".into()], 1000).unwrap();
+        let before = h.0.total_changes();
+        h.record_persistence(&[obs("/a", "1"), obs("/b", "2")], &["/".into()], 1100).unwrap();
+        assert_eq!(h.0.total_changes(), before, "no row was written");
+        h.record_persistence(&[obs("/a", "9"), obs("/b", "2")], &["/".into()], 1200).unwrap();
+        assert_eq!(h.0.total_changes(), before + 1, "a changed fingerprint writes one row");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_removed_item_gets_removed_at_and_a_returning_one_loses_it_with_a_restore_entry() {
+        let dir = scratch("pers-removed");
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        h.record_persistence(&[obs("/a", "1"), obs("/b", "1")], &["/".into()], 1000).unwrap();
+        let rows = h.record_persistence(&[obs("/b", "1")], &["/".into()], 2000).unwrap();
+        assert_eq!(row(&rows, "/a").removed_at, Some(2000));
+        assert_eq!(persistence_changes(&rows), vec![Change { path: "/a".into(), kind: "removed", at: 2000 }]);
+        let rows = h.record_persistence(&[obs("/a", "1"), obs("/b", "1")], &["/".into()], 3000).unwrap();
+        assert_eq!(row(&rows, "/a").removed_at, None);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(persistence_changes(&rows), vec![Change { path: "/a".into(), kind: "restored", at: 3000 }]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_folder_that_could_not_be_read_does_not_remove_its_items() {
+        let dir = scratch("pers-unscanned");
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        h.record_persistence(&[obs("/agents/a", "1"), obs("/daemons/d", "1")], &["/agents/".into(), "/daemons/".into()], 1000).unwrap();
+        let rows = h.record_persistence(&[], &["/agents/".into()], 2000).unwrap();
+        assert_eq!(row(&rows, "/agents/a").removed_at, Some(2000));
+        assert_eq!(row(&rows, "/daemons/d").removed_at, None, "its folder was not scanned");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_change_list_reports_added_changed_and_removed_after_the_baseline_and_first_run_is_empty() {
+        let dir = scratch("pers-diff");
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        let rows = h.record_persistence(&[obs("/a", "1"), obs("/b", "1"), obs("/c", "1")], ALL.iter().map(|s| s.to_string()).collect::<Vec<_>>().as_slice(), 1000).unwrap();
+        assert!(persistence_changes(&rows).is_empty(), "the first scan is the baseline");
+        h.record_persistence(&[obs("/a", "1"), obs("/b", "1"), obs("/c", "1")], &["/".into()], 1030).unwrap();
+        let rows = h.record_persistence(&[obs("/a", "2"), obs("/c", "1"), obs("/d", "1")], &["/".into()], 5000).unwrap();
+        let kinds: Vec<(String, &str)> = persistence_changes(&rows).into_iter().map(|c| (c.path, c.kind)).collect();
+        assert_eq!(kinds.len(), 3);
+        for want in [("/a", "changed"), ("/b", "removed"), ("/d", "added")] { assert!(kinds.contains(&(want.0.into(), want.1)), "{want:?} in {kinds:?}"); }
+        assert!(kinds.iter().all(|k| k.0 != "/c"), "an unchanged item is not listed");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_row_from_before_fingerprints_is_learned_without_counting_as_changed() {
+        let dir = scratch("pers-backfill");
+        let db = dir.join("h.db");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch(&MIGRATIONS[..2].join("\n")).unwrap();
+        c.execute_batch("INSERT INTO persistence VALUES('/a',100,200);").unwrap();
+        c.pragma_update(None, "user_version", 2).unwrap();
+        drop(c);
+        let mut h = History::at(&db).unwrap();
+        let rows = h.record_persistence(&[obs("/a", "1")], &["/".into()], 9000).unwrap();
+        assert_eq!(row(&rows, "/a").fingerprint.as_deref(), Some("1"));
+        assert!(persistence_changes(&rows).is_empty(), "the upgrade must not flag every item");
+        let rows = h.record_persistence(&[obs("/a", "2")], &["/".into()], 9100).unwrap();
+        assert_eq!(persistence_changes(&rows).len(), 1, "a real edit afterwards still shows");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn flags_new_host_only_after_learning_period() {
         let dir = std::env::temp_dir().join(format!("ow-test-{}", std::process::id()));
@@ -756,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn a_version_1_database_gains_the_baseline_table_at_version_2_and_keeps_every_row() {
+    fn a_version_1_database_is_brought_to_the_latest_version_and_keeps_every_row() {
         let dir = scratch("v1-to-v2");
         let db = dir.join("h.db");
         // A database made with step 1 only, with a row in every table it has.
@@ -776,25 +922,25 @@ mod tests {
         }
         h.record_baseline_change(1, "app", "/A.app", true, "").unwrap();
         drop(h);
-        assert_eq!(version_of(&db), 2);
+        assert_eq!(version_of(&db), MIGRATIONS.len());
         assert!(!backup_path(&db).exists(), "a versioned database is not backed up again");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn a_fresh_database_has_the_baseline_table_at_the_latest_version() {
+    fn a_fresh_database_has_the_baseline_table_and_the_persistence_columns_at_the_latest_version() {
         let dir = scratch("fresh-v2");
         let db = dir.join("h.db");
         let h = History::at(&db).unwrap();
         assert!(h.recent_baseline_changes(1).unwrap().is_empty());
         drop(h);
-        assert_eq!(version_of(&db), 2);
-        assert_eq!(MIGRATIONS.len(), 2);
+        assert_eq!(version_of(&db), 3);
+        assert_eq!(MIGRATIONS.len(), 3);
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn a_version_2_database_opens_unchanged_and_keeps_its_audit_rows() {
+    fn a_version_3_database_opens_unchanged_and_keeps_its_audit_rows() {
         let dir = scratch("v2-noop");
         let db = dir.join("h.db");
         let h = History::at(&db).unwrap();
@@ -803,8 +949,48 @@ mod tests {
         let h = History::at(&db).unwrap();
         assert_eq!(h.recent_baseline_changes(10).unwrap().len(), 1);
         drop(h);
-        assert_eq!(version_of(&db), 2);
+        assert_eq!(version_of(&db), 3);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_version_2_database_gains_the_persistence_columns_at_version_3_and_keeps_every_row() {
+        let dir = scratch("v2-to-v3");
+        let db = dir.join("h.db");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch(&MIGRATIONS[..2].join("\n")).unwrap();
+        c.execute_batch("INSERT INTO seen VALUES('g','1.1.1.1',1,2,3);
+            INSERT INTO sudo_events(ts,pid,tool,args,chain) VALUES(1,2,'sudo','ls','[]');
+            INSERT INTO persistence VALUES('/p.plist',1,2);
+            INSERT INTO actions(ts,sig,sent,refused) VALUES(1,'TERM','[1]','');
+            INSERT INTO notified VALUES('k:r',1);
+            INSERT INTO samples VALUES('1m','cpu_avg',60,1.5);
+            INSERT INTO baseline_changes(ts,kind,key,marked) VALUES(1,'app','/A.app',1);").unwrap();
+        c.pragma_update(None, "user_version", 2).unwrap();
+        drop(c);
+        let h = History::at(&db).unwrap();
+        for t in ["seen", "sudo_events", "persistence", "actions", "notified", "samples", "baseline_changes"] {
+            assert_eq!(h.0.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get::<_, i64>(0)).unwrap(), 1, "{t} kept its row");
+        }
+        let (first, fp, removed, sched): (i64, Option<String>, Option<i64>, String) = h.0.query_row("SELECT first_seen, fingerprint, removed_at, schedule FROM persistence", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap();
+        assert_eq!((first, fp, removed, sched.as_str()), (1, None, None, ""));
+        drop(h);
+        assert_eq!(version_of(&db), 3);
+        assert!(!backup_path(&db).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn step_three_is_all_or_nothing() {
+        let c = &mut Connection::open_in_memory().unwrap();
+        migrate(c, &MIGRATIONS[..2], None).unwrap();
+        // The last statement fails; the columns added before it must not survive.
+        let steps = [MIGRATIONS[0], MIGRATIONS[1], "ALTER TABLE persistence ADD COLUMN fingerprint TEXT; ALTER TABLE nope ADD COLUMN x TEXT;"];
+        assert!(migrate(c, &steps, None).is_err());
+        assert_eq!(user_version(c).unwrap(), 2);
+        assert!(c.prepare("SELECT fingerprint FROM persistence").is_err(), "the first ALTER was rolled back");
+        migrate(c, MIGRATIONS, None).unwrap();
+        assert_eq!(user_version(c).unwrap(), 3);
     }
 
     fn tmp_history(name: &str) -> (History, std::path::PathBuf) {

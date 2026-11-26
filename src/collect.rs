@@ -113,15 +113,21 @@ static CACHE: OnceLock<Mutex<HashMap<String, Signing>>> = OnceLock::new();
 pub fn signing_of(path: &str) -> Signing {
     let cache = CACHE.get_or_init(Default::default);
     if let Some(s) = cache.lock().unwrap().get(path) { return s.clone(); }
+    let s = signing_uncached(path);
+    cache.lock().unwrap().insert(path.into(), s.clone());
+    s
+}
+
+/// Always runs `codesign`. For callers that key their own cache on the file's modified time, so a
+/// replaced program is read again.
+pub fn signing_uncached(path: &str) -> Signing {
     let out = run("codesign", &["-dv", "--verbose=2", path]);
     let field = |k: &str| out.lines().find_map(|l| l.strip_prefix(k)).map(str::to_string);
     let team = field("TeamIdentifier=").filter(|t| t != "not set");
     let authority = field("Authority=");
     let signed = authority.is_some() || out.contains("Signature size");
     let apple = !out.contains("not signed") && (out.contains("Software Signing") || out.contains("Apple Root CA")) && team.is_none();
-    let s = Signing { signed: signed && !out.contains("not signed"), team, authority, apple };
-    cache.lock().unwrap().insert(path.into(), s.clone());
-    s
+    Signing { signed: signed && !out.contains("not signed"), team, authority, apple }
 }
 
 #[cfg(test)]
