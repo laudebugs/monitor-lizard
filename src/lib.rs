@@ -1,6 +1,6 @@
 //! The modules behind the `monitor-lizard` CLI, as a library too: a Tauri shell (`src-tauri/`) links
-//! against this crate instead of recompiling every module from its own copy of the source, which is
-//! what the A17a spike did with `#[path]` includes before this split.
+//! against this crate instead of recompiling every module from its own copy of the source via
+//! `#[path]` includes, which keeps the two binaries' code from drifting apart over time.
 pub mod actions;
 pub mod baseline;
 pub mod classify;

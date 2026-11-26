@@ -1,6 +1,6 @@
 //! Runs the Monitor Lizard server in-process and loads it in a Tauri webview, with a menu-bar tray
-//! item. See ADR 0004 for why (a second binary over the loopback server + page, not a native
-//! rewrite) and the A17a spike report for what was verified before this was built for real.
+//! item. See ADR 0004 for why this is a second binary over the loopback server and page, rather
+//! than a native rewrite: one UI, not a fork of it.
 use monitor_lizard::{paths, server, snapshot};
 use std::{
     sync::Arc,
@@ -66,15 +66,20 @@ fn page_bg_color(theme: Theme) -> Color {
     }
 }
 
+/// Shared by a second launch and the tray's "Open dashboard": both just want the one window back.
+fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // A second launch focuses the existing window instead of opening a second one; the
             // server and tray are already running in this process, so there is nothing else to start.
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            focus_main_window(app);
         }))
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
@@ -85,7 +90,7 @@ fn main() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &rescan, &quit])?;
 
-            let srv_quit = match bound {
+            let running_server = match bound {
                 Ok((server, port)) => {
                     let srv = Arc::clone(&server);
                     thread::spawn(move || server::serve_on(srv));
@@ -131,18 +136,13 @@ fn main() {
                 }
             };
 
-            let started = srv_quit.is_some();
+            let started = running_server.is_some();
             let tray = TrayIconBuilder::with_id("main")
                 .title(if started { "…".to_string() } else { "Monitor Lizard: error".to_string() })
                 .tooltip(if started { String::new() } else { format!("Server failed to start; see {}", shell_log_path().display()) })
                 .menu(&menu)
                 .on_menu_event(move |app, ev| match ev.id().as_ref() {
-                    "open" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
+                    "open" => focus_main_window(app),
                     "rescan" => {
                         let (t, tip) = tray_text();
                         if let Some(tr) = app.tray_by_id("main") {
@@ -151,7 +151,7 @@ fn main() {
                         }
                     }
                     "quit" => {
-                        if let Some(srv) = &srv_quit {
+                        if let Some(srv) = &running_server {
                             srv.unblock();
                         }
                         app.exit(0);
