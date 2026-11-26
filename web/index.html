@@ -176,7 +176,7 @@ function paginate(list, key) {
    S.sorts[key] = { col, dir }: no entry means the default order. S.fil[name] holds a dropdown filter's value. */
 const fv = (name) => S.fil[name] || 'all';
 const setFil = (name, v) => rec({ fil: Object.assign({}, S.fil, { [name]: v }), page: {} });
-const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', page: {} }); };
+const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', pfilter: 'all', page: {} }); };
 const clearBtn = () => h('button', { class: 'btn sm', onClick: clearFilters }, 'Clear filters');
 const isEmpty = (v) => v == null || v === '';
 // Stable sort; empty values go last in both directions; numbers compare as numbers, text ignores case.
@@ -415,7 +415,10 @@ function listeners() {
 }
 
 
-const psig = (i) => (!i.signing ? null : i.signing.apple ? 'apple' : i.signing.signed ? 'signed' : 'unsigned');
+// Same three-way signing classification as sigKind(g), reused rather than re-derived: only the
+// leaf for "no signing data" differs (null here, so the Trust column can show '-' and not count
+// it as unsigned, vs sigKind's 'unchecked' used for the Apps page's signing filter).
+const psig = (i) => { const k = sigKind(i); return k === 'unchecked' ? null : k; };
 const trustTag = (i) => { const t = psig(i); return t === null ? h('span', { class: 'mut' }, '-') : t === 'unsigned' ? h('span', { class: 'tag bad' }, 'UNSIGNED') : h('span', { class: 'tag ok' }, t === 'apple' ? 'Apple' : 'Signed' + (i.signing.team ? ' ' + i.signing.team : '')); };
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter;
