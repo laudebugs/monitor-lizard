@@ -506,10 +506,10 @@ let lastColToggle = null;
 function columnsMenu(key, header) {
   const id = 'cols:' + key, open = S.menu === id, all = exportCols(key, header), hidden = hiddenOf(key), shown = visibleCols(all, hidden);
   return h('div', { class: 'sel' },
-    h('button', { class: 'sel-btn', type: 'button', 'aria-haspopup': 'true', 'aria-expanded': String(open), 'data-trigger': id, title: 'Choose which columns this table shows and exports', onClick: (e) => { e.stopPropagation(); rec({ menu: open ? null : id }); } }, h('span', {}, 'Columns'), h('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')),
+    h('button', { class: 'sel-btn', type: 'button', 'aria-haspopup': 'true', 'aria-expanded': String(open), 'data-trigger': id, title: 'Choose which columns this table shows and exports', onClick: (e) => { e.stopPropagation(); lastColToggle = null; rec({ menu: open ? null : id }); } }, h('span', {}, 'Columns'), h('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')),
     open ? h('div', { class: 'sel-menu down colmenu', role: 'group', 'aria-label': 'Columns', onClick: (e) => e.stopPropagation(), onKeydown: (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rec({ menu: null }); const t = document.querySelector('[data-trigger="' + id + '"]'); if (t) t.focus(); } } },
-      all.map((c) => h('label', { class: 'colopt' },
-        h('input', { type: 'checkbox', checked: shown.includes(c), disabled: shown.length === 1 && shown[0] === c, 'data-autofocus': lastColToggle === key + ':' + c.id ? '' : null, onChange: () => { lastColToggle = key + ':' + c.id; setHidden(key, toggleHidden(all, hidden, c.id)); rec({}); } }), c.label))) : null);
+      all.map((c, i) => h('label', { class: 'colopt' },
+        h('input', { type: 'checkbox', checked: shown.includes(c), disabled: shown.length === 1 && shown[0] === c, 'data-autofocus': (lastColToggle === null ? i === 0 : lastColToggle === key + ':' + c.id) ? '' : null, onChange: () => { lastColToggle = key + ':' + c.id; setHidden(key, toggleHidden(all, hidden, c.id)); rec({}); } }), c.label))) : null);
 }
 function exportBar(key, header) {
   const n = rowsOf(key).length, meta = TABLE_META[key] || {}, info = meta.info || 'the rows shown';
