@@ -9,7 +9,7 @@ fn main() {
             println!("{} {} {} right={} {} parent={}", e.time, if e.ok { "OK  " } else { "FAIL" }, e.client, e.right, e.error.unwrap_or_default(), e.parent.unwrap_or("(exited)".into()));
         },
         Some("watch") => {
-            let h = history::History::open().ok();
+            let h = history::open_or_report();
             println!("watching for sudo/su (Ctrl-C to stop)...");
             watcher::watch(|e| {
                 println!("[{}] {} pid={} {}", e.ts, e.tool, e.pid, e.args);
@@ -17,7 +17,7 @@ fn main() {
                 if let Some(h) = &h { let _ = h.record_sudo(&e); }
             })
         }
-        Some("sudo-log") => if let Ok(h) = history::History::open() {
+        Some("sudo-log") => if let Some(h) = history::open_or_report() {
             for e in h.recent_sudo(args.next().and_then(|n| n.parse().ok()).unwrap_or(20)).unwrap_or_default() {
                 println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| h.command.split_whitespace().next().unwrap_or(&h.exe).to_string()).collect::<Vec<_>>().join(" <- "));
             }

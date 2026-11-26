@@ -68,7 +68,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | R3a | Persistence data: schedule, fingerprints, removals | M1 |
 | R3b | Persistence page redesign | R3a, T1b, N1, N3, A9 |
 
-N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2, N3, A9, M1 and T1a can start now, and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
+N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2, N3, A9 and T1a can start now (M1 is built, PR pending merge), and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
 
 ## 6. Risks and open questions
 
@@ -78,4 +78,4 @@ N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2, N3, A9, M1 a
 4. **Scan cost.** A slow scan would make the monitor its own top consumer. S1 sets a time budget and runs at low priority.
 5. **Design gap.** Apps, Listeners, Privilege and History have no redesign. Until they do, T1a and T1b give them the new tokens and shell but not the new layout.
 6. **A9 is new scope.** The designs have "Mark as expected" buttons for hosts, startup items and alerts. The feedback baseline is listed as not yet written in the system-monitor plan; A9 is its first slice.
-7. **No migration mechanism.** `History` only creates tables that are missing, so adding a column to an existing table needs M1 first (R3a does). New tables, as in S3a, S4 and S5, need none.
+7. **Migrations exist (M1, built 2026-11-26).** `History` versions its schema with `PRAGMA user_version`, so a column can be added to an existing table by appending a step to `MIGRATIONS` (R3a does). New tables, as in S3a, S4 and S5, need no step of their own.
