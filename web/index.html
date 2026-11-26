@@ -1645,13 +1645,16 @@ const stFilterChips = (counts) => [[ST_ALL, 'All'], [ST_LABEL.safe, 'Safe'], [ST
     'aria-pressed': String(S.stfilter === id),
     onClick: () => rec({ stfilter: id, page: {} }) }, l + ' ', counts[id]));
 const ST_COLS = 'grid-template-columns:minmax(170px,2fr) 100px 84px minmax(150px,1fr) minmax(110px,.9fr) 96px';
+const ST_HEAD = { style: 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' };
+const ST_TAIL = { style: 'flex:0 0 auto;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' };
 function stRow(r, sel) {
   const on = !!sel && sel.id === r.id, share = r.share == null ? null
     : h('span', { class: 'bar', style: 'flex:1 1 auto;min-width:30px' }, h('i', { style: 'width:' + Math.min(100,
       r.share).toFixed(1) + '%' }));
   return h('button', { class: 'tr ell' + (on ? ' on' : ''), type: 'button', style: ST_COLS,
     'aria-pressed': String(on), onClick: () => rec({ stItem: r.id }) },
-    h('span', nameAttrs(r.path), r.name), h('span', { class: 'mut small' }, ST_CATEGORIES[r.category] || '-'),
+    // decorateTables resets each cell's display, so the flex row is an inner element.
+    h('span', nameAttrs(r.path), h('span', { style: 'display:flex;min-width:0' }, r.head ? h('span', ST_HEAD, r.head) : null, h('span', ST_TAIL, r.tail))), h('span', { class: 'mut small' }, ST_CATEGORIES[r.category] || '-'),
       h('span', {}, labelTag(r.label)),
     h('span', { class: 'num' + (r.bytes == null ? ' mut small' : '') }, sizeText(r)),
     h('span', { style: 'display:flex;align-items:center;gap:8px' }, share, h('span', { class: 'mut small' },
@@ -1935,6 +1938,14 @@ function shownLabel(item) {
   return sane && !userContent && ST_SAFE_RULES.includes(item.rule) ? ST_LABEL.safe : ST_LABEL.review;
 }
 const homeRelative = (p) => String(p).replace(/^\/Users\/[^/]+(?=\/|$)/, '~');
+// How a folder's path reads in a cell: home-relative, no trailing slash, split so the last two segments (`tail`) stay whole
+// and only the front (`head`) is ever cut. head + tail is always text. The full path stays in the title and the export.
+function pathDisplay(path) {
+  const text = homeRelative(path == null ? '' : path).replace(/(.)\/+$/, '$1'), parts = text.split('/');
+  if (parts.length <= 3) return { text, head: '', tail: text };
+  const tail = '/' + parts.slice(-2).join('/');
+  return { text, head: text.slice(0, text.length - tail.length), tail };
+}
 // FNV-1a over the path: the stable fallback id when the server sends none, or sends one twice.
 function pathId(path) {
   let h = 0x811c9dc5;
@@ -1952,10 +1963,10 @@ function storageRows(d) {
   };
   const items = (d && Array.isArray(d.items) ? d.items : []).map((it) => {
     const path = typeof it.path === 'string' ? it.path : '', bytes = stNum(it.size), share = bytes != null && total ? bytes / total * 100 : null;
-    return { kind: 'item', id: uniqueId(it.id, path), path, name: homeRelative(path) || '(no path)', category: it.category, label: shownLabel(it), rule: it.rule, bytes, reason: bytes == null ? stReason(it.size) : null,
+    return { kind: 'item', id: uniqueId(it.id, path), path, name: pathDisplay(path).text || '(no path)', head: pathDisplay(path).head, tail: pathDisplay(path).tail || '(no path)', category: it.category, label: shownLabel(it), rule: it.rule, bytes, reason: bytes == null ? stReason(it.size) : null,
       lowerBound: it.complete === false, apparent: goodBytes(it.apparent_bytes), entries: it.entries, unreadable: it.unreadable | 0, share, at };
   });
-  const pending = (d && Array.isArray(d.not_reached) ? d.not_reached : []).map((p) => ({ kind: 'pending', id: 'nr-' + p, path: String(p), name: homeRelative(p), category: null, label: null, rule: null, bytes: null, reason: 'not yet scanned', lowerBound: false, apparent: null, entries: 0, unreadable: 0, share: null, at: null }));
+  const pending = (d && Array.isArray(d.not_reached) ? d.not_reached : []).map((p) => ({ kind: 'pending', id: 'nr-' + p, path: String(p), name: pathDisplay(p).text, head: pathDisplay(p).head, tail: pathDisplay(p).tail, category: null, label: null, rule: null, bytes: null, reason: 'not yet scanned', lowerBound: false, apparent: null, entries: 0, unreadable: 0, share: null, at: null }));
   return items.concat(pending);
 }
 const sizeText = (r) => (r.kind === 'pending' ? 'not yet scanned' : r.bytes == null ? 'unavailable: ' + r.reason : atLeast(r.bytes, r.lowerBound));

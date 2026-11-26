@@ -120,3 +120,4 @@ Built and checked in a real browser on a synthetic home. The todo stays in `ongo
 - Per-row "measured N min ago" is the scan time. The API has no per-row timestamp.
 - The server answers a Rescan inside its minute with 200 and the old result, never 429. A 429 branch was written first and was dead code, so it is removed.
 - SAFE is shown only for the server label `safe`, a rule on the page's safe list, and an absolute path under `/Users/<name>/`. A test reads `src/storage/rules.rs` and fails if the lists differ.
+- The Folder column shows the home-relative path and cuts only the front, so the last two segments always show. The title and the export keep the full path.

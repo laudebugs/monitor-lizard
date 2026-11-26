@@ -10,7 +10,7 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in web/index.html');
   return m[1];
 };
-const names = 'retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES'.split(' ');
+const names = 'pathDisplay retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES'.split(' ');
 const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const GB = 1e9;
@@ -375,4 +375,30 @@ test('an id for a location not reached is accepted from the address; hostile one
   for (const r of rows.filter((x) => x.kind === 'pending')) assert.ok(P.isItemId(r.id), r.id);
   for (const bad of ['nr-' + 'x'.repeat(300), 'nr-/a\nb', 'nr-/a\u0000b', 'nr-/a\u007f', '__proto__', 'nr/x', '', null, undefined, 5, {}]) assert.ok(!P.isItemId(bad), String(bad));
   assert.ok(P.isItemId('nr-' + 'x'.repeat(296)));
+});
+
+test('path display: home-relative, the last two segments whole, only the front cut', () => {
+  const d = P.pathDisplay;
+  assert.deepEqual(d('/Users/me/Library/Caches/com.demo'), { text: '~/Library/Caches/com.demo', head: '~/Library', tail: '/Caches/com.demo' });
+  assert.deepEqual(d('/Users/me'), { text: '~', head: '', tail: '~' }, 'exactly the home');
+  assert.deepEqual(d('/Users/me/'), { text: '~', head: '', tail: '~' }, 'trailing slash on the home');
+  assert.deepEqual(d('/Users/me/Downloads/'), { text: '~/Downloads', head: '', tail: '~/Downloads' }, 'trailing slash');
+  assert.deepEqual(d('/Applications'), { text: '/Applications', head: '', tail: '/Applications' }, 'outside the home, kept whole');
+  assert.deepEqual(d('/private/tmp/claude/a/b/c'), { text: '/private/tmp/claude/a/b/c', head: '/private/tmp/claude/a', tail: '/b/c' });
+  assert.deepEqual(d('/Users/me/Projects/ünï/日本語'), { text: '~/Projects/ünï/日本語', head: '~/Projects', tail: '/ünï/日本語' });
+  const long = '/Users/me/' + Array.from({ length: 60 }, (_, i) => 'segment' + i).join('/');
+  const r = d(long);
+  assert.equal(r.head + r.tail, r.text);
+  assert.equal(r.tail, '/segment58/segment59');
+  assert.ok(r.text.startsWith('~/segment0/'));
+  for (const bad of ['', null, undefined]) assert.deepEqual(d(bad), { text: '', head: '', tail: '' });
+  assert.equal(d('/Users/me/a/b/c').head + d('/Users/me/a/b/c').tail, d('/Users/me/a/b/c').text);
+});
+
+test('the table shows the display path but the title and the export keep the full path', () => {
+  const [row] = P.storageRows(scan({ items: [item('/Users/me/Library/Caches/com.demo', 'caches', GB)] }));
+  assert.equal(row.name, '~/Library/Caches/com.demo');
+  assert.equal(row.path, '/Users/me/Library/Caches/com.demo');
+  assert.match(html, /store: \{ folder: \(r\) => r\.path,/, 'export keeps the full path');
+  assert.match(html, /h\('span', nameAttrs\(r\.path\), h\('span', \{ style: 'display:flex;min-width:0' \}/, 'the title is the full path');
 });
