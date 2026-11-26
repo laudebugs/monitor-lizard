@@ -24,6 +24,15 @@ cargo run --release -- serve   # dashboard at http://127.0.0.1:4747
 cargo run --release            # grouped snapshot in the terminal
 ```
 
+## Run the menu-bar shell
+
+```sh
+cd src-tauri && cargo tauri build --bundles app
+open "target/release/bundle/macos/Monitor Lizard.app"
+```
+
+The shell (`src-tauri/`, package `monitor-lizard-shell`) is a second workspace member that links against this crate as a library (`src/lib.rs`) instead of recompiling the modules; `src/main.rs` is the thin CLI binary. It starts the same server in-process on a free port (`server::bind_free()` / `server::serve_on()`), loads the dashboard in a window, and adds a tray item (see ADR 0004 and `docs/todos/done/A17-tauri-menu-bar-shell.md`). Full Disk Access needs a Developer ID signature to survive a rebuild (confirmed by the owner's test, ADR 0004) -- an ad-hoc build loses any grant on its next rebuild.
+
 ## Look up a command
 
 ```sh

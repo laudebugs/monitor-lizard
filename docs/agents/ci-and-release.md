@@ -20,7 +20,7 @@
 
 ## Releases
 
-Nothing is released yet. The binary is built from source (`cargo build --release`). When releases start: attach notarized binaries to GitHub Releases from a workflow using OIDC, not long-lived tokens, and serialize releases as described in [git-workflow.md](../guidelines/git-workflow.md).
+Nothing is released yet. The binary is built from source (`cargo build --release`). When releases start: attach notarized binaries to GitHub Releases from a workflow using OIDC, not long-lived tokens, and serialize releases as described in [git-workflow.md](../guidelines/git-workflow.md). The menu-bar shell (`src-tauri/`) must always be signed with the Developer ID Application identity, never shipped ad-hoc-signed: the owner's Full Disk Access test (ADR 0004) confirmed that only a stable Developer ID signature keeps a Full Disk Access grant across a rebuild, and an ad-hoc one loses it on the very next build.
 
 ## Status of this repo
 

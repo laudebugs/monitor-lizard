@@ -254,4 +254,29 @@ mod tests {
         assert!(value.ends_with("%3C/svg%3E"), "href was cut short: {value}");
         assert!(after_href[value.len()..].starts_with("\">"), "attribute does not close the tag");
     }
+
+    #[test]
+    fn bind_free_picks_a_real_port_and_a_second_call_picks_a_different_one() {
+        let (_s1, p1) = bind_free().expect("first bind");
+        let (_s2, p2) = bind_free().expect("second bind");
+        assert_ne!(p1, 0, "the OS must hand back the port it actually chose, not the ask-for-any-port 0");
+        assert_ne!(p2, 0);
+        assert_ne!(p1, p2, "two independent binds must not collide on the same free port");
+    }
+
+    /// `serve_on`'s own request loop is `server.incoming_requests()`; this exercises the same
+    /// `Arc<Server>::unblock` a Quit menu item calls, directly on a bound server, so the shutdown
+    /// path is covered without also starting every background thread `serve_on` spawns for it.
+    #[test]
+    fn unblock_ends_the_request_loop_instead_of_blocking_forever() {
+        let (server, _port) = bind_free().expect("bind");
+        let loop_server = Arc::clone(&server);
+        let handle = thread::spawn(move || {
+            for _ in loop_server.incoming_requests() {}
+        });
+        server.unblock();
+        // If unblock() did not do its job, this join() hangs rather than failing outright --
+        // tiny_http's own documented contract for unblock() is what makes that an acceptable risk here.
+        handle.join().expect("the request loop thread must exit once unblocked, not panic");
+    }
 }
