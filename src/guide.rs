@@ -55,6 +55,7 @@ pub struct Term {
 /// Topic of the entries that are `monitor-lizard` subcommands: usage and the completeness test depend on it.
 pub const OWN_TOPIC: &str = "monitor-lizard";
 const STORAGE: &str = "storage";
+const DEVELOPER: &str = "developer";
 
 const MACOS: &str = "macOS 27.0.1";
 
@@ -187,7 +188,7 @@ pub static COMMANDS: &[Command] = &[
         tags: &["library", "folders", "size", "du", "caches"],
     },
     Command {
-        id: "simctl-delete-unavailable", topic: STORAGE, title: "Delete unusable Xcode simulators",
+        id: "simctl-delete-unavailable", topic: DEVELOPER, title: "Delete unusable Xcode simulators",
         command: "xcrun simctl delete unavailable",
         description: "Deletes simulator devices that the installed Xcode no longer supports, and their data.",
         example: None, safety: Safety::ChangesFiles, appears_in: Some("Storage"),
@@ -195,14 +196,14 @@ pub static COMMANDS: &[Command] = &[
         tags: &["xcode", "simulator", "simctl", "developer"],
     },
     Command {
-        id: "docker-df", topic: STORAGE, title: "Docker disk use",
+        id: "docker-df", topic: DEVELOPER, title: "Docker disk use",
         command: "docker system df",
         description: "Shows the space used by images, containers, local volumes and build cache. It needs the Docker daemon to be running.",
         example: None, safety: Safety::ReadOnly, appears_in: Some("Storage"), undo: None,
         tags: &["docker", "images", "containers", "developer"],
     },
     Command {
-        id: "docker-prune", topic: STORAGE, title: "Remove unused Docker data",
+        id: "docker-prune", topic: DEVELOPER, title: "Remove unused Docker data",
         command: "docker system prune",
         description: "Asks for confirmation, then removes stopped containers, networks no container uses, dangling images and dangling build cache. `--all` also removes every unused image, `--volumes` also removes anonymous volumes, and `-f` skips the question.",
         example: None, safety: Safety::ChangesFiles, appears_in: Some("Storage"),
@@ -210,7 +211,7 @@ pub static COMMANDS: &[Command] = &[
         tags: &["docker", "prune", "cleanup", "developer"],
     },
     Command {
-        id: "brew-cleanup-n", topic: STORAGE, title: "Preview Homebrew clean-up",
+        id: "brew-cleanup-n", topic: DEVELOPER, title: "Preview Homebrew clean-up",
         command: "brew cleanup -n",
         description: "Lists the old versions and cached downloads that `brew cleanup` would remove, and how much space that frees. The -n flag removes nothing.",
         example: Some(Example { macos: MACOS, output: "Would remove: /opt/homebrew/Library/Homebrew/vendor/portable-ruby/<version> (1,707 files, 34.6MB)\n==> This operation would free approximately 69.3MB of disk space." }),
@@ -237,16 +238,56 @@ pub fn usage() -> String {
     format!("usage: monitor-lizard [{}]", parts.join(" | "))
 }
 
-fn contains(hay: &str, word: &str) -> bool {
-    hay.to_lowercase().contains(word)
+/// The words of a query: lower case, with no-letter words ("/", "-") dropped and a trailing "s" cut from words
+/// longer than three letters, so "snapshots" also finds "snapshot". The page's search (`guideWords` in
+/// web/index.html) follows the same rules; tests/fixtures/guide-search.json holds results both must give.
+fn query_words(q: &str) -> Vec<String> {
+    q.split_whitespace()
+        .map(str::to_lowercase)
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .map(|w| if w.chars().count() > 3 && w.ends_with('s') { w[..w.len() - 1].to_string() } else { w })
+        .collect()
 }
 
-/// Entries whose title, command or tags contain `word`, ignoring case. A blank word matches everything.
-pub fn search(word: &str) -> (Vec<&'static Command>, Vec<&'static Term>) {
-    let w = word.trim().to_lowercase();
-    let cmds = COMMANDS.iter().filter(|c| contains(c.title, &w) || contains(c.command, &w) || c.tags.iter().any(|t| contains(t, &w))).collect();
-    let terms = TERMS.iter().filter(|t| contains(t.term, &w) || t.tags.iter().any(|g| contains(g, &w))).collect();
-    (cmds, terms)
+/// A word under three characters must stand alone ("df" in "docker system df", not "dfs" or "ndf"), or it
+/// would match inside almost every description.
+fn has_word(hay: &str, w: &str) -> bool {
+    hay.match_indices(w).any(|(i, _)| {
+        let before = hay[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+        let after = hay[i + w.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+        before && after
+    })
+}
+
+/// 0 when any word is missing. Otherwise per word: title 8, tags 4, command 4, description 1 (short words
+/// are not looked for in the description), summed.
+fn score(title: &str, command: &str, tags: &[&str], text: &str, words: &[String]) -> u32 {
+    let (title, command, text, tags) = (title.to_lowercase(), command.to_lowercase(), text.to_lowercase(), tags.join(" ").to_lowercase());
+    let mut total = 0;
+    for w in words {
+        let short = w.chars().count() < 3;
+        let hit = |hay: &str| if short { has_word(hay, w) } else { hay.contains(w.as_str()) };
+        let n = if hit(&title) { 8 } else { 0 } + if hit(&tags) { 4 } else { 0 } + if hit(&command) { 4 } else { 0 } + if !short && hit(&text) { 1 } else { 0 };
+        if n == 0 { return 0; }
+        total += n;
+    }
+    total
+}
+
+/// Every entry that matches all the words of `q`, best first and in table order among equals. An empty query
+/// matches everything in table order.
+pub fn search(q: &str) -> (Vec<&'static Command>, Vec<&'static Term>) {
+    let words = query_words(q);
+    if words.is_empty() { return (COMMANDS.iter().collect(), TERMS.iter().collect()); }
+    fn ranked<T>(items: &'static [T], score_of: impl Fn(&T) -> u32) -> Vec<&'static T> {
+        let mut v: Vec<(u32, &T)> = items.iter().map(|i| (score_of(i), i)).filter(|(n, _)| *n > 0).collect();
+        v.sort_by_key(|(n, _)| std::cmp::Reverse(*n)); // stable: equal scores keep table order
+        v.into_iter().map(|(_, i)| i).collect()
+    }
+    (
+        ranked(COMMANDS, |c| score(c.title, c.command, c.tags, c.description, &words)),
+        ranked(TERMS, |t| score(t.term, "", t.tags, t.meaning, &words)),
+    )
 }
 
 fn topics() -> Vec<&'static str> {
@@ -353,10 +394,54 @@ mod tests {
     }
 
     #[test]
+    fn search_needs_every_word_and_reads_descriptions() {
+        assert!(search("time docker").0.is_empty());
+        assert!(search("dangling").0.iter().any(|c| c.id == "docker-prune"), "description is searched");
+    }
+
+    #[test]
+    fn short_and_punctuation_queries_do_not_match_everything() {
+        assert_eq!(search("").0.len(), COMMANDS.len());
+        for q in ["/", " ", "-", " / - "] { assert_eq!(search(q).0.len(), COMMANDS.len(), "{q:?} is an empty query"); }
+        assert!(search("a").0.len() < COMMANDS.len() / 2, "a lone letter matches only entries that have it as a word");
+        assert!(search("df").0.iter().any(|c| c.id == "df-root"));
+    }
+
+    /// The same table of query -> ordered ids is checked by tests/web/guide-search.test.mjs.
+    #[test]
+    fn search_gives_the_results_in_the_shared_fixture() {
+        let table: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/guide-table.json")).unwrap();
+        assert_eq!(table, serde_json::from_str::<serde_json::Value>(&to_json()).unwrap(), "tests/fixtures/guide-table.json is stale: GUIDE_FIXTURE_UPDATE=1 cargo test guide_table_fixture");
+        let cases: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/guide-search.json")).unwrap();
+        for case in cases.as_array().unwrap() {
+            let q = case["q"].as_str().unwrap();
+            let (c, t) = search(q);
+            let strings = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect::<Vec<_>>();
+            assert_eq!(c.iter().map(|c| c.id.to_string()).collect::<Vec<_>>(), strings(&case["commands"]), "commands for {q:?}");
+            assert_eq!(t.iter().map(|t| t.id.to_string()).collect::<Vec<_>>(), strings(&case["terms"]), "terms for {q:?}");
+        }
+    }
+
+    /// Rewrites the table fixture the page tests read. Run with GUIDE_FIXTURE_UPDATE=1 after editing the table.
+    #[test]
+    fn guide_table_fixture() {
+        if std::env::var("GUIDE_FIXTURE_UPDATE").is_ok() {
+            let v: serde_json::Value = serde_json::from_str(&to_json()).unwrap();
+            std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/guide-table.json"), serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
+    }
+
+    #[test]
+    fn topics_are_the_product_storage_and_developer() {
+        assert_eq!(topics(), vec![OWN_TOPIC, "storage", "developer"]);
+        for id in ["docker-df", "docker-prune", "simctl-delete-unavailable", "brew-cleanup-n"] { assert_eq!(COMMANDS.iter().find(|c| c.id == id).unwrap().topic, "developer", "{id}"); }
+    }
+
+    #[test]
     fn no_match_names_the_topics() {
         let text = render_help("zzzz");
         assert!(text.starts_with("No command matches \"zzzz\""));
-        assert!(text.contains("monitor-lizard") && text.contains("storage"));
+        assert!(text.contains("monitor-lizard") && text.contains("storage") && text.contains("developer"));
     }
 
     #[test]
