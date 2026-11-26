@@ -1,13 +1,10 @@
-//! One blocking call to a local llama-server, asking it to classify a group from A7's bounded
-//! `Evidence`. The model only ever suggests: `classify::allowed_actions` already decided what it
-//! is allowed to suggest, and clamping the verdict against the rules is A10, not here. This module
-//! only builds the request, sends it once, and parses the reply -- it never retries in a loop and
-//! never trusts the reply's shape without checking it.
-//!
-//! Not called from anywhere yet: clamping the verdict against the rules (A10) and the UI that
-//! triggers a call for one group are later todos. `pub fn classify` is this module's whole surface
-//! for them to call.
-#![allow(dead_code)]
+//! One blocking call to a local llama-server, asking it to classify a group from the bounded
+//! `Evidence` that `classify::evidence` already built. The model only ever suggests:
+//! `classify::allowed_actions` already decided what it is allowed to suggest, and this module
+//! does not override or widen that -- whatever clamps a verdict against the rules before anything
+//! acts on it lives elsewhere, not here. This module only builds the request, sends it once, and
+//! parses the reply; it never retries in a loop and never trusts the reply's shape without
+//! checking it. `pub fn classify` is its whole surface for a caller.
 use crate::classify::{Action, Evidence};
 use crate::model::Label;
 use serde::{Deserialize, Serialize};
@@ -49,7 +46,8 @@ pub struct Verdict {
 #[derive(Debug)]
 pub enum LlmError {
     /// The server could not be reached at all: connection refused, DNS/host lookup failed, or
-    /// another transport-level failure. Not retried here; A13 owns whether the server is running.
+    /// another transport-level failure. Not retried here: whether a server should be running at
+    /// all, and starting one if not, is a decision for whatever manages that process, not this call.
     Unavailable(String),
     /// Reached the server, but the reply was not valid JSON, didn't match the `Verdict` shape, or
     /// (for a reply over the byte cap) was truncated before it could be a complete object.
@@ -90,10 +88,6 @@ fn request_body(evidence: &Evidence, use_schema: bool) -> serde_json::Value {
     let user = serde_json::json!({ "evidence": evidence }).to_string();
     let mut body = serde_json::json!({
         "temperature": 0,
-        // llama-server-specific: Qwen's chat template defaults to an internal "thinking" pass that
-        // costs several extra seconds and tokens for no benefit here; a backend that doesn't
-        // recognise this field (anything but llama-server) just ignores it.
-        "chat_template_kwargs": { "enable_thinking": false },
         "messages": [
             { "role": "system", "content": SYSTEM_PROMPT },
             { "role": "user", "content": user },
@@ -101,6 +95,12 @@ fn request_body(evidence: &Evidence, use_schema: bool) -> serde_json::Value {
     });
     if use_schema {
         body["response_format"] = json_schema();
+        // llama-server/Qwen-specific: its chat template defaults to an internal "thinking" pass
+        // that costs several extra seconds and tokens for no benefit here. Sent only alongside
+        // response_format, on the same first attempt; the fallback below drops both together, so
+        // a backend that rejected the first attempt for any reason gets the plainest possible
+        // second request rather than one still carrying a field it might also choke on.
+        body["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false });
     }
     body
 }
@@ -130,9 +130,20 @@ enum CallError {
     Timeout,
     Io(String),
 }
+impl CallError {
+    fn into_llm_error(self, after_fallback: bool) -> LlmError {
+        match self {
+            CallError::Timeout => LlmError::Timeout,
+            CallError::Conn(e) => LlmError::Unavailable(e),
+            CallError::Io(e) => LlmError::Invalid(e),
+            CallError::Status(s) if after_fallback => LlmError::Invalid(format!("server returned {s} even without response_format")),
+            CallError::Status(s) => LlmError::Invalid(format!("server returned {s}")),
+        }
+    }
+}
 
-fn call(base_url: &str, evidence: &Evidence, use_schema: bool) -> Result<String, CallError> {
-    let config = ureq::Agent::config_builder().timeout_global(Some(TIMEOUT)).http_status_as_error(false).build();
+fn call(base_url: &str, evidence: &Evidence, use_schema: bool, timeout: Duration) -> Result<String, CallError> {
+    let config = ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build();
     let agent: ureq::Agent = config.into();
     let url = format!("{base_url}/v1/chat/completions");
     let resp = agent.post(&url).send_json(&request_body(evidence, use_schema));
@@ -156,24 +167,24 @@ fn call(base_url: &str, evidence: &Evidence, use_schema: bool) -> Result<String,
     Ok(content.to_string())
 }
 
-/// `base_url` is `http://127.0.0.1:<port>`, A13's concern to start and stop.
+/// `base_url` is `http://127.0.0.1:<port>`; starting and stopping that server is this function's
+/// caller's concern, not this module's -- it only ever makes the one call.
 pub fn classify(base_url: &str, evidence: &Evidence) -> Result<Verdict, LlmError> {
-    match call(base_url, evidence, true) {
+    classify_with_timeout(base_url, evidence, TIMEOUT)
+}
+
+fn classify_with_timeout(base_url: &str, evidence: &Evidence, timeout: Duration) -> Result<Verdict, LlmError> {
+    match call(base_url, evidence, true, timeout) {
         Ok(content) => parse_reply(&content),
         // A 4xx/5xx on the schema-constrained attempt may mean the server doesn't support
         // `response_format`: retried once, plain, relying on the system prompt's own format
         // description. Connection failure and timeout are not retried: the budget is spent, or
         // there is nothing listening to retry against.
-        Err(CallError::Status(_)) => match call(base_url, evidence, false) {
+        Err(CallError::Status(_)) => match call(base_url, evidence, false, timeout) {
             Ok(content) => parse_reply(&content),
-            Err(CallError::Timeout) => Err(LlmError::Timeout),
-            Err(CallError::Conn(e)) => Err(LlmError::Unavailable(e)),
-            Err(CallError::Status(s)) => Err(LlmError::Invalid(format!("server returned {s} even without response_format"))),
-            Err(CallError::Io(e)) => Err(LlmError::Invalid(e)),
+            Err(e) => Err(e.into_llm_error(true)),
         },
-        Err(CallError::Timeout) => Err(LlmError::Timeout),
-        Err(CallError::Conn(e)) => Err(LlmError::Unavailable(e)),
-        Err(CallError::Io(e)) => Err(LlmError::Invalid(e)),
+        Err(e) => Err(e.into_llm_error(false)),
     }
 }
 
@@ -181,10 +192,9 @@ pub fn classify(base_url: &str, evidence: &Evidence) -> Result<Verdict, LlmError
 mod tests {
     use super::*;
     use crate::model::Label;
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use tiny_http::{Response, Server};
 
     fn evidence(label: &str) -> Evidence {
         Evidence {
@@ -194,32 +204,22 @@ mod tests {
         }
     }
 
-    /// A tiny fixture HTTP server on an ephemeral port: reads one request, ignores its contents
-    /// (tests that need to inspect the request body do so via `request_body` directly, not this
-    /// server), and replies with whatever `respond` returns for (status, body).
-    fn fixture_server(respond: impl Fn() -> (u16, String) + Send + 'static) -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
+    /// A tiny fixture HTTP server on an ephemeral port, backed by `tiny_http` (already a
+    /// dependency, used by `src/server.rs`), so nothing here hand-rolls HTTP/1.1 parsing. `respond`
+    /// is called once per request with the 1-based call number and the raw request body, and
+    /// decides the (status, reply) to send back -- so a test can both count calls and inspect
+    /// exactly what each one sent, not just that a call happened.
+    fn fixture_server(respond: impl Fn(u32, &str) -> (u16, String) + Send + 'static) -> String {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
         thread::spawn(move || {
-            if let Ok((stream, _)) = listener.accept() {
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                let mut content_len = 0usize;
-                loop {
-                    line.clear();
-                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
-                        break;
-                    }
-                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                        content_len = v.trim().parse().unwrap_or(0);
-                    }
-                }
-                let mut body = vec![0u8; content_len];
-                use std::io::Read as _;
-                let _ = reader.read_exact(&mut body);
-                let (status, reply) = respond();
-                let mut stream = stream;
-                let _ = write!(stream, "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{reply}", reply.len());
+            let mut n = 0u32;
+            for mut req in server.incoming_requests() {
+                n += 1;
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+                let (status, reply) = respond(n, &body);
+                let _ = req.respond(Response::from_string(reply).with_status_code(status));
             }
         });
         format!("http://127.0.0.1:{port}")
@@ -231,28 +231,29 @@ mod tests {
 
     #[test]
     fn connection_refused_is_unavailable_not_a_panic() {
-        // Port 0 never accepts a real connection; this exercises the real connect-failure path.
+        // Port 1 never accepts a real connection on a loopback address; this exercises the real
+        // connect-failure path, and must not retry (the fallback path only triggers on Status).
         let r = classify("http://127.0.0.1:1", &evidence("x"));
         assert!(matches!(r, Err(LlmError::Unavailable(_))));
     }
 
     #[test]
     fn a_valid_schema_reply_parses() {
-        let url = fixture_server(|| (200, chat_reply(r#"{"label":"unknown","confidence":"medium","actions":["investigate"],"rationale":"looks fine"}"#)));
+        let url = fixture_server(|_, _| (200, chat_reply(r#"{"label":"unknown","confidence":"medium","actions":["investigate"],"rationale":"looks fine"}"#)));
         let v = classify(&url, &evidence("x")).unwrap();
         assert_eq!(v, Verdict { label: Label::Unknown, confidence: Confidence::Medium, actions: vec![Action::Investigate], rationale: "looks fine".into() });
     }
 
     #[test]
     fn reply_that_is_not_json_is_invalid() {
-        let url = fixture_server(|| (200, chat_reply("not json at all")));
+        let url = fixture_server(|_, _| (200, chat_reply("not json at all")));
         let r = classify(&url, &evidence("x"));
         assert!(matches!(r, Err(LlmError::Invalid(_))));
     }
 
     #[test]
     fn reply_violating_the_schema_is_invalid() {
-        let url = fixture_server(|| (200, chat_reply(r#"{"label":"not-a-real-label","confidence":"medium","actions":[],"rationale":"x"}"#)));
+        let url = fixture_server(|_, _| (200, chat_reply(r#"{"label":"not-a-real-label","confidence":"medium","actions":[],"rationale":"x"}"#)));
         let r = classify(&url, &evidence("x"));
         assert!(matches!(r, Err(LlmError::Invalid(_))));
     }
@@ -260,51 +261,42 @@ mod tests {
     #[test]
     fn a_reply_over_the_byte_cap_is_truncated_then_invalid() {
         let huge = "x".repeat(MAX_BODY_BYTES + 5000);
-        let url = fixture_server(move || (200, chat_reply(&huge)));
+        let url = fixture_server(move |_, _| (200, chat_reply(&huge)));
         let r = classify(&url, &evidence("x"));
         assert!(matches!(r, Err(LlmError::Invalid(_))), "a truncated reply cannot parse as complete JSON");
     }
 
     #[test]
-    fn server_rejecting_response_format_falls_back_to_prompt_only() {
-        let call_count = Arc::new(Mutex::new(0));
-        let cc = call_count.clone();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                let mut content_len = 0usize;
-                loop {
-                    line.clear();
-                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
-                        break;
-                    }
-                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                        content_len = v.trim().parse().unwrap_or(0);
-                    }
-                }
-                let mut body = vec![0u8; content_len];
-                use std::io::Read as _;
-                let _ = reader.read_exact(&mut body);
-                let n = { let mut c = cc.lock().unwrap(); *c += 1; *c };
-                let has_schema = String::from_utf8_lossy(&body).contains("response_format");
-                let (status, reply) = if n == 1 && has_schema {
-                    (400, r#"{"error":"response_format not supported"}"#.to_string())
-                } else {
-                    (200, chat_reply(r#"{"label":"trusted","confidence":"high","actions":["approve"],"rationale":"ok"}"#))
-                };
-                let mut stream = stream;
-                let _ = write!(stream, "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{reply}", reply.len());
-                if n >= 2 {
-                    break;
-                }
+    fn a_server_slower_than_the_timeout_gives_err_timeout() {
+        let url = fixture_server(|_, _| {
+            thread::sleep(Duration::from_millis(400));
+            (200, chat_reply(r#"{"label":"unknown","confidence":"low","actions":[],"rationale":"late"}"#))
+        });
+        let start = std::time::Instant::now();
+        let r = classify_with_timeout(&url, &evidence("x"), Duration::from_millis(100));
+        assert!(matches!(r, Err(LlmError::Timeout)), "{r:?}");
+        assert!(start.elapsed() < Duration::from_millis(400), "classify returned well before the slow server finished, not after waiting for it");
+    }
+
+    #[test]
+    fn server_rejecting_response_format_falls_back_to_prompt_only_dropping_both_extra_fields() {
+        let bodies: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+        let bs = bodies.clone();
+        let url = fixture_server(move |n, body| {
+            bs.lock().unwrap().push(body.to_string());
+            if n == 1 {
+                (400, r#"{"error":"response_format not supported"}"#.to_string())
+            } else {
+                (200, chat_reply(r#"{"label":"trusted","confidence":"high","actions":["approve"],"rationale":"ok"}"#))
             }
         });
-        let v = classify(&format!("http://127.0.0.1:{port}"), &evidence("x")).unwrap();
+        let v = classify(&url, &evidence("x")).unwrap();
         assert_eq!(v.label, Label::Trusted);
-        assert_eq!(*call_count.lock().unwrap(), 2, "exactly one retry, not a loop");
+        let seen = bodies.lock().unwrap();
+        assert_eq!(seen.len(), 2, "exactly one retry, not a loop");
+        assert!(seen[0].contains("response_format"), "the first attempt asks for the schema");
+        assert!(!seen[1].contains("response_format"), "the retry genuinely omits response_format, not just a resend");
+        assert!(!seen[1].contains("chat_template_kwargs"), "the retry drops the llama-server-specific field too, for the widest chance of working");
     }
 
     #[test]
@@ -323,10 +315,14 @@ mod tests {
     }
 
     #[test]
-    fn request_body_includes_the_schema_only_when_asked() {
+    fn request_body_includes_the_schema_and_llama_specific_field_only_when_asked() {
         let e = evidence("x");
-        assert!(request_body(&e, true).get("response_format").is_some());
-        assert!(request_body(&e, false).get("response_format").is_none());
+        let with_schema = request_body(&e, true);
+        let without = request_body(&e, false);
+        assert!(with_schema.get("response_format").is_some());
+        assert!(with_schema.get("chat_template_kwargs").is_some());
+        assert!(without.get("response_format").is_none());
+        assert!(without.get("chat_template_kwargs").is_none(), "the plain fallback carries nothing llama-server-specific either");
     }
 
     #[test]

@@ -41,10 +41,25 @@ fn main() {
             }
             None => eprintln!("usage: sys-monitor classify <group-key>"),
         },
+        Some("llm-classify") => match (args.next(), args.next()) {
+            (Some(key), port) => {
+                let port: u16 = port.and_then(|p| p.parse().ok()).unwrap_or(8090);
+                match classify::evidence(&key) {
+                    Some(ev) => match llm::classify(&format!("http://127.0.0.1:{port}"), &ev) {
+                        Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()),
+                        Err(llm::LlmError::Unavailable(reason)) => eprintln!("llm call failed: server unavailable: {reason}"),
+                        Err(llm::LlmError::Invalid(reason)) => eprintln!("llm call failed: invalid reply: {reason}"),
+                        Err(llm::LlmError::Timeout) => eprintln!("llm call failed: timed out"),
+                    },
+                    None => eprintln!("no such group: {key}"),
+                }
+            }
+            (None, _) => eprintln!("usage: sys-monitor llm-classify <group-key> [port=8090]"),
+        },
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("approve") => for k in args { baseline::approve(&k).expect("write baseline"); println!("approved {k}"); },
-        _ => eprintln!("usage: sys-monitor [snapshot | persistence | metrics | classify <group-key> | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
+        _ => eprintln!("usage: sys-monitor [snapshot | persistence | metrics | classify <group-key> | llm-classify <group-key> [port] | watch | sudo-log [n] | json | privilege [minutes] | serve [port] | approve <group-key>...]"),
     }
 }
 
