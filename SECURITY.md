@@ -33,12 +33,22 @@ Marking an item as expected hides it from the Overview and the New filters. It d
 
 ## What is protected on disk
 
-The data folder `~/.monitor-lizard` is mode 0700, and every file the app keeps in it is 0600: the history database and its WAL and SHM files, the lock file, the backup, `baseline.json`, and `settings.json`. Other local users cannot read the sudo and su launch history.
+The data folder `~/.monitor-lizard` is meant to be mode 0700, and each file the app keeps in it 0600: the history database and its WAL and SHM files, the lock file, the backup, `baseline.json` and `settings.json`. New ones are created that way. Other local users then cannot read the sudo and su launch history.
 
-- At startup the app tightens an existing folder and its files, including ones made by an older version or copied from `~/.sys-monitor` or `~/.ownwatch`. It skips symlinks and anything owned by another user. It prints one line to stderr when it changed something.
-- The older folders themselves are never changed. Their modes stay as they were, so they may still be readable by other users. Delete them once you no longer need them.
-- If a change of mode fails, the app says so once and carries on. Check the modes yourself in that case.
+The first time a process reads the data folder location, it also tightens an existing folder and its files. That covers folders made by an older version or copied from `~/.sys-monitor` or `~/.ownwatch`. It prints one line for a change and one for anything it could not do.
+
+The pass changes a mode only when you own the entry and its mode is wider than the target. It skips symlinks, special files, and files with more than one hard link, and it counts them in the report. It never changes file contents.
+
+## What is not covered
+
+- Root and admin users can always read the folder.
+- Earlier copies, such as Time Machine and backups made before the fix, keep their old modes.
+- An ACL or the immutable flag can still grant access. The pass does not remove them.
+- The mode of your home folder is not changed.
+- A folder or file owned by someone else, for example after running with sudo, is not changed. The report names the folder and says how to fix it.
+- The older folders `~/.sys-monitor` and `~/.ownwatch` are never changed.
 - Files outside this folder are not covered. The in-app guide and the project files are public text, not secrets.
+- If a mode change fails, the app says so once and carries on.
 
 ## Out of scope
 
