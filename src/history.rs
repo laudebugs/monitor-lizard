@@ -44,6 +44,12 @@ impl History {
         Ok((rows.into_iter().map(|(p, t)| (p, t as u64)).collect(), earliest))
     }
 
+    /// The earliest time this group was ever seen making an outbound connection, if any.
+    pub fn first_seen(&self, group_key: &str) -> rusqlite::Result<Option<u64>> {
+        self.0.query_row("SELECT MIN(first_seen) FROM seen WHERE group_key=?1", [group_key], |r| r.get::<_, Option<i64>>(0))
+            .map(|v| v.map(|v| v as u64))
+    }
+
     pub fn seen_rows(&self, limit: usize) -> rusqlite::Result<Vec<SeenRow>> {
         let mut st = self.0.prepare("SELECT group_key,remote,first_seen,last_seen,hits FROM seen ORDER BY first_seen DESC LIMIT ?1")?;
         let rows = st.query_map(params![limit as i64], |r| Ok(SeenRow { group_key: r.get(0)?, remote: r.get(1)?, first_seen: r.get::<_, i64>(2)? as u64, last_seen: r.get::<_, i64>(3)? as u64, hits: r.get::<_, i64>(4)? as u64 }))?;
@@ -141,6 +147,16 @@ mod tests {
         let n = h.recent_new(2100).unwrap();
         assert_eq!(n["app"], vec!["3.3.3.3".to_string()]);
         assert!(h.recent_new(2000 + FLAG_WINDOW_SECS + 1).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn first_seen_is_the_earliest_outbound_sighting_or_none_for_a_group_never_seen() {
+        let dir = std::env::temp_dir().join(format!("ow-test-fs-{}", std::process::id()));
+        let mut h = History::at(&dir.join("h.db")).unwrap();
+        h.record(&[group("app", "1.1.1.1")], 1000).unwrap();
+        h.record(&[group("app", "2.2.2.2")], 1500).unwrap();
+        assert_eq!(h.first_seen("app").unwrap(), Some(1000));
+        assert_eq!(h.first_seen("never-seen").unwrap(), None);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

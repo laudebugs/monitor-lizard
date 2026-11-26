@@ -26,15 +26,19 @@ fn out(cmd: &str, args: &[&str]) -> String {
     Command::new(cmd).args(args).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
-fn check(pid: u32, my_uid: &str) -> Result<(), &'static str> {
+/// Shared with `classify::allowed_actions`, so there is exactly one place that decides whether a
+/// pid can be signalled: a live `ps` lookup, not a cached snapshot field, so it can never go stale.
+pub(crate) fn check(pid: u32, my_uid: &str) -> Result<(), &'static str> {
     if pid <= 1 { return Err("refusing to signal launchd"); }
     if pid == std::process::id() { return Err("refusing to signal sys-monitor itself"); }
     let uid = out("ps", &["-o", "uid=", "-p", &pid.to_string()]);
     if uid.is_empty() { Err("no such process") } else if uid != my_uid { Err("not your process") } else { Ok(()) }
 }
 
+pub(crate) fn my_uid() -> String { out("id", &["-u"]) }
+
 pub fn execute(pids: &[u32], sig: Sig) -> Outcome {
-    let me = out("id", &["-u"]);
+    let me = my_uid();
     let mut o = Outcome::default();
     for &pid in pids {
         match check(pid, &me) {
