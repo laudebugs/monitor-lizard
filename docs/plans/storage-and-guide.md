@@ -63,7 +63,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | A9 | Mark as expected (feedback baseline) | None |
 | M1 | SQLite schema versioning | None |
 | T1a | Design tokens, buttons and chips (done; forced-colors and reduced-motion checks moved to T1c) | None |
-| T1c | Check forced colors, reduced motion and the remaining 1352 px pages | T1a |
+| T1c | Check forced colors and reduced motion (the owner's DevTools check) | T1a |
 | T1b | Page shell, sidebar groups, table styles (done 2026-11-26; forced colors in T1c) | T1a, N1 |
 | R1 | Overview redesign | T1b, N1, A9 |
 | R2 | Network redesign | T1b, N1, N3, A9 |
