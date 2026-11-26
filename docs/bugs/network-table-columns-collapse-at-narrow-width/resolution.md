@@ -38,14 +38,23 @@ Cell widths are the header cells in px, measured in same-origin frames, dark the
 
 Also measured at 600 px for every page, with and without the Apps inspector at 600, 795 and 1000 px: the same widths as at 400 px.
 
-**Looked at in a browser** (screenshots, iframe of the stated width, the view scrolled to the table): Network at 400 px dark, and at 795 px light; Listeners at 795 px dark; Persistence at 400 px light; Apps at 400 px dark; Apps at 1352 px with the inspector open, dark and light. Columns were readable and the table scrolled inside its card. Network, Persistence and Listeners at 1352 px, and the other theme at each width, were measured but not looked at.
+**Looked at in a browser.** Screenshots were taken in a same-origin frame of the stated width, with the view scrolled to the table. They covered Network at 400 px dark and 795 px light, Listeners at 795 px dark, Persistence at 400 px light and Apps at 400 px dark. They also covered Apps at 1352 px with the inspector open, in both themes. Columns were readable and the table scrolled inside its card.
+
+Network, Persistence and Listeners at 1352 px, and the other theme at each width, were measured but not looked at.
 
 **Alignment.** A script compared DOM rows, cells, grid tracks and Copy buttons on Apps, Network, Listeners, Persistence and History at 400 and 1000 px. Counts matched, and each button was within 1 px of its row's centre. Hiding the first column through the column menu kept every table aligned. On Network the floor fell from 862 to 761 px. That run used the 80 px name columns; a second run after the 120 px change repeated the counts for Apps, Network and Persistence.
 
 **Regression test.** `tests/web/table-floor.test.mjs` reads the grids and the floor block from `web/index.html`. It fails if any flexible track has a minimum under 80 px, or if the floor rule or the variables are removed. It cannot show that a table scrolls; the measurements above are the proof of that.
 
+## Follow-up fixes after review
+
+- **Open menus.** A table that scrolls is a scroll container, and the Columns menu opens inside it. With few rows (a search with no match) the menu was cut off: 4 of 6 options were reachable at 1000 and 1101 px, on Network and Persistence. The rule `.tbl:has(.sel-menu)` now gives the table a 380 px minimum height while a menu is open. After that every option was reachable at 400, 1000, 1101, 1200 and 1352 px, with full and with empty tables. The rows-per-page menu was fully reachable too.
+- **Keyboard.** A table wider than its card now gets `tabindex="0"`, `role="region"` and an `aria-label` such as "Network connections, scrollable". They are removed when it fits. A visible focus outline is drawn while it has focus.
+- **Names.** The first (name) cell of Apps, Network and Persistence, and the App cell of Listeners, carry the full text in `title`.
+- **Tests.** The test file now covers the `xscroll` decision (1100 px, 1101 px, a row exactly as wide as its card), the attributes `setFloor` sets and removes, and the call from `decorateTables`. Deleting that call, or the `xscroll` toggle, makes it fail.
+
 ## Left for later
 
-- At 1101 to about 1250 px, Network and Persistence (floors 902 and 922 px) scroll inside their card and lose their sticky header. The Expected column is 190 px; a shorter "Mark" button below a breakpoint would remove the scroll. This needs a change to the button text in script, so it was left out.
-- A name longer than about 15 characters is still cut with an ellipsis in a 120 px column. The full name is in the row's Copy output and the inspector.
+- At 1101 to about 1250 px, Network and Persistence (floors 902 and 922 px) scroll inside their card and lose their sticky header. This is accepted for now. There are two ways out. A narrower Expected column (a "Mark" button, full text in the title) would remove the scroll but needs a change to the button text in script. A fixed-height scroll container would keep the header sticky but changes how every table is laid out.
+- A name longer than about 15 characters is still cut with an ellipsis in a 120 px column. The full name is in the `title`, the row's Copy output and the inspector.
 - Apps at 1352 px with the inspector open now scrolls inside a 651 px card instead of squeezing.

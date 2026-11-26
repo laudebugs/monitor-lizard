@@ -87,6 +87,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .colmenu{padding:6px 0;min-width:180px}
 .colopt{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 12px;font-size:12px;white-space:nowrap}.colopt:hover{background:var(--sel)}
 .has-copy>.tr{--pr:64px}
+/* An open menu lives inside the scrolling table, so a table with few rows must be tall enough to show it whole. */
+.tbl:has(.sel-menu){min-height:380px}
+.tbl:focus-visible{--focus-edge:var(--fg);outline:2px solid var(--focus-edge);outline-offset:-2px}
+@media(forced-colors:active){.tbl:focus-visible{--focus-edge:Highlight}}
 /* A table never squeezes a column below its own minimum: the row is as wide as its tracks, gaps and padding
    need (the script sets --tracks-min and --cols), and the table scrolls inside its card when the card is narrower. */
 .tbl.floor>.tr{min-width:calc(var(--tracks-min) + (var(--cols) - 1) * var(--gap) + var(--pl) + var(--pr))}
@@ -634,19 +638,31 @@ function tracksOf(el) {
 // of these, the gaps and the padding (the last two are in the CSS), so no column is squeezed below its minimum.
 const trackMin = (t) => { const m = /^(?:minmax\()?(\d+(?:\.\d+)?)px\b/.exec(t); return m ? Number(m[1]) : 0; };
 const tracksMin = (tracks) => tracks.reduce((n, t) => n + trackMin(t), 0);
+// At this width and up the layout puts the sidebar beside the page and the CSS clips tables (to keep the sticky header).
+const SIDE_BY_SIDE = 1101;
+// A table whose row is wider than its card must scroll sideways and be reachable by keyboard. Clipped tables
+// (SIDE_BY_SIDE and up) also need the xscroll class to turn real scrolling back on.
+const scrollState = (rowW, cardW, viewportW) => ({ region: rowW > cardW, xscroll: rowW > cardW && viewportW >= SIDE_BY_SIDE });
+// Sizes the table's rows by their own tracks and makes a table wider than its card a labelled, focusable scroll region.
+function setFloor(sec, head, tracks, name, viewportW) {
+  sec.style.setProperty('--tracks-min', tracksMin(tracks) + 'px'); sec.style.setProperty('--cols', tracks.length);
+  sec.classList.add('floor');
+  const st = scrollState(head.offsetWidth, sec.clientWidth, viewportW);
+  sec.classList.toggle('xscroll', st.xscroll);
+  if (st.region) { sec.setAttribute('tabindex', '0'); sec.setAttribute('role', 'region'); sec.setAttribute('aria-label', name + ', scrollable'); }
+  else { sec.removeAttribute('tabindex'); sec.removeAttribute('role'); sec.removeAttribute('aria-label'); }
+}
+// The name cell is cut with an ellipsis in a narrow column, so its full text is also the tooltip.
+const nameAttrs = (text, style) => ({ style: 'font-weight:500' + (style ? ';' + style : ''), title: String(text) });
 /* floor:end */
 const warned = new Set();
-// Sizes the table's rows by their own tracks, and lets a table that is wider than its card scroll inside it.
-function setFloor(sec, head, tracks) {
-  sec.style.setProperty('--tracks-min', tracksMin(tracks) + 'px'); sec.style.setProperty('--cols', tracks.length);
-  sec.classList.add('floor'); sec.classList.toggle('xscroll', head.offsetWidth > sec.clientWidth);
-}
+const TABLE_NAME = { apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions' };
 function decorateTables() {
   for (const head of document.querySelectorAll('.tr.h[data-table]')) {
     const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');
     const rows = [...sec.querySelectorAll(':scope > .tr:not(.h)')], slice = TABLES[key] ? TABLES[key].page : [];
     for (const old of sec.querySelectorAll(':scope > .rowcopy-layer')) old.remove();
-    setFloor(sec, head, tracksOf(head));
+    setFloor(sec, head, tracksOf(head), TABLE_NAME[key] || key, window.innerWidth);
     // Position decides which cell is hidden and which record a button copies, so a table that does not line up is left alone.
     if (head.children.length !== ids.length || !tableAligned(ids.length, rows.map((r) => r.children.length), slice.length)) {
       if (!warned.has(key)) { warned.add(key); console.warn('table "' + key + '": drawn rows do not match its data; column hiding and row copy are off'); }
@@ -659,7 +675,7 @@ function decorateTables() {
       r.style.gridTemplateColumns = tracks.filter((_, i) => shown.includes(ids[i])).join(' ');
     }
     sec.classList.add('has-copy');
-    setFloor(sec, head, tracksOf(head).filter((_, i) => shown.includes(ids[i])));
+    setFloor(sec, head, tracksOf(head).filter((_, i) => shown.includes(ids[i])), TABLE_NAME[key] || key, window.innerWidth);
     sec.append(h('div', { class: 'rowcopy-layer', style: 'width:' + sec.scrollWidth + 'px' }, rows.map((r, i) =>
       h('button', { class: 'rowcopy', type: 'button', style: 'top:' + (r.offsetTop + Math.max(0, (r.offsetHeight - 24) / 2)) + 'px', title: 'Copy this row as JSON', 'aria-label': 'Copy row ' + (i + 1) + ' as JSON', onClick: () => copyRow(key, slice[i]) }, 'Copy'))));
   }
@@ -871,7 +887,7 @@ function apps() {
   const table = h('section', { class: 'card tbl', style: 'flex:999 1 640px;min-width:0' },
     sortHeader('apps', [{ label: 'App', sort: 'app' }, { label: 'Procs', sort: 'procs', cls: 'num' }, { label: 'Out', sort: 'out', cls: 'num' }, { label: 'Listening', sort: 'listening', title: 'Sort by number of listening ports' }, { label: 'Signing', sort: 'signing' }, { label: 'Status', sort: 'status' }, { label: 'Label', sort: 'label', title: 'Sort by label, most worrying first' }], '', 'ell'),
     pg.slice.map((g) => h('button', { class: 'tr ell ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
-      h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
+      h('span', nameAttrs(g.label), g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
       h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))), h('span', {}, h('span', { class: 'tag ' + trustCls(g.trust), title: (g.rules_fired || []).join(', ') }, g.trust)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match the current filters. '), clearBtn()), pg.pager);
   const g = S.snap.groups.find((x) => x.key === S.sel);
@@ -945,7 +961,7 @@ function listeners() {
     sortHeader('listen', [{ label: 'Port', sort: 'port', cls: 'num' }, { label: 'Proto', sort: 'proto' }, { label: 'Bind address', sort: 'bind' }, { label: 'App', sort: 'app' }, { label: 'PID', sort: 'pid', cls: 'num' }, { label: 'Reach', sort: 'reach', title: 'Sort by reach, exposed first' }], cols, 'ell'),
     pg.slice.map((r) => h('button', { class: 'tr ell', style: cols, onClick: () => { $('q').value = ''; rec({ view: 'apps', sel: r.g.key, filter: 'all', q: '', page: {} }); } },
       h('span', { class: 'num', style: 'font-weight:500' }, r.c.local_port), h('span', { class: 'mut small' }, r.c.proto), h('span', { class: 'mut small' }, r.c.local_addr),
-      h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'num mut' }, r.c.pid), h('span', {}, reach(r)))),
+      h('span', nameAttrs(r.g.label), r.g.label), h('span', { class: 'num mut' }, r.c.pid), h('span', {}, reach(r)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, S.q ? 'No listeners match "' + S.q + '". ' : 'No listeners match the current filters. '), clearBtn()), pg.pager);
   return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), dropdown('f-listen-proto', proto, [['all', 'Any protocol'], ['TCP', 'TCP'], ['UDP', 'UDP']], (v) => setFil('listen-proto', v), 'Protocol filter', true)), table,
     h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'These are sockets, not distinct ports: one app can listen on IPv4 and IPv6 for the same port. Click a row to open the app.' + (missed > 0 ? ' ' + missed + ' more listening sockets belong to processes that exited before they could be read.' : ''))];
@@ -969,7 +985,7 @@ function persistence() {
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((i) => h('div', { class: 'tr ell', style: cols },
-      h('span', { style: 'font-weight:500;display:flex;align-items:center;gap:6px' }, i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
+      h('span', nameAttrs(i.label, 'display:flex;align-items:center;gap:6px'), i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null, i.label),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
       h('span', { class: 'mut small' }, new Date(i.first_seen * 1000).toLocaleDateString()), h('span', { style: 'display:flex;align-items:center;gap:6px' }, i.expected ? expectedTag() : null, markBtn([['startup', { key: i.mark_key }]], i.expected, i.label)))),
@@ -1010,7 +1026,7 @@ function network() {
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((r) => h('div', { class: 'tr ell', style: cols },
-      h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'mut small', title: r.remote }, r.remote),
+      h('span', nameAttrs(r.g.label), r.g.label), h('span', { class: 'mut small', title: r.remote }, r.remote),
       h('span', { class: 'mut small' }, r.ports.join(', ')), h('span', {}, h('span', { class: 'tag' }, r.scope)),
       h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'), h('span', { style: 'display:flex;align-items:center;gap:6px' }, hostExpected(r) ? expectedTag() : null, markBtn([['host', { app: r.g.key, addr: r.remote }]], hostExpected(r), r.remote + ' for ' + r.g.label)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No connections match the current filters. ' : 'No outbound connections right now.'), all.length ? clearBtn() : null), pg.pager);

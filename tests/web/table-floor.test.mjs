@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
 const m = html.match(/\/\* floor:begin \*\/([\s\S]*?)\/\* floor:end \*\//);
 assert.ok(m, 'floor block not found in web/index.html');
-const { trackMin, tracksMin } = new Function(m[1] + '\nreturn { trackMin, tracksMin };')();
+const { trackMin, tracksMin, scrollState, setFloor, nameAttrs, SIDE_BY_SIDE } = new Function(m[1] + '\nreturn { trackMin, tracksMin, scrollState, setFloor, nameAttrs, SIDE_BY_SIDE };')();
 
 const MIN_FLEX = 80;
 const split = (s) => { const out = []; let d = 0, cur = ''; for (const ch of s) { if (ch === '(') d++; else if (ch === ')') d--; if (ch === ' ' && !d) { if (cur) out.push(cur); cur = ''; } else cur += ch; } return cur ? out.concat(cur) : out; };
@@ -38,7 +38,66 @@ test('floor: the Network row cannot be narrower than 4 fixed tracks, 3 flexible 
   assert.match(html, /\.has-copy>\.tr\{--pr:64px\}/);
 });
 
+// A stand-in for the table element: it records what setFloor does to it.
+const fakeSec = (clientWidth) => {
+  const attrs = new Map(), vars = new Map(), classes = new Set();
+  return {
+    clientWidth, attrs, vars, classes,
+    style: { setProperty: (k, v) => vars.set(k, String(v)) },
+    classList: { add: (c) => classes.add(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
+    setAttribute: (k, v) => attrs.set(k, String(v)), removeAttribute: (k) => attrs.delete(k),
+  };
+};
+
+test('floor: scrollState uses the 1101 px breakpoint and a row exactly as wide as its card', () => {
+  assert.equal(SIDE_BY_SIDE, 1101);
+  assert.deepEqual(scrollState(900, 800, 1100), { region: true, xscroll: false });
+  assert.deepEqual(scrollState(900, 800, 1101), { region: true, xscroll: true });
+  assert.deepEqual(scrollState(800, 800, 1352), { region: false, xscroll: false });
+  assert.deepEqual(scrollState(801, 800, 1352), { region: true, xscroll: true });
+  assert.deepEqual(scrollState(700, 800, 400), { region: false, xscroll: false });
+});
+
+test('floor: setFloor sets the variables and the scroll region only while the row is wider than the card', () => {
+  const sec = fakeSec(700);
+  setFloor(sec, { offsetWidth: 902 }, ['120px', '80px', 'minmax(80px,1fr)'], 'Network connections', 1200);
+  assert.equal(sec.vars.get('--tracks-min'), '280px');
+  assert.equal(sec.vars.get('--cols'), '3');
+  assert.ok(sec.classes.has('floor') && sec.classes.has('xscroll'));
+  assert.equal(sec.attrs.get('tabindex'), '0');
+  assert.equal(sec.attrs.get('role'), 'region');
+  assert.equal(sec.attrs.get('aria-label'), 'Network connections, scrollable');
+  // The card grows (a window resize): the same element loses the region and the class.
+  sec.clientWidth = 1073;
+  setFloor(sec, { offsetWidth: 902 }, ['120px'], 'Network connections', 1352);
+  assert.ok(!sec.classes.has('xscroll'));
+  for (const k of ['tabindex', 'role', 'aria-label']) assert.ok(!sec.attrs.has(k), k + ' should be removed');
+  // Below the breakpoint the table scrolls without the class, but is still a labelled region.
+  const narrow = fakeSec(342);
+  setFloor(narrow, { offsetWidth: 902 }, ['120px'], 'Apps', 400);
+  assert.ok(!narrow.classes.has('xscroll'));
+  assert.equal(narrow.attrs.get('aria-label'), 'Apps, scrollable');
+});
+
+test('floor: decorateTables calls setFloor before and after it trims hidden columns, with a name for every table', () => {
+  const body = html.slice(html.indexOf('function decorateTables()'), html.indexOf('let decoRaf'));
+  assert.equal((body.match(/setFloor\(sec, head, /g) || []).length, 2);
+  assert.match(body, /TABLE_NAME\[key\]/);
+  const names = html.match(/const TABLE_NAME = \{([^}]*)\}/)[1];
+  for (const k of [...html.matchAll(/sortHeader\('(\w+)'/g)].map((x) => x[1])) if (k !== 'sudo' && k !== 'auth') assert.match(names, new RegExp('\\b' + k + ':'), 'no name for table ' + k);
+  assert.match(html, /\.tbl:focus-visible\{[^}]*outline:2px solid var\(--focus-edge\)/);
+});
+
+test('floor: a long name reaches the title of the name cell, and every name cell uses nameAttrs', () => {
+  const long = 'com.example.a-very-long-launch-agent-name.helper.service';
+  const a = nameAttrs(long, 'display:flex');
+  assert.equal(a.title, long);
+  assert.match(a.style, /display:flex/);
+  assert.equal(nameAttrs(42).title, '42');
+  assert.equal((html.match(/h\('span', nameAttrs\(/g) || []).length, 4); // Apps, Listeners, Persistence, Network
+});
+
 test('floor: a table that opts into the floor sets both variables', () => {
-  assert.match(html, /setProperty\('--tracks-min'/);
-  assert.match(html, /setProperty\('--cols'/);
+  assert.match(m[1], /setProperty\('--tracks-min'/);
+  assert.match(m[1], /setProperty\('--cols'/);
 });
