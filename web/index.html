@@ -40,6 +40,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .badge{font-size:11px;min-width:22px;text-align:center;padding:2px 6px;background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
 .badge.warn{color:var(--warn);border-color:var(--warn)}.badge.bad{color:var(--bad);border-color:var(--bad)}
 .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
+.crumb{font-size:12px;color:var(--mut);margin:12px 0 4px}.crumb a{color:inherit}.crumb span[aria-hidden]{margin:0 6px}
 .top h1{margin:0;font-size:20px;font-weight:600}
 .search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
 .search::placeholder{color:var(--mut)}
@@ -119,6 +120,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
 <main class="main">
 <header class="top"><h1 id="title">Overview</h1><div class="grow"></div><input id="q" class="search" type="search" placeholder="Search apps, ports" aria-label="Search apps and ports"></header>
+<nav id="crumb" class="crumb" aria-label="Breadcrumb"></nav>
 <div id="content"></div>
 </main>
 </div>
@@ -149,6 +151,110 @@ const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
 // The trust label comes from rules in the server (trusted, unknown, suspicious); the page only colors it.
 const trustCls = (t) => ({ trusted: 'ok', unknown: 'warn', suspicious: 'bad' }[t] || '');
 const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved this app', unreviewed: 'Uses the network and is not approved yet', unverified: 'Not approved and not verified as an Apple program', 'unsigned-network': 'Unsigned program using the network', 'exposed-listener': 'Listening on all interfaces', 'exposed-listener-apple': 'Apple service reachable from your network', 'new-remote': 'Contacted hosts first seen in the last hour', 'debug-port': 'Remote-debugging port is open' };
+/* url-state:begin */
+/* The address bar is the page's saved state: #<page>?<key>=<value>&...  Keys are a public format once a
+   link is shared, so the list stays short and every key keeps its meaning:
+     filter  the page's chip filter (Apps, Listeners, Persistence, Network)
+     sel     the selected app (Apps only)
+     q       the search text (pages the search box filters)
+     sort    comma-separated key.column.direction, e.g. apps.procs.desc
+     failed  1 = only failed requests (Privilege)
+   Read-only link shortcuts for pre-filtered views: host=<addr> (Network), port=<n> and exposed=1 (Listeners).
+   Never put the per-run write token here: a hash is copied, bookmarked and shared. */
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History', performance: 'Performance' };
+// Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
+const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history'];
+const PAGE_FILTER = { apps: ['filter', ['all', 'review', 'approved', 'macOS']], listeners: ['lfilter', ['all', 'exposed', 'local']], persist: ['pfilter', ['all', 'new', 'user', 'system']], network: ['nfilter', ['all', 'public', 'lan', 'new']] };
+const PAGE_SORTS = { apps: ['apps'], listeners: ['listen'], persist: ['pers'], network: ['net'], priv: ['sudo', 'auth'], history: ['hist', 'act'] };
+const HASH_MAX = 2048; // browsers and chat apps start truncating long addresses around here
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const dec = (s) => { try { return decodeURIComponent(s); } catch (e) { return null; } };
+
+function parseHash(hash) {
+  const raw = String(hash || '').replace(/^#/, ''), cut = raw.indexOf('?');
+  const page = dec(cut < 0 ? raw : raw.slice(0, cut));
+  const out = { view: 'overview', filter: 'all', sel: null, q: '', sorts: {}, failed: false };
+  if (page == null || !hasOwn(TITLES, page)) return out;
+  out.view = page;
+  const p = {};
+  if (cut >= 0) for (const kv of raw.slice(cut + 1).split('&')) {
+    const eq = kv.indexOf('='), k = dec(eq < 0 ? kv : kv.slice(0, eq)), v = eq < 0 ? '' : dec(kv.slice(eq + 1));
+    if (k != null && v != null && !hasOwn(p, k)) p[k] = v;
+  }
+  const f = PAGE_FILTER[page];
+  if (f && f[1].includes(p.filter)) out.filter = p.filter;
+  if (page === 'listeners' && p.exposed === '1') out.filter = 'exposed';
+  if (page === 'apps' && p.sel) out.sel = p.sel;
+  if (FILTERABLE.includes(page)) {
+    if (p.q) out.q = p.q;
+    else if (page === 'network' && p.host) out.q = p.host;
+    else if (page === 'listeners' && /^\d{1,5}$/.test(p.port || '')) out.q = p.port;
+  }
+  if (page === 'priv' && p.failed === '1') out.failed = true;
+  for (const part of (p.sort || '').split(',')) {
+    const [key, col, dir, extra] = part.split('.');
+    if (extra === undefined && col && (dir === 'asc' || dir === 'desc') && (PAGE_SORTS[page] || []).includes(key)) out.sorts[key] = { col, dir };
+  }
+  return out;
+}
+
+// Pure: the same state always gives the same string. Over HASH_MAX the selection goes first, then the filters.
+function writeHash(st) {
+  const page = hasOwn(TITLES, st.view) ? st.view : 'overview', f = PAGE_FILTER[page];
+  const build = (withSel, withFilters) => {
+    const kv = [];
+    if (withSel && page === 'apps' && st.sel) kv.push('sel=' + encodeURIComponent(st.sel));
+    if (withFilters) {
+      if (f && st.filter && st.filter !== 'all' && f[1].includes(st.filter)) kv.push('filter=' + encodeURIComponent(st.filter));
+      if (FILTERABLE.includes(page) && st.q) kv.push('q=' + encodeURIComponent(st.q));
+      const sorts = (PAGE_SORTS[page] || []).filter((k) => st.sorts && st.sorts[k] && (st.sorts[k].dir === 'asc' || st.sorts[k].dir === 'desc')).map((k) => k + '.' + st.sorts[k].col + '.' + st.sorts[k].dir);
+      if (sorts.length) kv.push('sort=' + encodeURIComponent(sorts.join(',')));
+      if (page === 'priv' && st.failed) kv.push('failed=1');
+    }
+    return '#' + page + (kv.length ? '?' + kv.join('&') : '');
+  };
+  try {
+    for (const [a, b] of [[true, true], [false, true]]) { const h = build(a, b); if (h.length <= HASH_MAX) return h; }
+  } catch (e) { /* encodeURIComponent throws on a lone surrogate */ }
+  return '#' + page;
+}
+
+// Page and selection changes are places to come back to (push); filter, sort and search edits refine the
+// current place, so Back must skip them (replace).
+function historyMode(prev, next) {
+  if (prev === next) return 'none';
+  const a = parseHash(prev), b = parseHash(next);
+  return a.view !== b.view || a.sel !== b.sel ? 'push' : 'replace';
+}
+
+const hashStateOf = (s) => ({ view: s.view, filter: PAGE_FILTER[s.view] ? s[PAGE_FILTER[s.view][0]] : 'all', sel: s.sel, q: s.q, sorts: s.sorts || {}, failed: s.view === 'priv' && !!s.fil && s.fil['auth-result'] === 'failed' });
+
+// The S fields a parsed hash sets. Other pages' sorts and filters stay as they were.
+function patchOf(st, s) {
+  const sorts = Object.assign({}, s.sorts);
+  for (const k of PAGE_SORTS[st.view] || []) delete sorts[k];
+  const patch = { view: st.view, sel: st.sel, q: st.q, sorts: Object.assign(sorts, st.sorts), page: {} };
+  if (PAGE_FILTER[st.view]) patch[PAGE_FILTER[st.view][0]] = st.filter;
+  if (st.view === 'priv') patch.fil = Object.assign({}, s.fil, { 'auth-result': st.failed ? 'failed' : 'all' });
+  if (st.sel !== s.sel) patch.expand = { procs: false, conns: false };
+  return patch;
+}
+
+function syncHash(s, loc, hist) {
+  const next = writeHash(hashStateOf(s));
+  if (next === loc.hash) return;
+  const mode = historyMode(loc.hash, next);
+  try { hist[mode === 'push' ? 'pushState' : 'replaceState'](null, '', next); } catch (e) { /* the address bar is a convenience, never worth breaking the page */ }
+}
+
+function crumbParts(st, selLabel) {
+  const parts = [{ text: 'Sys Monitor', href: '#overview' }];
+  if (st.view !== 'overview') parts.push({ text: TITLES[st.view], href: writeHash({ view: st.view }) });
+  else parts.push({ text: TITLES.overview, href: '#overview' });
+  if (st.view === 'apps' && st.sel) parts.push({ text: selLabel || st.sel, href: writeHash(st) });
+  return parts;
+}
+/* url-state:end */
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false } }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
 const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
@@ -263,7 +369,11 @@ async function api(path, method = 'GET') {
   return r;
 }
 async function load(fresh) {
-  try { quiet({ snap: await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json() }); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
+  try {
+    const snap = await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json();
+    // A shared link can name an app that has quit since; open the page without it rather than with an empty panel.
+    const gone = S.view === 'apps' && S.sel && !snap.groups.some((g) => g.key === S.sel);
+    quiet(gone ? { snap, sel: null, toast: 'That app is no longer running, so nothing is selected.' } : { snap }); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
   catch (e) { $('live').textContent = 'offline: ' + e.message; }
 }
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
@@ -633,9 +743,12 @@ function performanceView_() {
 }
 
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['performance', 'Performance', 'M3 17l5-9 4 5 3-6 6 10'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
-// Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
-const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history'];
-const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History', performance: 'Performance' };
+// Each part of the trail is a link, so a selected item can be opened in a new tab and lands on the same item.
+function crumb() {
+  const g = S.snap && S.snap.groups.find((x) => x.key === S.sel);
+  const parts = crumbParts(hashStateOf(S), g ? g.label : S.sel && unprefixed(S.sel));
+  return parts.map((p, i) => [i ? h('span', { 'aria-hidden': 'true' }, '\u203A') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, p.text) : h('a', { href: p.href }, p.text)]);
+}
 
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
@@ -647,6 +760,7 @@ function render() {
   // createElement has no SVG namespace; set the icon markup after the fact.
   document.querySelectorAll('#nav svg').forEach((svg, i) => { svg.innerHTML = '<path d="' + NAV[i][2] + '" stroke-linecap="round" stroke-linejoin="round"/>'; });
   $('title').textContent = TITLES[S.view] || '';
+  $('crumb').replaceChildren(...crumb().flat().filter(Boolean));
   $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
@@ -669,11 +783,15 @@ function render() {
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   $('layer').replaceChildren(...layer);
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
+  syncHash(S, location, history);
 }
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
+// Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
+const fromHash = () => { Object.assign(S, patchOf(parseHash(location.hash), S)); $('q').value = S.q; };
+window.addEventListener('hashchange', () => { fromHash(); render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); render(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
+applyTheme(); fromHash(); render(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
 setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that checks S.perfLive, document.hidden and the active view
 // A tab backgrounded for a while is caught up in this one listener-driven fetch, not by the interval

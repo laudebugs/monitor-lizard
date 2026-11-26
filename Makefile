@@ -18,8 +18,9 @@ check-code: ## cargo check (typecheck + warnings as errors); clippy, duplication
 fmt: ## Format the code (not part of check: the existing code is not rustfmt-clean yet)
 	cargo fmt
 
-test: ## Run the unit tests (macOS only: they call ps and libproc)
+test: ## Run the unit tests (macOS only: they call ps and libproc) and the web logic tests (Node)
 	cargo test --locked
+	node --test tests/web/*.test.mjs
 
 todos: ## Print the todo board (derived, never committed)
 	node scripts/check-todos.mjs --board
