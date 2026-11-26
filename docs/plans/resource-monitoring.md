@@ -5,7 +5,7 @@
 - **Baseline:** `main` after the scaffold adoption PR, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [resource monitoring research](../research/resource-monitoring/README.md), [system-monitor plan](system-monitor.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md), [B2](../todos/done/B2-gpu-and-disk-metrics.md), [B3](../todos/done/B3-per-process-usage-table.md), [B4](../todos/done/B4-performance-overview-page.md), [B5](../todos/ready/B5-cpu-gpu-detail-page.md), [B6](../todos/ready/B6-memory-detail-page.md), [B7](../todos/ready/B7-disk-network-detail-page.md), [B8](../todos/ready/B8-top-consumers-and-guarded-stop.md), [B9](../todos/ready/B9-metrics-history-sqlite.md)
+- **Todos:** [B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md), [B2](../todos/done/B2-gpu-and-disk-metrics.md), [B3](../todos/done/B3-per-process-usage-table.md), [B4](../todos/done/B4-performance-overview-page.md), [B5](../todos/ready/B5-cpu-gpu-detail-page.md), [B6](../todos/ready/B6-memory-detail-page.md), [B7](../todos/ready/B7-disk-network-detail-page.md), [B8](../todos/ready/B8-top-consumers-and-guarded-stop.md), [B9](../todos/done/B9-metrics-history-sqlite.md)
 
 ## 1. Goal
 
@@ -25,7 +25,7 @@ See the [research](../research/resource-monitoring/README.md): Stats and macmon 
 
 - **D1.** No root and no private entitlements. Anything that needs them is shown as "unavailable" with the reason, never as zero.
 - **D2.** Read through system calls (`host_*`, `sysctl`, `proc_pid_rusage`, `getifaddrs`, IOKit), not by spawning commands each tick. Shelling out is a fallback only.
-- **D3.** One sampler thread at 2 s feeds an in-memory ring buffer of one hour. SQLite history is optional and later ([B9](../todos/ready/B9-metrics-history-sqlite.md)). Per-process history is never written to disk by default.
+- **D3.** One sampler thread at 2 s feeds an in-memory ring buffer of one hour. SQLite history is optional and later ([B9](../todos/done/B9-metrics-history-sqlite.md)). Per-process history is never written to disk by default.
 - **D4.** The browser polls `GET /api/metrics?since=<ts>` every 2 s and pauses while hidden. Server-sent events only if polling proves insufficient.
 - **D5.** Every tile has three states: value, unavailable (with a reason) and restricted (another user's process). Pressure is colored on memory pressure, not on how much is used.
 - **D6.** Metrics never trigger an action by themselves. Stop stays user-initiated, guarded, and re-checks pid plus start time against a fresh sample.
