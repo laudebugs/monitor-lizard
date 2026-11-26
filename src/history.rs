@@ -31,6 +31,83 @@ pub struct HistoryPoint {
     pub mem_avg: Option<f64>, pub mem_max: Option<f64>,
 }
 
+/// Ordered schema steps. `PRAGMA user_version` is how many have been applied. Never edit or reorder
+/// a step that has shipped: add a new one at the end, because databases in the wild have already run
+/// the old text. Step 1 is the schema from before versioning, written with IF NOT EXISTS so it is a
+/// no-op on those databases.
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS seen(
+    group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
+    CREATE TABLE IF NOT EXISTS sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS notified(finding_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS samples(res TEXT NOT NULL, metric TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL, PRIMARY KEY(res, metric, ts)) WITHOUT ROWID;",
+];
+
+fn backup_path(p: &std::path::Path) -> PathBuf {
+    let mut name = p.as_os_str().to_owned();
+    name.push(".bak");
+    PathBuf::from(name)
+}
+
+fn user_version(c: &Connection) -> rusqlite::Result<usize> {
+    c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).map(|v| v as usize)
+}
+
+/// Writes the backup under a name no other opener uses, then links it into place. Two processes can
+/// reach this point together, and VACUUM INTO straight to the shared name would let one see the
+/// other's half-written file; the link fails for the loser, so the first complete copy wins.
+fn copy_once(c: &Connection, backup: &std::path::Path) -> rusqlite::Result<()> {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let mut name = backup.as_os_str().to_owned();
+    name.push(format!(".{}-{nanos}-{:?}.tmp", std::process::id(), std::thread::current().id()));
+    let tmp = PathBuf::from(name);
+    let _ = std::fs::remove_file(&tmp);
+    c.execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])?;
+    // An existing backup (AlreadyExists) is the expected loser's outcome; any other failure to
+    // link would leave no backup, so it must not be swallowed.
+    let linked = std::fs::hard_link(&tmp, backup);
+    let _ = std::fs::remove_file(&tmp);
+    match linked {
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(rusqlite::Error::InvalidPath(PathBuf::from(format!("{}: {e}", backup.display())))),
+        _ => Ok(()),
+    }
+}
+
+/// Brings the database up to `steps.len()`. Refuses a database whose version is higher: it was
+/// written by a newer build, and running older code against it could corrupt it silently.
+fn migrate(c: &mut Connection, steps: &[&str], backup: Option<&std::path::Path>) -> rusqlite::Result<()> {
+    let found = user_version(c)?;
+    if found > steps.len() {
+        return Err(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_SCHEMA), Some(format!(
+            "the history database is schema version {found} but this build only understands up to {}; \
+             it was made by a newer version, so it was left unchanged (update this program, or move the file aside)",
+            steps.len()))));
+    }
+    if found == steps.len() { return Ok(()); }
+    // A file that already holds tables but was never versioned predates this mechanism: keep one
+    // copy of it, as it was, before anything is changed. VACUUM INTO makes a consistent copy even
+    // when part of the data still sits in the write-ahead log, which a plain file copy would miss.
+    if found == 0 {
+        if let Some(b) = backup {
+            let has_tables: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table')", [], |r| r.get(0))?;
+            if has_tables && !b.exists() { copy_once(c, b)?; }
+        }
+    }
+    for (i, sql) in steps.iter().enumerate().skip(found) {
+        // IMMEDIATE takes the write lock up front, so two processes cannot both run the same step.
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // The other process may have applied this step while we waited for the lock.
+        if user_version(&tx)? > i { continue; }
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
 pub struct History(Connection);
 
 fn path() -> PathBuf { crate::paths::data_dir().join("history.db") }
@@ -39,19 +116,16 @@ impl History {
     pub fn open() -> rusqlite::Result<Self> { Self::at(&path()) }
     pub fn at(p: &std::path::Path) -> rusqlite::Result<Self> {
         if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
-        let c = Connection::open(p)?;
+        let mut c = Connection::open(p)?;
+        // A second process opening the file at the same moment waits for the first one's migration
+        // instead of failing with "database is locked".
+        c.busy_timeout(std::time::Duration::from_secs(10))?;
+        // Migrate before switching journal mode so a file from a newer version is refused untouched.
+        migrate(&mut c, MIGRATIONS, Some(&backup_path(p)))?;
         // WAL so a process killed mid-batch leaves the file intact (the write-ahead log is simply
         // replayed or rolled back on next open) rather than the default rollback journal's larger
         // window for a half-written page; every table shares one connection and one journal mode.
         c.pragma_update(None, "journal_mode", "WAL")?;
-        c.execute_batch("CREATE TABLE IF NOT EXISTS seen(
-            group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
-            last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
-            CREATE TABLE IF NOT EXISTS sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS notified(finding_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS samples(res TEXT NOT NULL, metric TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL, PRIMARY KEY(res, metric, ts)) WITHOUT ROWID;")?;
         Ok(Self(c))
     }
 
@@ -340,6 +414,139 @@ mod tests {
         assert!(!h.notified_recently("other:rule", 1000 + 100, 86400).unwrap(), "a different finding is unaffected");
         h.mark_notified("k:rule", 1000 + 86400 + 1).unwrap(); // re-marking an existing row updates it, not errors
         assert!(h.notified_recently("k:rule", 1000 + 86400 + 50, 86400).unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn version_of(path: &std::path::Path) -> usize {
+        user_version(&Connection::open(path).unwrap()).unwrap()
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ow-test-migrate-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The five tables as they were before versioning and before the metrics tier existed.
+    fn write_unversioned_database(path: &std::path::Path) {
+        let c = Connection::open(path).unwrap();
+        c.pragma_update(None, "journal_mode", "WAL").unwrap();
+        c.execute_batch("CREATE TABLE seen(group_key TEXT NOT NULL, remote TEXT NOT NULL, first_seen INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
+            CREATE TABLE sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);
+            CREATE TABLE persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
+            CREATE TABLE actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);
+            CREATE TABLE notified(finding_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+            INSERT INTO seen VALUES('app:x','1.2.3.4:443',100,200,7);
+            INSERT INTO persistence VALUES('/Library/LaunchAgents/a.plist',100,200);
+            INSERT INTO actions(ts,sig,sent,refused) VALUES(5,'TERM','[1]','');").unwrap();
+    }
+
+    #[test]
+    fn a_fresh_database_runs_every_migration_and_makes_no_backup() {
+        let dir = scratch("fresh");
+        let db = dir.join("h.db");
+        drop(History::at(&db).unwrap());
+        assert_eq!(version_of(&db), MIGRATIONS.len());
+        assert!(!backup_path(&db).exists(), "nothing existed to back up");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_unversioned_database_keeps_every_row_gets_version_1_and_is_backed_up() {
+        let dir = scratch("old");
+        let db = dir.join("h.db");
+        write_unversioned_database(&db);
+        let h = History::at(&db).unwrap();
+        assert_eq!(h.seen_rows(10).unwrap().len(), 1);
+        assert_eq!(h.seen_rows(10).unwrap()[0].hits, 7);
+        assert_eq!(h.recent_actions(10).unwrap().len(), 1);
+        assert_eq!(h.0.query_row("SELECT COUNT(*) FROM persistence", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        // The table added after the file was written is created by step 1.
+        h.0.execute("INSERT INTO samples VALUES('1m','cpu_avg',60,1.0)", []).unwrap();
+        drop(h);
+        assert_eq!(version_of(&db), 1);
+        let bak = Connection::open(backup_path(&db)).unwrap();
+        assert_eq!(bak.query_row("SELECT COUNT(*) FROM seen", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(user_version(&bak).unwrap(), 0, "the backup is the file as it was");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reopening_neither_remigrates_nor_replaces_the_backup() {
+        let dir = scratch("reopen");
+        let db = dir.join("h.db");
+        write_unversioned_database(&db);
+        drop(History::at(&db).unwrap());
+        let first = std::fs::metadata(backup_path(&db)).unwrap().modified().unwrap();
+        // A write after the first open must not reach the backup on a later open.
+        let h = History::at(&db).unwrap();
+        h.record_action(9, "KILL", &[2], "").unwrap();
+        drop(h);
+        assert_eq!(std::fs::metadata(backup_path(&db)).unwrap().modified().unwrap(), first);
+        let bak = Connection::open(backup_path(&db)).unwrap();
+        assert_eq!(bak.query_row("SELECT COUNT(*) FROM actions", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(version_of(&db), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_database_from_a_newer_build_is_refused_and_left_untouched() {
+        let dir = scratch("newer");
+        let db = dir.join("h.db");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE future(x); INSERT INTO future VALUES(1);").unwrap();
+        c.pragma_update(None, "user_version", (MIGRATIONS.len() + 5) as i64).unwrap();
+        drop(c);
+        let err = History::at(&db).err().expect("must refuse").to_string();
+        assert!(err.contains("newer version") && err.contains(&(MIGRATIONS.len() + 5).to_string()), "message was: {err}");
+        assert_eq!(version_of(&db), MIGRATIONS.len() + 5);
+        let c = Connection::open(&db).unwrap();
+        let tables: i64 = c.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'", [], |r| r.get(0)).unwrap();
+        assert_eq!(tables, 1, "no table was added");
+        assert_eq!(c.query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0)).unwrap(), "delete", "journal mode untouched");
+        assert!(!backup_path(&db).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_failing_step_rolls_back_and_keeps_the_previous_version() {
+        let dir = scratch("fail");
+        let db = dir.join("h.db");
+        let mut c = Connection::open(&db).unwrap();
+        let steps = ["CREATE TABLE a(x);", "CREATE TABLE b(x); INSERT INTO nowhere VALUES(1);", "CREATE TABLE c(x);"];
+        assert!(migrate(&mut c, &steps, None).is_err());
+        assert_eq!(user_version(&c).unwrap(), 1, "step 1 stays applied, step 2 does not");
+        let names: Vec<String> = c.prepare("SELECT name FROM sqlite_master WHERE type='table'").unwrap()
+            .query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert_eq!(names, vec!["a".to_string()], "the half-run step left no table behind, and step 3 never ran");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_step_added_later_runs_once_on_a_database_already_at_the_old_version() {
+        let dir = scratch("later");
+        let db = dir.join("h.db");
+        let mut c = Connection::open(&db).unwrap();
+        migrate(&mut c, &["CREATE TABLE t(x);"], None).unwrap();
+        c.execute("INSERT INTO t VALUES(1)", []).unwrap();
+        let steps = ["CREATE TABLE t(x);", "ALTER TABLE t ADD COLUMN y TEXT DEFAULT 'd';"];
+        migrate(&mut c, &steps, None).unwrap();
+        migrate(&mut c, &steps, None).unwrap();
+        assert_eq!(user_version(&c).unwrap(), 2);
+        assert_eq!(c.query_row("SELECT y FROM t", [], |r| r.get::<_, String>(0)).unwrap(), "d", "the existing row kept its data");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn two_processes_opening_at_once_both_succeed_and_the_schema_is_applied_once() {
+        let dir = scratch("race");
+        let db = dir.join("h.db");
+        write_unversioned_database(&db);
+        let threads: Vec<_> = (0..4).map(|_| { let db = db.clone(); std::thread::spawn(move || History::at(&db).map(drop)) }).collect();
+        for t in threads { t.join().unwrap().expect("every opener succeeds"); }
+        assert_eq!(version_of(&db), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 

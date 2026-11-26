@@ -10,7 +10,7 @@
 | `src/main.rs` | CLI entry: `snapshot`, `json`, `serve`, `approve`, `privilege`, `watch`, `sudo-log`, `persistence` |
 | `src/collect.rs`, `src/group.rs`, `src/rules.rs`, `src/snapshot.rs`, `src/model.rs` | Process and socket collection, grouping by app, findings and the rule-based trust label (`rules::classify`), the snapshot type |
 | `src/paths.rs` | Where state lives (`~/.sys-monitor/`), with the one-time migration from `~/.ownwatch/` |
-| `src/baseline.rs`, `src/history.rs` | The approved-apps baseline (`baseline.json`) and the SQLite history (`history.db`: first-seen hosts, startup items, sudo launches, action audit; a `samples` table of downsampled CPU/memory history at 1 and 15 minute resolutions, opt-in via `settings.metrics_history`, never per-process), both under `src/paths.rs`'s data directory |
+| `src/baseline.rs`, `src/history.rs` | The approved-apps baseline (`baseline.json`) and the SQLite history (`history.db`: first-seen hosts, startup items, sudo launches, action audit; a `samples` table of downsampled CPU/memory history at 1 and 15 minute resolutions, opt-in via `settings.metrics_history`, never per-process; the schema is versioned with `PRAGMA user_version`, see below), both under `src/paths.rs`'s data directory |
 | `src/privilege.rs`, `src/watcher.rs` | Authorization-log parsing and the live sudo/su launch watcher |
 | `src/persistence.rs` | Read-only scan of launch agents, launch daemons and cron; `is_new` marks items first seen after the learning period |
 | `src/actions.rs`, `src/server.rs` | Guarded Stop/Quit and the loopback HTTP server |
@@ -29,3 +29,13 @@
 
 - One home per concept: search before writing a helper or a doc.
 - A new top-level folder needs a row here and, if it is a design choice, an ADR.
+
+## Change the database schema with a migration
+
+`MIGRATIONS` in `src/history.rs` is an ordered list of SQL steps, and `PRAGMA user_version` is how many have run. To add a column or table, append one step at the end; never edit or reorder a step that has shipped, because installed databases already ran the old text.
+
+- Each step runs in its own transaction. A failing step rolls back and `open()` returns the error.
+- The first time an unversioned database is migrated, `history.db.bak` is written next to it (once; never overwritten).
+- A database whose version is higher than the list is refused untouched. Downgrades are not supported.
+- A new table that nothing alters later can still be a `CREATE TABLE IF NOT EXISTS` inside a new step.
+- Test a step on a database built at the previous version, as the `a_step_added_later_...` test does.
