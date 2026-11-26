@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1a` |
-| Status | `done` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
@@ -40,7 +40,7 @@ Move the dashboard's shared styles to the Console look from the design canvas: v
 
 | File | Change |
 |---|---|
-| `web/index.html` | CSS tokens and component classes, `NAV` groups, badge counts |
+| `web/index.html` | CSS tokens and component classes |
 
 ## Steps
 
@@ -66,7 +66,7 @@ Move the dashboard's shared styles to the Console look from the design canvas: v
 
 ## Tests
 
-Existing logic tests stay green. Add a small test that every `NAV` entry has a group. Visual checks are manual and recorded.
+Existing logic tests stay green. Visual checks are manual and recorded.
 
 ## Verification
 
@@ -91,26 +91,56 @@ cargo run --release -- serve   # visit every page in both themes
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
-- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
-2026-11-26.
+2026-11-26. Not finished: the browser checks below are open, so this todo stays in `ongoing/`.
 
-- **Built:** in `web/index.html`, the dark and light token sets (existing names kept; new `--cut` and eight `--chip-*` tokens), chamfered mono-caps `.btn` with `.btn-acc` and `.btn-danger` (plus `.btn-danger.quiet`, the outline form for row actions), square mono-caps `.tag`, `.badge`, `.chip` and `.sel-btn`, a forced-colors block, and the reduced-motion rule extended to the controls. JavaScript changed only in class strings: `btn pri` to `btn btn-acc`, `btn danger` to `btn btn-danger quiet`, `btn solid` to `btn btn-danger`. The mapping of every use of the old classes is in the PR description.
-- **How the chamfer keeps its edge:** `clip-path` also clips borders and outlines, so the edge is the button's own background and `::before` paints the fill inset by `--bw`. Focus raises `--bw` to 3px and recolors the edge to `--fg`; no outline is used, so nothing is cut.
-- **Contrast check** (script run on the token values in the file; WCAG 2.x ratios, need 4.5 for text and 3 for chip text, all pass):
+**Built** (all in `web/index.html`):
+
+- Dark and light token sets. Existing names are kept; `--cut` and eight `--chip-*` tokens are new.
+- `.btn` with `.btn-acc` and `.btn-danger`, plus `.btn-danger.quiet`, the outline form for row actions.
+- Square mono-caps `.tag`, `.badge`, `.chip` and `.sel-btn`.
+- A forced-colors block, and the reduced-motion rule now lists the controls.
+- JavaScript changed only in class strings: `pri` became `btn-acc`, `danger` became `btn-danger quiet`, `solid` became `btn-danger`.
+
+**How the chamfer keeps its edge.** A `clip-path` also clips borders and outlines. The edge is therefore the button's own background, and `::before` paints the fill inset by `--bw`. Focus raises `--bw` to 3px and recolors the edge, so no outline is cut.
+
+**Contrast** (WCAG 2.x, script run on the token values; text needs 4.5, all pass):
 
 | Pair | Dark | Light |
 |---|---|---|
 | fg on bg / panel / panel2 / sel | 15.54 / 15.10 / 14.23 / 13.44 | 16.14 / 17.47 / 14.80 / 14.39 |
 | mut on bg / panel / panel2 / sel | 7.46 / 7.26 / 6.84 / 6.46 | 6.41 / 6.94 / 5.88 / 5.72 |
-| acc on panel (text) | 6.96 | 6.40 |
+| acc on panel | 6.96 | 6.40 |
 | accfg on acc | 7.16 | 6.40 |
 | badfg on bad | 8.29 | 5.80 |
 | ok / warn / bad on panel | 11.88 / 11.56 / 8.37 | 5.34 / 5.93 / 5.80 |
 | chip ok / warn / bad / neutral | 8.25 / 8.15 / 7.12 / 9.33 | 6.87 / 6.94 / 6.94 / 8.98 |
 
-  Not met by design: `--line` on `--panel` is 1.40 (dark) and 1.50 (light). That is below the 3:1 WCAG asks of a control boundary. Button edges use it as in the design canvas; the label, the hover edge (`--acc`, 6.96 and 6.40) and the focus edge carry the affordance. Raising it is a design decision for the owner.
-- **Deviations:** (1) The todo's Tests and Target files call for `NAV` groups and a test that every `NAV` entry has a group, but its own Scope assigns sidebar groups and badge counts to T1b. I followed Scope, so `NAV` is unchanged and that test is not written; it belongs with T1b. (2) The chip colors in the task were given as "fill on text" pairs; I read `#14382b on #7ee2b8` as fill `#14382b` with text `#7ee2b8`. The danger chip (`#40150e` fill, `#ff8f7e` text) and all light-theme chip colors are derived, not from the canvas. (3) `--warn` moved from `#ffc857` to `#f6c565`, `--bad` from `#ff6b8b` to `#ff8f7e`, and `--bg` and `--panel` to the canvas values. (4) There is no JavaScript test harness in the repo, so no new test was added; `make check` and `make test` (117 passed) are green and the page and its script parse.
-- **Open (pending, not run):** every visual check. The browser extension was not connected, so nothing was looked at in a real browser: rendering of the chamfer and its 1px edge, focus visibility on every control, forced-colors, the 400px layout, both themes on every page at 1360px and 400px. The acceptance criterion "every page is checked in a real browser" is therefore not met and stays open. A static server was used only to confirm the file loads.
+`--line` on `--panel` is 1.40 (dark) and 1.50 (light), below the 3:1 asked of a control boundary. It matches the design canvas. The label, hover edge and focus edge carry the affordance. Raising it is the owner's design call.
+
+**Looked at in Chrome** (this branch's build served locally):
+
+- The reviewing session saw dark Overview and Apps, and light Overview, at 1352 px.
+- It saw keyboard focus on a sidebar button, with a visible outline.
+- It saw a 400 px frame in both themes with no horizontal scroll; content stacks below the sidebar.
+- A review found Approve and Details rendering unstyled; that was a dangling class bug, now fixed.
+- After the fix, a second session looked at an accent, a filled danger and a quiet danger button on the dark Overview and light theme.
+- It saw each at rest, on hover and on keyboard focus, zoomed in.
+- The chamfer and 1px edge render; hover shows an edge; focus shows a thick edge on all three variants in both themes.
+
+**Not looked at (open):**
+
+- The other pages in both themes at 1352 px and 400 px
+- Forced-colors mode
+- A focused chamfered button inside a real page, as opposed to a probe row
+- `prefers-reduced-motion`
+
+**Deviations:**
+
+- Chip colors were read as fill then text, so `#14382b on #7ee2b8` means fill `#14382b` and text `#7ee2b8`. The danger chip and every light-theme chip color are derived.
+- `--warn` moved to `#f6c565`, `--bad` to `#ff8f7e`, and `--bg` and `--panel` to the canvas values.
+- The repo has no JavaScript test harness, so no new test was added.
+- Sidebar groups and the test that every `NAV` entry has a group belong to the page-shell todo, as this todo's Scope says.
