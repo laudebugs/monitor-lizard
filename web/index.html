@@ -442,25 +442,31 @@ function persistence() {
 }
 
 
+// One key shape for both the live-connection map and the history join, so the delimiter and
+// field order can't drift between the two call sites that build it and the one that looks it up.
+const netKey = (groupKey, remote) => groupKey + '|' + remote;
 function network() {
   const q = S.q.toLowerCase(), f = S.nfilter, now = S.snap.at;
   const byKey = new Map();
   for (const g of S.snap.groups) for (const c of g.conns) {
-    if (c.direction !== 'outbound' || !c.remote_addr) continue;
-    const key = g.key + '|' + c.remote_addr;
+    // loopback isn't "the network" (apps.js's own net(g) uses the same test); nothing to show here.
+    if (c.direction !== 'outbound' || !c.remote_addr || c.scope === 'loopback') continue;
+    const key = netKey(g.key, c.remote_addr);
     let r = byKey.get(key);
     if (!r) { r = { g, remote: c.remote_addr, ports: new Set(), scope: c.scope, sockets: 0 }; byKey.set(key, r); }
     r.ports.add(c.remote_port);
     r.sockets++;
   }
-  const seenBy = new Map(S.seen.map((s) => [s.group_key + '|' + s.remote, s.first_seen]));
-  const all = [...byKey.values()].map((r) => Object.assign(r, { ports: [...r.ports].sort((a, b) => a - b), first_seen: seenBy.has(r.g.key + '|' + r.remote) ? seenBy.get(r.g.key + '|' + r.remote) : null }));
+  const seenBy = new Map(S.seen.map((s) => [netKey(s.group_key, s.remote), s.first_seen]));
+  const all = [...byKey.values()].map((r) => Object.assign(r, { ports: [...r.ports].sort((a, b) => a - b), first_seen: seenBy.get(netKey(r.g.key, r.remote)) ?? null }));
+  // Newest-contacted hosts first, so what you'd most want to check sits at the top by default;
+  // baked into the base order (as listeners() does for its reach tiers) so it survives filtering
+  // and is what sortRows falls back to once no column header is actively sorted.
+  all.sort((a, b) => (b.first_seen ?? -1) - (a.first_seen ?? -1) || b.sockets - a.sockets);
   const isNew = (r) => r.g.approved && r.first_seen != null && now - r.first_seen < 3600;
   const inFilter = (r, id) => id === 'all' || (id === 'new' ? isNew(r) : r.scope === id);
   const list = all.filter((r) => inFilter(r, f) && (!q || r.g.label.toLowerCase().includes(q) || r.remote.toLowerCase().includes(q)));
   const shown = sortRows(list, 'net', { app: (r) => r.g.label, remote: (r) => r.remote, scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen });
-  // Default order (nothing clicked yet): first seen descending, then sockets, per the todo's Steps.
-  if (!S.sorts.net) shown.sort((a, b) => (b.first_seen ?? -1) - (a.first_seen ?? -1) || b.sockets - a.sockets);
   const pg = paginate(shown, 'net');
   const chips = [['all', 'All'], ['public', 'Public'], ['lan', 'LAN'], ['new', 'New']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ nfilter: id, page: {} }) }, l + ' ', all.filter((r) => inFilter(r, id)).length));
   const cols = 'grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1fr) 80px 90px 110px';
