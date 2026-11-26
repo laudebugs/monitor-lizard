@@ -6,6 +6,8 @@
 <meta name="color-scheme" content="dark light">
 <script>(function(){var t=localStorage.getItem('sysmon-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
 <title>Sys Monitor</title>
+<!-- The same circuit-trace mark as the sidebar logo, inline (no remote asset, local-first per ADR 0002). -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g stroke="%23b388ff" stroke-width="6" fill="none" stroke-linecap="square"><path d="M32 10 L32 20 L18 20 L18 32 L10 32"/><path d="M32 20 L46 20 L46 32 L54 32"/><path d="M32 20 L32 34 L20 34 L20 46"/><path d="M32 34 L44 34 L44 46"/></g><g fill="%23b388ff"><rect x="29" y="7" width="6" height="6"/><rect x="15" y="29" width="6" height="6"/><rect x="43" y="29" width="6" height="6"/><rect x="17" y="43" width="6" height="6"/><rect x="41" y="43" width="6" height="6"/></g></svg>">
 <style>
 /* Fonts: IBM Plex Sans for text, IBM Plex Mono for data, both only if installed; otherwise the system fonts. No remote font loading (local-first, ADR 0002). */
 :root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6)}
