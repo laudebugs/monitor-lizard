@@ -41,11 +41,31 @@ fn query_param(query: &str, name: &str) -> Option<String> {
     query.split('&').find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == name).map(|(_, v)| urldecode(v)))
 }
 
+/// Binds a free loopback port without serving yet, so a caller that cannot panic at startup (a Tauri
+/// shell with a tray to show an error in) can bind, check the `Result`, and decide what to do before
+/// any request loop starts; `serve` below is just this plus its own fixed port and the `expect`.
+pub fn bind_free() -> Result<(Arc<Server>, u16), String> {
+    // Bind loopback only, same as `serve`: this tool exposes everything about the machine.
+    let server = Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = server.server_addr().to_ip().ok_or_else(|| "not an IP listener".to_string())?.port();
+    Ok((Arc::new(server), port))
+}
+
 pub fn serve(port: u16) {
     // Bind loopback only: this tool exposes everything about the machine.
     let addr = format!("127.0.0.1:{port}");
-    let server = Server::http(&addr).expect("bind failed");
+    let server = Arc::new(Server::http(&addr).expect("bind failed"));
     println!("monitor-lizard -> http://{addr}");
+    serve_on(server);
+}
+
+/// The request loop on an already-bound server, shared by `serve` (a fixed port) and a shell that
+/// bound its own free port with `bind_free`: every guard, cache and background thread below is the
+/// same either way, so there is exactly one place that wires them up.
+pub fn serve_on(server: Arc<Server>) {
+    let bound = server.server_addr().to_ip();
+    let addr = bound.map(|a| a.to_string()).unwrap_or_default();
+    let port = bound.map(|a| a.port()).unwrap_or(0);
     let secret = token();
     let page = PAGE.replace("__TOKEN__", &secret);
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
