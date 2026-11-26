@@ -43,7 +43,13 @@ Add the Storage nav item and the first half of the page from design direction D:
 
 | File | Change |
 |---|---|
-| `web/index.html` | nav entry, `storage()` view, page CSS |
+| `web/index.html` | nav entry, `storage()` view, `storage-page` pure block, url-state entries, TABLE_META and EXPORT entries, page CSS |
+| `tests/web/storage-page.test.mjs` | (new) logic tests for the pure block and the rules.rs cross-check |
+| `tests/web/url-state.test.mjs` | Storage filter, tile, item, search and sort |
+| `tests/web/page-shell.test.mjs` | Storage nav group and verdict title |
+| `tests/web/export.test.mjs` | table count 8 to 9 |
+| `tests/web/table-floor.test.mjs` | name-cell count 4 to 5 |
+| `docs/agents/layout.md` | the new `storage-page` test block |
 
 ## Steps
 
@@ -99,9 +105,18 @@ Plan status; `README.md` page list if it names pages.
 
 ## Status (2026-11-26)
 
-Built and checked in a real browser on a synthetic home (see the PR). Kept in `ongoing/` because these are open:
+Built and checked in a real browser on a synthetic home. The todo stays in `ongoing/` because these are open:
 
-- `/code-review` and `/writing-review` are not run (the owner's session does them).
-- Not checked: a scan of a real developer home, a physical keyboard (arrow keys were sent as synthetic events), and the 1360 px layout at exactly that width.
-- The server answers a Rescan inside its minute with 200 and the old result, not 429; the page handles both.
-- The tiles add up to the used total through an extra "Not measured" strip (used minus measured), because the scan reads known folders only.
+- [ ] `/code-review` and `/writing-review` are not run (the owner's session does them).
+- [ ] A scan of a real developer home has not been looked at.
+- [ ] A physical keyboard has not been used; arrow keys were sent as synthetic events.
+- [ ] The owner's window is 1352 px wide, so 1360 px is not available; the widest check is recorded in the PR.
+- [ ] The Performance page does not filter by the search box; typing there still jumps to Apps. This is a known gap.
+
+## Notes
+
+- The tiles add up to the used total through a "Not measured" strip (used minus measured). The scan reads known folders only.
+- That strip reads "about" while any section is unavailable, a lower bound or unfinished, and says it is not free space.
+- Per-row "measured N min ago" is the scan time. The API has no per-row timestamp.
+- The server answers a Rescan inside its minute with 200 and the old result, never 429. A 429 branch was written first and was dead code, so it is removed.
+- SAFE is shown only for the server label `safe`, a rule on the page's safe list, and an absolute path under `/Users/<name>/`. A test reads `src/storage/rules.rs` and fails if the lists differ.
