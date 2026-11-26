@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `C2` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | None |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/c2-expand-processes-resizable-drawer` |
 | PR title | `feat(web): show all processes and connections, and let the detail panel be resized by dragging` |
 | Size | S (under 200) |
-| PR | — |
+| PR | [#13](https://github.com/laudebugs/sys-monitor/pull/13) |
 
 ## Goal
 
@@ -85,9 +85,19 @@ cargo run --release -- serve
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-26.
+
+- **Built:** `S.expand = { procs: false, conns: false }`, reset centrally whenever `rec()` is called with a different `sel` (one-line change in `rec`, not six call sites), so every path that selects an app starts collapsed. "+N more" is now an `.expander` button toggling "Show all N" / "Show fewer". A resize handle (`.handle`, `role="separator"`, keyboard-focusable) sits between the table and the drawer at widths above 1101px (the same breakpoint the drawer's sticky behavior already uses); it drags with the mouse, resizes 16px per arrow key press, double-clicks back to the default width, clamps to [320, 720]px, and persists to `localStorage` (`drawer-width`).
+- **Verified:** a script (kept out of the repo, as in prior UI todos) ran 18 checks in a simulated DOM against a running server: collapsed/expanded process-row counts against the real snapshot, the fewer/all buttons appearing and disappearing correctly, expand state resetting on switching apps, the handle's ARIA attributes, arrow-key resize in both directions with clamping at both bounds, the value persisting to `localStorage`, and a simulated pointer drag. All 18 passed.
+- **Not verified:** layout and interaction in a real browser; the visual check at 1440px and below 1100px is **pending**. `/code-review` and `/writing-review` have not yet been run.
+- **Deviation from the sketch:** the todo proposed per-section state tracking that resets "for the new app"; implemented as one centralized reset in `rec()` rather than patching each of the six call sites that can change `sel`, which the todo didn't specify and is a smaller, less error-prone change (noted here per AGENTS.md rule 7, since it is a deviation worth recording even though it still meets the edge case).
+- **Open:** the handle has no visible affordance below 1101px, since the table and drawer stack there and there is nothing to resize against; this matches the todo's own edge case.

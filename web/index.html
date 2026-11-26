@@ -70,9 +70,16 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 .tr.ell{min-width:0}.tr.ell>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{height:30px;padding:0 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:13px}.chip:hover{color:var(--fg)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
 .drawer{flex:1 1 380px;max-width:460px;min-width:320px;position:relative;z-index:3}
-@media(min-width:1101px){.drawer{position:sticky;top:calc(var(--hh) + 16px);align-self:flex-start;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}}
+.drawer.sized{flex:0 0 var(--dw);max-width:none;width:var(--dw)}
+.handle{display:none;width:10px;margin:0 -4px;cursor:col-resize;position:relative;z-index:3;touch-action:none}
+.handle:after{content:"";position:absolute;left:4px;top:0;bottom:0;width:2px;background:var(--line)}
+.handle:hover:after,.handle:focus-visible:after{background:var(--acc)}
+.handle:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media(min-width:1101px){.drawer{position:sticky;top:calc(var(--hh) + 16px);align-self:flex-start;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}.handle{display:block}}
 .kv{display:grid;grid-template-columns:90px 1fr;gap:6px 12px;font-size:13px;padding:14px 16px;margin:0;border-top:1px solid var(--line)}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-all}
 .pr{display:grid;grid-template-columns:62px minmax(0,1fr) 54px 64px 64px;gap:8px;align-items:center;min-height:42px;padding:0 16px;border-top:1px solid var(--line);font-size:13px}
+.expander{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);cursor:pointer;color:var(--acc);font-weight:500}
+.expander:hover{background:var(--sel)}
 .bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
 .overlay{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
 .modal{width:480px;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
@@ -105,7 +112,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, theme: localStorage.getItem('ow-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('ow-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
@@ -114,7 +121,7 @@ const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
 // The trust label comes from rules in the server (trusted, unknown, suspicious); the page only colors it.
 const trustCls = (t) => ({ trusted: 'ok', unknown: 'warn', suspicious: 'bad' }[t] || '');
 const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved this app', unreviewed: 'Uses the network and is not approved yet', unverified: 'Not approved and not verified as an Apple program', 'unsigned-network': 'Unsigned program using the network', 'exposed-listener': 'Listening on all interfaces', 'exposed-listener-apple': 'Apple service reachable from your network', 'new-remote': 'Contacted hosts first seen in the last hour', 'debug-port': 'Remote-debugging port is open' };
-const rec = (m) => { Object.assign(S, m); render(); };
+const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false } }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
 const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
@@ -187,6 +194,22 @@ function sortHeader(key, cols, style, extra) {
 }
 const sigKind = (g) => (!g.signing ? 'unchecked' : g.signing.apple ? 'apple' : g.signing.signed ? 'signed' : 'unsigned');
 const TRUST_RANK = { suspicious: 0, unknown: 1, trusted: 2 }; // ascending puts the most worrying first
+const DRAWER_MIN = 320, DRAWER_MAX = 720, DRAWER_STEP = 16;
+const clampDrawer = (w) => Math.min(DRAWER_MAX, Math.max(DRAWER_MIN, w));
+function setDrawerWidth(w) { S.drawerW = clampDrawer(w); localStorage.setItem('drawer-width', S.drawerW); render(); }
+// Drag the boundary between the table and the app detail panel; both resize together because the table has flex-grow
+// and the panel's width is fixed while dragging. Keyboard: ArrowLeft/ArrowRight on the focused handle.
+function startDrawerResize(e) {
+  e.preventDefault();
+  const startX = e.clientX, startW = S.drawerW || document.querySelector('.drawer')?.offsetWidth || 380;
+  const onMove = (ev) => setDrawerWidth(startW + (startX - ev.clientX));
+  const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+}
+function drawerHandleKeys(e) {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); setDrawerWidth((S.drawerW || 380) + DRAWER_STEP); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); setDrawerWidth((S.drawerW || 380) - DRAWER_STEP); }
+}
 
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'X-Ownwatch-Token': TOKEN } });
@@ -282,14 +305,15 @@ function apps() {
       h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))), h('span', {}, h('span', { class: 'tag ' + trustCls(g.trust), title: (g.rules_fired || []).join(', ') }, g.trust)))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match the current filters. '), clearBtn()), pg.pager);
   const g = S.snap.groups.find((x) => x.key === S.sel);
-  return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), filters), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, g ? drawer(g, listen(g), sig(g)) : null)];
+  const handle = g ? h('div', { class: 'handle', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the app detail panel', 'aria-valuenow': S.drawerW || 380, 'aria-valuemin': DRAWER_MIN, 'aria-valuemax': DRAWER_MAX, tabindex: '0', onMousedown: startDrawerResize, onKeydown: drawerHandleKeys, onDblclick: () => { S.drawerW = null; localStorage.removeItem('drawer-width'); render(); } }) : null;
+  return [h('div', { class: 'filters' }, chips, h('span', { class: 'grow' }), filters), h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, table, handle, g ? drawer(g, listen(g), sig(g)) : null)];
 }
 
 function drawer(g, listen, sig) {
   const st = status(g), flags = S.snap.findings.filter((f) => f.group === g.label);
   const mine = g.procs.filter((p) => p.user !== 'root');
   const outs = g.conns.filter((c) => c.direction === 'outbound');
-  return h('aside', { class: 'drawer card', 'aria-label': 'App detail' },
+  return h('aside', { class: 'drawer card' + (S.drawerW ? ' sized' : ''), style: S.drawerW ? '--dw:' + S.drawerW + 'px' : '', 'aria-label': 'App detail' },
     h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow' }, h('div', { style: 'font-size:16px;font-weight:600' }, g.label), h('div', { class: 'mut small', style: 'word-break:break-all' }, g.key.replace(/^(apple|dev|other):/, ''))),
       h('span', { class: 'tag ' + tagOf(st) }, st), h('span', { class: 'tag ' + trustCls(g.trust) }, g.trust), h('button', { class: 'btn sm', onClick: () => rec({ sel: null }) }, 'Close')),
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' },
@@ -300,13 +324,13 @@ function drawer(g, listen, sig) {
     flags.length ? h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
     h('dl', { class: 'kv' }, h('dt', {}, 'Signing'), h('dd', {}, sig), h('dt', {}, 'Listening'), h('dd', {}, listen), h('dt', {}, 'Outbound'), h('dd', {}, outs.length + ' sockets to ' + new Set(outs.map((c) => c.remote_addr)).size + ' hosts')),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Processes (' + g.procs.length + ')')),
-      g.procs.slice(0, 12).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
+      (S.expand.procs ? g.procs : g.procs.slice(0, 12)).map((p) => h('div', { class: 'pr' }, h('span', { class: 'mut' }, p.pid), h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: p.command }, base(p.exe)),
         h('span', { class: 'num' }, p.cpu.toFixed(1) + '%'), h('span', { class: 'num' }, Math.round(p.rss_kb / 1024) + 'M'),
         p.user === 'root' ? h('span', { class: 'tag', title: 'ownwatch never signals root processes' }, 'root') : h('button', { class: 'btn danger sm', onClick: () => askStop(base(p.exe) + ' ' + p.pid, [p]) }, 'Stop'))),
-      g.procs.length > 12 ? h('div', { class: 'pr mut small' }, '+ ' + (g.procs.length - 12) + ' more') : null),
+      g.procs.length > 12 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { procs: !S.expand.procs }) }) }, S.expand.procs ? 'Show fewer' : 'Show all ' + g.procs.length) : null),
     h('div', { style: 'border-top:1px solid var(--line)' }, h('div', { style: 'padding:12px 16px 8px' }, h('h3', { class: 'sec', style: 'margin:0' }, 'Connections (' + g.conns.length + ')')),
-      g.conns.slice(0, 20).map((c) => h('div', { class: 'pr', style: 'grid-template-columns:70px minmax(0,1fr) auto' }, h('span', { class: 'tag' }, c.direction), h('span', { class: 'small', style: 'word-break:break-all' }, c.proto + ' ' + c.local_addr + ':' + c.local_port + (c.remote_addr ? ' -> ' + c.remote_addr + ':' + c.remote_port : '')), h('span', { class: 'mut small' }, c.scope + (c.exposed ? ', EXPOSED' : '')))),
-      g.conns.length > 20 ? h('div', { class: 'pr mut small' }, '+ ' + (g.conns.length - 20) + ' more') : null));
+      (S.expand.conns ? g.conns : g.conns.slice(0, 20)).map((c) => h('div', { class: 'pr', style: 'grid-template-columns:70px minmax(0,1fr) auto' }, h('span', { class: 'tag' }, c.direction), h('span', { class: 'small', style: 'word-break:break-all' }, c.proto + ' ' + c.local_addr + ':' + c.local_port + (c.remote_addr ? ' -> ' + c.remote_addr + ':' + c.remote_port : '')), h('span', { class: 'mut small' }, c.scope + (c.exposed ? ', EXPOSED' : '')))),
+      g.conns.length > 20 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { conns: !S.expand.conns }) }) }, S.expand.conns ? 'Show fewer' : 'Show all ' + g.conns.length) : null));
 }
 
 function priv() {
