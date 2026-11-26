@@ -108,7 +108,7 @@ make test
 
 **Never expected.** `unsigned-network` and `debug-port` are refused at write time, as are unknown rules and `unreviewed`. Marked findings are listed in a collapsed Overview section with their scope and an Unmark button, and the heading counts them.
 
-**Audit and limits.** The `baseline_changes` table is migration step 2, created with `IF NOT EXISTS`. An early development copy of the table lacked the `note` column, so opening the database adds it if missing. Each change is written to it before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
+**Audit and limits.** The `baseline_changes` table is migration step 2, created with `IF NOT EXISTS`. A scratch database from an early build of this branch had the table without `note`, which exposed that `IF NOT EXISTS` cannot add a column. No user has such a database, so there is no repair; I rebuilt the fixture. Each change is written to it before it takes effect. A failed save adds a second row saying so. The baseline holds at most 5,000 entries, the audit keeps the newest 10,000, and keys with control or invisible formatting characters are refused.
 
 **Corrupt files.** A corrupt file is moved to `.bad`, `.bad-1` and so on, never over an older copy. The Overview shows a banner until dismissed, saying earlier marks are not in effect. An unreadable file pauses marking and is never replaced.
 
