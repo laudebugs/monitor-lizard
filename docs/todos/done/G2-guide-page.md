@@ -10,7 +10,7 @@
 | Branch | `feat/g2-guide-page` |
 | PR title | `feat(web): add the searchable Guide page` |
 | Size | M (200-400) |
-| PR | pending |
+| PR | [#39](https://github.com/laudebugs/monitor-lizard/pull/39) |
 
 ## Goal
 
