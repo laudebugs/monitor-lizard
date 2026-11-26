@@ -16,6 +16,8 @@
 | `src/actions.rs`, `src/server.rs` | Guarded Stop/Quit and the loopback HTTP server |
 | `src/sampler.rs` | 2 s background sampler (CPU, memory, network, load), 1-hour ring buffer, served at `/api/metrics?since=` |
 | `src/classify.rs` | `Action`, `allowed_actions(label, group)`, and the bounded `Evidence` record for one group -- what the classifier agent (A8) is allowed to suggest and see |
+| `src/settings.rs` | `~/.sys-monitor/settings.json`: notification level, quiet hours, generic text, seeded |
+| `src/notify.rs` | Deduplicated macOS notifications for high findings via `osascript`, off by default |
 | `web/index.html` | The dashboard; the server embeds it at build time and injects the per-run token |
 | `web/fonts/` | IBM Plex Sans, bundled (three static weights, subsetted, WOFF2), embedded and served by `src/server.rs`; see `THIRD-PARTY-NOTICES.md` |
 

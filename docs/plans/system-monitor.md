@@ -22,6 +22,7 @@ As of 2026-11-26, on `main`:
 - `src/actions.rs`, `src/server.rs`: guarded Stop/Quit (own-user processes only, per-run token, audit log) on a loopback server.
 - `web/index.html`: the dashboard with Overview, Apps, Privilege, dark/light/system theme, custom dropdowns and paginated tables. Listeners is [A3](../todos/done/A3-listeners-page.md); Persistence (chips All/New/User/System, new-item badge and Overview card) is [A2](../todos/done/A2-persistence-page.md); Network (outbound connections grouped by app and remote host, joined against `/api/history` for first-seen dates, IP addresses only, no reverse DNS) is [A4](../todos/done/A4-network-page.md); History (new hosts and the Stop/Quit action audit log, from the same endpoint) is [A5](../todos/done/A5-history-page.md). All six nav pages are now built; the SOON placeholder is unused.
 - `src/persistence.rs` plus the `/api/persistence` and `/api/history` endpoints (startup items, first-seen hosts, action audit log): [A1](../todos/done/A1-backend-persistence-history-api.md).
+- `src/notify.rs`, `src/settings.rs`: deduplicated native macOS notifications for findings via `osascript` (off by default; off/high/all, quiet hours, generic text by default), `GET`/`POST /api/settings` (token-guarded write) and a Notify dropdown in the dashboard sidebar: [A14](../todos/done/A14-notifications-for-high-findings.md).
 
 ## 3. What others do
 

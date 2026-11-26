@@ -1,4 +1,4 @@
-use crate::{actions, baseline, history::History, persistence, privilege, sampler, snapshot, watcher};
+use crate::{actions, baseline, history::History, persistence, privilege, sampler, settings, snapshot, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -81,6 +81,13 @@ pub fn serve(port: u16) {
                 Err(e) => Response::from_string(format!("history unavailable: {e}")).with_status_code(500).boxed(),
             }
             (Method::Get, "/api/sudo") => json_resp(History::open().and_then(|h| h.recent_sudo(50)).map(|v| serde_json::to_string(&v).unwrap_or_default()).unwrap_or_else(|_| "[]".into())),
+            (Method::Get, "/api/settings") => json_resp(serde_json::to_string(&settings::load()).unwrap_or_default()),
+            (Method::Post, "/api/settings") if write_ok => {
+                match settings::update(query_param(query, "notifications").as_deref(), query_param(query, "generic_text").as_deref(), query_param(query, "quiet_start").as_deref(), query_param(query, "quiet_end").as_deref()) {
+                    Ok(s) => json_resp(serde_json::to_string(&s).unwrap_or_default()),
+                    Err(e) => Response::from_string(e).with_status_code(400).boxed(),
+                }
+            }
             (Method::Post, "/api/approve") => {
                 let key = query_param(query, "key").unwrap_or_default();
                 if write_ok && !key.is_empty() && baseline::approve(&key).is_ok() { Response::from_string("ok").boxed() } else { forbidden() }

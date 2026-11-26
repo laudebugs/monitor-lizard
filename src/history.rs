@@ -1,5 +1,5 @@
 use crate::model::*;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -27,7 +27,8 @@ impl History {
             last_seen INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(group_key, remote));
             CREATE TABLE IF NOT EXISTS sudo_events(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, pid INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, chain TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS persistence(path TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);")?;
+            CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, sig TEXT NOT NULL, sent TEXT NOT NULL, refused TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS notified(finding_id TEXT PRIMARY KEY, ts INTEGER NOT NULL);")?;
         Ok(Self(c))
     }
 
@@ -100,6 +101,18 @@ impl History {
         tx.commit()
     }
 
+    /// Whether `finding_id` was notified less than `dedupe_secs` ago.
+    pub fn notified_recently(&self, finding_id: &str, now: u64, dedupe_secs: u64) -> rusqlite::Result<bool> {
+        let ts: Option<i64> = self.0.query_row("SELECT ts FROM notified WHERE finding_id=?1", [finding_id], |r| r.get(0)).optional()?;
+        Ok(ts.is_some_and(|t| now.saturating_sub(t as u64) < dedupe_secs))
+    }
+
+    /// Records (or re-records) that `finding_id` was notified at `now`.
+    pub fn mark_notified(&self, finding_id: &str, now: u64) -> rusqlite::Result<()> {
+        self.0.execute("INSERT INTO notified(finding_id,ts) VALUES(?1,?2) ON CONFLICT(finding_id) DO UPDATE SET ts=?2", params![finding_id, now as i64])?;
+        Ok(())
+    }
+
     /// group_key -> hosts first seen within the flag window, excluding the group's initial learning period.
     pub fn recent_new(&self, now: u64) -> rusqlite::Result<BTreeMap<String, Vec<String>>> {
         let mut st = self.0.prepare(
@@ -157,6 +170,19 @@ mod tests {
         h.record(&[group("app", "2.2.2.2")], 1500).unwrap();
         assert_eq!(h.first_seen("app").unwrap(), Some(1000));
         assert_eq!(h.first_seen("never-seen").unwrap(), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn notified_recently_tracks_dedupe_by_finding_id() {
+        let dir = std::env::temp_dir().join(format!("ow-test-notif-{}", std::process::id()));
+        let h = History::at(&dir.join("h.db")).unwrap();
+        assert!(!h.notified_recently("k:rule", 1000, 86400).unwrap(), "never notified before");
+        h.mark_notified("k:rule", 1000).unwrap();
+        assert!(h.notified_recently("k:rule", 1000 + 100, 86400).unwrap(), "the same finding again soon after");
+        assert!(!h.notified_recently("k:rule", 1000 + 86400 + 1, 86400).unwrap(), "25 hours later: notified again");
+        assert!(!h.notified_recently("other:rule", 1000 + 100, 86400).unwrap(), "a different finding is unaffected");
+        h.mark_notified("k:rule", 1000 + 86400 + 1).unwrap(); // re-marking an existing row updates it, not errors
+        assert!(h.notified_recently("k:rule", 1000 + 86400 + 50, 86400).unwrap());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
