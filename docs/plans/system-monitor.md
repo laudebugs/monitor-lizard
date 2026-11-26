@@ -20,7 +20,7 @@ As of 2026-11-26, on `main`:
 - `src/history.rs`: SQLite first-seen remote host per app; flags new hosts for approved apps after a 60 s learning window.
 - `src/privilege.rs`, `src/watcher.rs`: authorization-log parsing and a 20 ms process-table watcher that records sudo/su launches with their parent chain.
 - `src/actions.rs`, `src/server.rs`: guarded Stop/Quit (own-user processes only, per-run token, audit log) on a loopback server.
-- `web/index.html`: the dashboard with Overview, Apps, Privilege, dark/light/system theme, custom dropdowns and paginated tables. Listeners is [A3](../todos/done/A3-listeners-page.md); Persistence (chips All/New/User/System, new-item badge and Overview card) is [A2](../todos/done/A2-persistence-page.md); Network and History are placeholders.
+- `web/index.html`: the dashboard with Overview, Apps, Privilege, dark/light/system theme, custom dropdowns and paginated tables. Listeners is [A3](../todos/done/A3-listeners-page.md); Persistence (chips All/New/User/System, new-item badge and Overview card) is [A2](../todos/done/A2-persistence-page.md); Network (outbound connections grouped by app and remote host, joined against `/api/history` for first-seen dates, IP addresses only, no reverse DNS) is [A4](../todos/done/A4-network-page.md); History is still a placeholder.
 - `src/persistence.rs` plus the `/api/persistence` and `/api/history` endpoints (startup items, first-seen hosts, action audit log): [A1](../todos/done/A1-backend-persistence-history-api.md).
 
 ## 3. What others do

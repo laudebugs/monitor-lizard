@@ -126,7 +126,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('sysmon-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], muted: new Set(JSON.parse(localStorage.getItem('sysmon-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
@@ -176,7 +176,7 @@ function paginate(list, key) {
    S.sorts[key] = { col, dir }: no entry means the default order. S.fil[name] holds a dropdown filter's value. */
 const fv = (name) => S.fil[name] || 'all';
 const setFil = (name, v) => rec({ fil: Object.assign({}, S.fil, { [name]: v }), page: {} });
-const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', pfilter: 'all', page: {} }); };
+const clearFilters = () => { $('q').value = ''; rec({ q: '', fil: {}, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', page: {} }); };
 const clearBtn = () => h('button', { class: 'btn sm', onClick: clearFilters }, 'Clear filters');
 const isEmpty = (v) => v == null || v === '';
 // Stable sort; empty values go last in both directions; numbers compare as numbers, text ignores case.
@@ -255,6 +255,7 @@ async function load(fresh) {
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const loadPers = async () => { try { quiet({ pers: (await (await api('/api/persistence')).json()) || [] }); } catch (e) {} };
+const loadHist = async () => { try { quiet({ seen: ((await (await api('/api/history')).json()) || {}).seen || [] }); } catch (e) {} };
 const toast = (t) => rec({ toast: t });
 const mute = (id) => { S.muted.add(id); localStorage.setItem('sysmon-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -440,11 +441,51 @@ function persistence() {
   return [h('div', { class: 'filters' }, chips), table];
 }
 
-const SOON = { network: ['Network', 'Every outbound connection by host, with reverse DNS, owner and first-seen date per app.'], history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
+
+// One key shape for both the live-connection map and the history join, so the delimiter and
+// field order can't drift between the two call sites that build it and the one that looks it up.
+const netKey = (groupKey, remote) => groupKey + '|' + remote;
+function network() {
+  const q = S.q.toLowerCase(), f = S.nfilter, now = S.snap.at;
+  const byKey = new Map();
+  for (const g of S.snap.groups) for (const c of g.conns) {
+    // loopback isn't "the network" (apps.js's own net(g) uses the same test); nothing to show here.
+    if (c.direction !== 'outbound' || !c.remote_addr || c.scope === 'loopback') continue;
+    const key = netKey(g.key, c.remote_addr);
+    let r = byKey.get(key);
+    if (!r) { r = { g, remote: c.remote_addr, ports: new Set(), scope: c.scope, sockets: 0 }; byKey.set(key, r); }
+    r.ports.add(c.remote_port);
+    r.sockets++;
+  }
+  const seenBy = new Map(S.seen.map((s) => [netKey(s.group_key, s.remote), s.first_seen]));
+  const all = [...byKey.values()].map((r) => Object.assign(r, { ports: [...r.ports].sort((a, b) => a - b), first_seen: seenBy.get(netKey(r.g.key, r.remote)) ?? null }));
+  // Newest-contacted hosts first, so what you'd most want to check sits at the top by default;
+  // baked into the base order (as listeners() does for its reach tiers) so it survives filtering
+  // and is what sortRows falls back to once no column header is actively sorted.
+  all.sort((a, b) => (b.first_seen ?? -1) - (a.first_seen ?? -1) || b.sockets - a.sockets);
+  const isNew = (r) => r.g.approved && r.first_seen != null && now - r.first_seen < 3600;
+  const inFilter = (r, id) => id === 'all' || (id === 'new' ? isNew(r) : r.scope === id);
+  const list = all.filter((r) => inFilter(r, f) && (!q || r.g.label.toLowerCase().includes(q) || r.remote.toLowerCase().includes(q)));
+  const shown = sortRows(list, 'net', { app: (r) => r.g.label, remote: (r) => r.remote, scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen });
+  const pg = paginate(shown, 'net');
+  const chips = [['all', 'All'], ['public', 'Public'], ['lan', 'LAN'], ['new', 'New']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), onClick: () => rec({ nfilter: id, page: {} }) }, l + ' ', all.filter((r) => inFilter(r, id)).length));
+  const cols = 'grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1fr) 80px 90px 110px';
+  const table = h('section', { class: 'card tbl', style: 'min-width:0' },
+    sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }], cols, 'ell'),
+    pg.slice.map((r) => h('div', { class: 'tr ell', style: cols },
+      h('span', { style: 'font-weight:500' }, r.g.label), h('span', { class: 'mut small', title: r.remote }, r.remote),
+      h('span', { class: 'mut small' }, r.ports.join(', ')), h('span', {}, h('span', { class: 'tag' }, r.scope)),
+      h('span', { class: 'num' }, r.sockets), h('span', { class: 'mut small' }, r.first_seen != null ? new Date(r.first_seen * 1000).toLocaleDateString() : '-'))),
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No connections match the current filters. ' : 'No outbound connections right now.'), all.length ? clearBtn() : null), pg.pager);
+  return [h('div', { class: 'filters' }, chips), table,
+    h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Remote hosts are shown as IP addresses only: no hostname lookup is done, since that would tell a DNS resolver which IPs you look up. "First seen" is this app\'s own history, not the connection\'s age.')];
+}
+
+const SOON = { history: ['History', 'What changed since yesterday: new apps, new hosts, new listeners.'] };
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18']];
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
-const FILTERABLE = ['apps', 'listeners', 'persist'];
-const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence' };
+const FILTERABLE = ['apps', 'listeners', 'persist', 'network'];
+const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network' };
 
 function render() {
   const pending = S.snap ? S.snap.groups.filter((g) => status(g) === 'review').length : 0;
@@ -464,6 +505,7 @@ function render() {
   else if (S.view === 'priv') c.replaceChildren(...priv());
   else if (S.view === 'listeners') c.replaceChildren(...listeners());
   else if (S.view === 'persist') c.replaceChildren(...persistence());
+  else if (S.view === 'network') c.replaceChildren(...network());
   else c.replaceChildren(h('section', { class: 'card', style: 'padding:28px;max-width:620px' }, h('h2', { style: 'margin:0 0 8px;font-size:16px' }, SOON[S.view][0]), h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, SOON[S.view][1] + ' Coming in a later phase.')));
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
@@ -478,8 +520,8 @@ function render() {
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); render(); load(); loadPriv(); loadSudo(); loadPers();
-setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000);
+applyTheme(); render(); load(); loadPriv(); loadSudo(); loadPers(); loadHist();
+setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
 </script>
 </body>
 </html>
