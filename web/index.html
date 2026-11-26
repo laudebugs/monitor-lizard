@@ -122,6 +122,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 .code{font-size:12px;background:var(--bg);border:1px solid var(--line);padding:8px 10px;word-break:break-all}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:var(--panel2);border:1px solid var(--acc);padding:10px 12px 10px 16px;font-size:13px;z-index:11;max-width:calc(100% - 32px)}
 .mut{color:var(--mut)}.small{font-size:12px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -136,6 +137,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 <div id="content"></div>
 </main>
 </div>
+<div id="announcer" class="sr-only" aria-live="polite"></div>
 <div id="layer"></div>
 <script>
 const TOKEN = "__TOKEN__";
@@ -151,7 +153,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, guide: null, guideLoading: false, guideErr: false, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -291,6 +293,7 @@ function patchFromHash(st, s) {
   const dds = Object.keys(own(PAGE_DROPDOWNS, st.view) || {});
   if (dds.length) { patch.fil = Object.assign({}, s.fil); for (const name of dds) patch.fil[name] = st.dd[name] || 'all'; }
   for (const [field] of Object.values(own(PAGE_PARAMS, st.view) || {})) patch[field] = st.ex[field];
+  if (own(PAGE_PARAMS, st.view)) patch.gcopy = null; // a Copy result belongs to the entry it was made on
   if (st.sel !== s.sel) patch.expand = { procs: false, conns: false };
   return patch;
 }
@@ -319,26 +322,47 @@ function crumbParts(st, selLabel) {
 }
 /* url-state:end */
 /* guide-search:begin */
-// Search over the Guide's table, kept free of DOM access so tests can lift it out of the page. A trailing "s" is
-// dropped from longer words so "snapshots" also finds "snapshot"; every word must match somewhere.
-const guideWords = (q) => String(q || '').toLowerCase().split(/\s+/).filter(Boolean).map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
-// 0 when any word is missing; otherwise a sum that puts title, tag and command hits above description hits.
+// The Guide's search, kept free of DOM access so tests (and later a global search) can lift it out of the page.
+// The Rust `search` behind `help` follows the same rules; tests/fixtures/guide-search.json holds results both give.
+// Words: lower case; a word with no letter or digit ("/", "-") is dropped; a trailing "s" is cut from words longer
+// than three letters, so "snapshots" also finds "snapshot". Every word must match.
+const guideWords = (q) => String(q || '').toLowerCase().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
+const isAlnum = (c) => c !== '' && /[\p{L}\p{N}]/u.test(c);
+// A word under three characters must stand alone ("df" in "docker system df"), or it would match inside nearly every text.
+function hasWord(hay, w) {
+  for (let i = hay.indexOf(w); i >= 0; i = hay.indexOf(w, i + 1)) if (!isAlnum(hay.charAt(i - 1)) && !isAlnum(hay.charAt(i + w.length))) return true;
+  return false;
+}
+// 0 when any word is missing. Per word: title 8, tags 4, command 4, description 1 (short words are not looked for in the description).
 function guideScore(e, words) {
   const f = { title: e.title || e.term || '', cmd: e.command || '', tags: (e.tags || []).join(' '), desc: e.description || e.meaning || '' };
   for (const k in f) f[k] = f[k].toLowerCase();
   let score = 0;
   for (const w of words) {
-    const n = (f.title.includes(w) ? 8 : 0) + (f.tags.includes(w) ? 4 : 0) + (f.cmd.includes(w) ? 4 : 0) + (f.desc.includes(w) ? 1 : 0);
+    const short = w.length < 3, hit = (hay) => (short ? hasWord(hay, w) : hay.includes(w));
+    const n = (hit(f.title) ? 8 : 0) + (hit(f.tags) ? 4 : 0) + (hit(f.cmd) ? 4 : 0) + (!short && hit(f.desc) ? 1 : 0);
     if (!n) return 0;
     score += n;
   }
   return score;
 }
-// Without words: every item in table order. With words: matches only, best first, table order among equals.
-function guideRows(items, q, topic) {
-  const words = guideWords(q), pool = topic && topic !== 'all' ? items.filter((e) => e.topic === topic) : items;
-  if (!words.length) return pool.slice();
-  return pool.map((e, i) => ({ e, i, n: guideScore(e, words) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i).map((x) => x.e);
+// Every match, best first and in table order among equals, each as { e, n }. Without words: everything, n = 0.
+function guideRanked(items, q) {
+  const words = guideWords(q);
+  if (!words.length) return items.map((e) => ({ e, n: 0 }));
+  return items.map((e, i) => ({ e, i, n: guideScore(e, words) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i);
+}
+// Weak matches score under this share of the best score. Tuned on the real table: "snapshots" scores 17, 17, 12, 8, so
+// anything above 12/17 (0.71) drops the app's own snapshot entry and 0.75 does.
+const GUIDE_CUTOFF = 0.75;
+// What to list: matches in the topic, split at the cutoff measured against the best match over all topics so a topic
+// chip does not change what counts as weak. `all` shows the weak ones too.
+function guideSearch(items, q, topic, all) {
+  const ranked = guideRanked(items, q), bar = ranked.length ? ranked[0].n * GUIDE_CUTOFF : 0;
+  const inTopic = ranked.filter((x) => !topic || topic === 'all' || x.e.topic === topic);
+  const strong = inTopic.filter((x) => x.n >= bar);
+  const weak = inTopic.filter((x) => x.n < bar);
+  return { shown: (all ? inTopic : strong).map((x) => x.e), hidden: all ? [] : weak.map((x) => x.e) };
 }
 const guideTopics = (commands) => [...new Set(commands.map((c) => c.topic))];
 function guideGroups(rows) {
@@ -349,14 +373,30 @@ function guideGroups(rows) {
 // The product's own topic is named after its binary, so its label comes from the topic text, not from a list here.
 const topicLabel = (t) => ({ storage: 'Storage', developer: 'Developer tools' })[t] || String(t).split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 const guidePick = (rows, id) => rows.find((r) => r.id === id) || rows[0] || null;
+// What the Guide's content is built from. A poll changes none of it, so the content is not rebuilt (and keeps focus
+// and the selected text) until one of these changes.
+const guideSig = (s) => JSON.stringify([s.q, s.gtab, s.gtopic, s.gsel, s.gall, s.gcopy, s.guide && s.guide.state]);
+// "5 commands", or the empty message, for the live region.
+const guideSummary = (n, hidden, kind) => (n ? n + ' ' + kind + (n === 1 ? '' : 's') + (hidden ? ', ' + hidden + ' weaker hidden' : '') : 'Nothing matches that');
 /* guide-search:end */
+
+/* guide-copy:begin */
+// The Copy flow with its page access passed in, so a test can run it without a DOM. By the time the clipboard
+// answers the user may have left the page, so every element is looked up again and may be gone.
+async function copyFlow(command, { write, show, byId, select }) {
+  let state = 'copied';
+  try { await write(command); } catch (err) { state = 'manual'; }
+  show(state);
+  const button = byId('guide-copy'), code = byId('guide-cmd');
+  if (button) button.focus();
+  if (state === 'manual' && code) select(code);
+  return state;
+}
+/* guide-copy:end */
 
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
-// A poll must also leave the Guide alone while something there has focus or text is selected (the Copy fallback
-// selects the command): rebuilding the page would drop both.
-const guideHolds = () => S.view === 'guide' && ($('content').contains(document.activeElement) || String(getSelection()) !== '');
-const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !guideHolds()) render(); };
+const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
 const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
 const setTheme = (t) => { localStorage.setItem('monitor-lizard-theme', t); S.theme = t; applyTheme(); render(); };
@@ -844,53 +884,59 @@ function performanceView_() {
 const SAFETY_TAG = { 'read-only': 'ok', 'changes files': 'warn', 'needs sudo': 'bad' };
 // render() rebuilds every control, so a keyboard user would lose their place; put focus back on the one just used.
 const guideAct = (id, m) => { rec(m); const el = $(id); if (el) el.focus(); };
+// One live region that render() never rebuilds, so a screen reader hears changes made after the content is replaced.
+function announce(msg) { const el = $('announcer'); if (!el) return; el.textContent = ''; setTimeout(() => { el.textContent = msg; }, 60); }
 async function loadGuide() {
-  S.guideLoading = true;
-  try { const g = await (await api('/api/guide')).json(); S.guideLoading = false; rec({ guide: g, guideErr: false }); }
-  catch (e) { S.guideLoading = false; rec({ guideErr: true }); }
+  S.guide = { state: 'loading', data: null };
+  try { const data = await (await api('/api/guide')).json(); rec({ guide: { state: 'ready', data } }); }
+  catch (e) { rec({ guide: { state: 'error', data: null } }); }
 }
-// Copies the command; when the clipboard is blocked it selects the text so Cmd+C works. Focus returns to the
-// button because render() rebuilds it.
-async function copyCommand(e) {
-  let state = 'copied';
-  try { await navigator.clipboard.writeText(e.command); } catch (err) { state = 'manual'; }
-  rec({ gcopy: { id: e.id, state } });
-  $('guide-copy').focus();
-  if (state === 'manual') { const r = document.createRange(); r.selectNodeContents($('guide-cmd')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
-}
+const copyCommand = (e) => copyFlow(e.command, {
+  write: (t) => navigator.clipboard.writeText(t),
+  show: (state) => { rec({ gcopy: { id: e.id, state } }); announce(state === 'copied' ? 'Copied to the clipboard' : 'The clipboard is blocked. The command is selected: press Cmd+C'); },
+  byId: $,
+  select: (el) => { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); },
+});
 function guideDetail(e) {
   const page = NAV.find(([, label]) => label === e.appears_in), c = S.gcopy && S.gcopy.id === e.id ? S.gcopy.state : '';
   const part = (title, ...kids) => h('div', { style: 'border-top:1px solid var(--line);padding:12px 16px' }, h('h3', { class: 'sec' }, title), ...kids);
   return h('aside', { class: 'drawer card', 'aria-label': 'Command detail' },
-    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('div', { class: 'grow', style: 'font-size:16px;font-weight:600' }, e.title), h('span', { class: 'tag ' + (SAFETY_TAG[e.safety] || ''), style: 'flex:none' }, e.safety)),
+    h('div', { style: 'display:flex;align-items:center;gap:10px;padding:16px 16px 12px' }, h('h2', { class: 'grow', style: 'font-size:16px;font-weight:600;margin:0' }, e.title), h('span', { class: 'tag ' + (SAFETY_TAG[e.safety] || ''), style: 'flex:none' }, e.safety)),
     h('div', { style: 'padding:0 16px 14px;display:flex;flex-direction:column;gap:8px' },
       h('div', { class: 'code', id: 'guide-cmd' }, e.command),
       h('div', { style: 'display:flex;align-items:center;gap:10px' }, h('button', { class: 'btn btn-acc sm', id: 'guide-copy', onClick: () => copyCommand(e) }, c === 'copied' ? 'Copied' : c === 'manual' ? 'Press Cmd+C' : 'Copy'),
-        h('span', { class: 'small mut', role: 'status' }, c === 'copied' ? 'Copied to the clipboard.' : c === 'manual' ? 'The clipboard is blocked, so the command is selected.' : ''))),
+        h('span', { class: 'small mut', 'aria-hidden': 'true' }, c === 'copied' ? 'Copied to the clipboard.' : c === 'manual' ? 'The clipboard is blocked, so the command is selected.' : ''))),
     part('What it does', h('p', { style: 'margin:0;font-size:13px;line-height:1.45' }, e.description)),
     e.example ? part('Example output (' + e.example.macos + ')', h('pre', { class: 'code', style: 'margin:0;white-space:pre-wrap' }, e.example.output)) : null,
     e.appears_in ? part('Where it appears', page ? h('a', { href: '#' + page[0] }, e.appears_in) : h('span', {}, e.appears_in)) : null,
     e.undo ? part('How to undo', h('p', { style: 'margin:0;font-size:13px;line-height:1.45' }, e.undo)) : null);
 }
+// The line under a list that hides weak matches. The button reveals them and keeps focus on the first one.
+const weakLine = (hidden, kind, focusId) => h('div', { class: 'small mut', style: 'padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap' },
+  h('span', {}, hidden.length + ' weaker ' + (hidden.length === 1 ? 'match' : 'matches') + ' hidden.'),
+  h('button', { class: 'btn sm', id: 'g-weak', onClick: () => guideAct(focusId, { gall: S.q }) }, 'Show ' + (hidden.length === 1 ? 'it' : 'them')));
 function guide() {
-  if (!S.guide && !S.guideLoading && !S.guideErr) loadGuide();
-  if (S.guideErr) return [h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'The guide did not load. '), h('button', { class: 'btn sm', onClick: () => { S.guideErr = false; loadGuide(); } }, 'Try again')))];
-  if (!S.guide) return [h('p', { class: 'mut' }, 'Loading the guide...')];
-  const commands = S.guide.commands || [], terms = S.guide.terms || [], gloss = S.gtab === 'glossary';
+  const g = S.guide;
+  if (g.state === 'idle') loadGuide();
+  if (g.state === 'error') return [h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'The guide did not load. '), h('button', { class: 'btn sm', onClick: loadGuide }, 'Try again')))];
+  if (g.state !== 'ready') return [h('p', { class: 'mut' }, 'Loading the guide...')];
+  const commands = g.data.commands || [], terms = g.data.terms || [], gloss = S.gtab === 'glossary', all = S.q.trim() !== '' && S.gall === S.q;
   const topics = guideTopics(commands), topic = topics.includes(S.gtopic) ? S.gtopic : 'all';
-  const tabs = [['commands', 'Commands'], ['glossary', 'Glossary']].map(([id, l]) => h('button', { class: 'chip' + (S.gtab === id ? ' on' : ''), id: 'g-tab-' + id, 'aria-pressed': String(S.gtab === id), onClick: () => guideAct('g-tab-' + id, { gtab: id, page: {} }) }, l));
-  const chips = gloss ? [] : [['all', 'All'], ...topics.map((t) => [t, topicLabel(t)])].map(([id, l]) => h('button', { class: 'chip' + (topic === id ? ' on' : ''), id: 'g-topic-' + id, 'aria-pressed': String(topic === id), onClick: () => guideAct('g-topic-' + id, { gtopic: id }) }, l + ' ', h('span', { class: 'mut' }, guideRows(commands, S.q, id).length)));
+  const tabs = [['commands', 'Commands'], ['glossary', 'Glossary']].map(([id, l]) => h('button', { class: 'chip' + (S.gtab === id ? ' on' : ''), id: 'g-tab-' + id, 'aria-pressed': String(S.gtab === id), onClick: () => guideAct('g-tab-' + id, { gtab: id, gcopy: null, page: {} }) }, l));
+  const chips = gloss ? [] : [['all', 'All'], ...topics.map((t) => [t, topicLabel(t)])].map(([id, l]) => h('button', { class: 'chip' + (topic === id ? ' on' : ''), id: 'g-topic-' + id, 'aria-pressed': String(topic === id), onClick: () => guideAct('g-topic-' + id, { gtopic: id, gcopy: null }) }, l + ' ', h('span', { class: 'mut' }, guideSearch(commands, S.q, id, all).shown.length)));
   const bar = h('div', { class: 'filters' }, h('div', { class: 'seg', role: 'group', 'aria-label': 'Guide section' }, tabs), chips);
-  const rows = guideRows(gloss ? terms : commands, S.q, gloss ? 'all' : topic);
-  if (!rows.length) return [bar, h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'Nothing matches that. '), h('button', { class: 'btn sm', onClick: () => { clearFilters(); $('q').focus(); } }, 'Clear filters')))];
-  if (gloss) return [bar, h('section', { class: 'card', 'aria-label': 'Glossary' }, rows.map((t) => h('div', { class: 'item' }, h('div', {}, h('h3', {}, t.term), h('p', {}, t.meaning)))))];
+  const { shown: rows, hidden } = guideSearch(gloss ? terms : commands, S.q, gloss ? 'all' : topic, all);
+  S.gnote = guideSummary(rows.length, hidden.length, gloss ? 'term' : 'command');
+  if (!rows.length && !hidden.length) return [bar, h('div', { class: 'card' }, h('div', { class: 'item' }, h('p', {}, 'Nothing matches that. '), h('button', { class: 'btn sm', onClick: () => { clearFilters(); $('q').focus(); } }, 'Clear filters')))];
+  if (gloss) return [bar, h('section', { class: 'card', 'aria-label': 'Glossary' }, h('h2', { class: 'sec', style: 'margin:0;padding:12px 16px 0' }, 'Glossary'), rows.map((t) => h('div', { class: 'item' }, h('div', {}, h('h3', { id: 'g-term-' + t.id, tabindex: '-1' }, t.term), h('p', {}, t.meaning)))), hidden.length ? weakLine(hidden, 'term', 'g-term-' + hidden[0].id) : null)];
   const cur = guidePick(rows, S.gsel);
   // A selection the filters hide gives way to the first result; the address follows without a new history entry.
-  if (S.gsel && cur.id !== S.gsel) { S.gsel = null; S.hashReplace = true; }
-  const row = (e) => h('button', { class: 'tr ell' + (e.id === cur.id ? ' on' : ''), id: 'g-row-' + e.id, style: 'grid-template-columns:minmax(0,1fr) auto;min-width:0', 'aria-current': e.id === cur.id ? 'true' : null, onClick: () => guideAct('g-row-' + e.id, { gsel: e.id, gcopy: null }) }, h('span', {}, e.title), h('span', { class: 'tag ' + (SAFETY_TAG[e.safety] || '') }, e.safety));
+  if (S.gsel && (!cur || cur.id !== S.gsel)) { S.gsel = null; S.hashReplace = true; }
+  const row = (e) => h('li', {}, h('button', { class: 'tr ell' + (cur && e.id === cur.id ? ' on' : ''), id: 'g-row-' + e.id, style: 'grid-template-columns:minmax(0,1fr) auto;min-width:0', 'aria-current': cur && e.id === cur.id ? 'true' : null, onClick: () => guideAct('g-row-' + e.id, { gsel: e.id, gcopy: null }) }, h('span', {}, e.title), h('span', { class: 'tag ' + (SAFETY_TAG[e.safety] || '') }, e.safety)));
   const groups = S.q.trim() ? [[null, rows]] : guideGroups(rows);
-  const list = h('section', { class: 'card', style: 'flex:1 1 360px;min-width:0', 'aria-label': 'Commands' }, groups.map(([t, rs]) => [t ? h('h2', { class: 'sec', style: 'margin:0;padding:12px 16px 6px' }, topicLabel(t)) : null, rs.map(row)]));
-  return [bar, h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, list, guideDetail(cur))];
+  const plain = 'list-style:none;margin:0;padding:0';
+  const list = h('section', { class: 'card', style: 'flex:1 1 360px;min-width:0', 'aria-label': 'Commands' }, groups.map(([t, rs]) => [t ? h('h2', { class: 'sec', style: 'margin:0;padding:12px 16px 6px' }, topicLabel(t)) : null, h('ul', { style: plain }, rs.map(row))]), hidden.length ? weakLine(hidden, 'command', 'g-row-' + hidden[0].id) : null);
+  return [bar, h('div', { style: 'display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start' }, list, cur ? guideDetail(cur) : null)];
 }
 
 const NAV = [['overview', 'Overview', 'M3 12l9-8 9 8M5 10v10h14V10'], ['apps', 'Apps', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'], ['performance', 'Performance', 'M3 17l5-9 4 5 3-6 6 10'], ['network', 'Network', 'M2 12h4l3-8 6 16 3-8h4'], ['listeners', 'Listeners', 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12'], ['priv', 'Privilege', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'], ['persist', 'Persistence', 'M4 6h16M4 12h16M4 18h10'], ['history', 'History', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18'], ['guide', 'Guide', 'M6 4h12v16H6zM6 16h12M9 8h6']];
@@ -917,6 +963,7 @@ function render() {
   $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
+  if (S.view !== 'guide') S.gsig = null;
   if (!S.snap && S.view !== 'guide') c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...')); // the Guide needs no snapshot
   else if (S.view === 'overview') c.replaceChildren(...overview());
   else if (S.view === 'apps') c.replaceChildren(...apps());
@@ -926,7 +973,15 @@ function render() {
   else if (S.view === 'performance') c.replaceChildren(...performanceView_());
   else if (S.view === 'network') c.replaceChildren(...network());
   else if (S.view === 'history') c.replaceChildren(...historyView());
-  else if (S.view === 'guide') c.replaceChildren(...guide());
+  else if (S.view === 'guide') {
+    // Rebuilt only when what the Guide shows changes: a poll must not drop focus or the selected command.
+    if (guideSig(S) !== S.gsig || !c.hasChildNodes()) {
+      c.replaceChildren(...guide());
+      const prev = S.gsig && JSON.parse(S.gsig); S.gsig = guideSig(S);
+      const now = JSON.parse(S.gsig);
+      if (prev && (prev[0] !== now[0] || prev[1] !== now[1] || prev[2] !== now[2] || prev[4] !== now[4]) && S.gnote) announce(S.gnote);
+    }
+  }
   else c.replaceChildren(h('p', { class: 'mut' }, 'Unknown view.')); // every NAV id has a branch above; this only guards a future NAV entry added without one
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },

@@ -317,11 +317,19 @@ test('Guide: unknown tab, odd entry and topic values fall back to the defaults',
 });
 
 test('Guide: Object.prototype names are plain values, never keys', () => {
-  for (const w of ['__proto__', 'constructor', 'toString']) {
-    assert.doesNotThrow(() => L.parseHash('#guide?' + w + '=' + w + '&entry=' + w + '&topic=' + w));
-    assert.doesNotThrow(() => L.writeHash({ ...guideBase, ex: { gtab: w, gtopic: w, gsel: w } }));
+  for (const w of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+    const p = L.parseHash('#guide?entry=' + w + '&topic=' + w + '&tab=' + w + '&' + w + '=x');
+    assert.equal(p.ex.gtab, 'commands', 'tab ' + w);
+    // A name that is a plain id comes back as that string and is only ever compared with ids; __proto__ is not an id.
+    const id = w === '__proto__' ? [null, 'all'] : [w, w];
+    assert.equal(p.ex.gsel, id[0], 'entry ' + w);
+    assert.equal(p.ex.gtopic, id[1], 'topic ' + w);
+    assert.deepEqual(Object.keys(p.ex).sort(), ['gsel', 'gtab', 'gtopic']);
+    assert.equal(Object.getPrototypeOf(p.ex), Object.prototype);
+    assert.equal(L.writeHash({ ...guideBase, ex: { gtab: w, gtopic: 'all', gsel: null } }), '#guide', 'tab ' + w + ' is not written');
+    assert.equal(L.writeHash({ ...guideBase, ex: { gtab: 'commands', gtopic: w, gsel: null } }), w === '__proto__' ? '#guide' : '#guide?topic=' + w);
   }
-  assert.equal(L.parseHash('#guide?entry=__proto__').ex.gsel, null);
+  assert.equal({}.polluted, undefined);
 });
 
 test('Guide: a long hash drops the entry first, then the filters', () => {
@@ -345,6 +353,8 @@ test('Guide: toHashState and patchFromHash map gtab, gtopic and gsel', () => {
   const patch = L.patchFromHash(L.parseHash(L.writeHash(st)), { ...S, gsel: null, gtopic: 'all', q: '' });
   assert.deepEqual([patch.view, patch.q, patch.gtab, patch.gtopic, patch.gsel], ['guide', 'snap', 'commands', 'storage', 'tmutil-list']);
   assert.equal(L.patchFromHash(L.parseHash('#apps'), S).gsel, undefined, 'other pages leave the Guide state alone');
+  assert.equal(L.patchFromHash(L.parseHash('#guide?entry=other'), { ...S, gcopy: { id: 'a', state: 'copied' } }).gcopy, null, 'Back, Forward and pasted links clear a stale Copy result');
+  assert.equal(L.patchFromHash(L.parseHash('#apps'), S).gcopy, undefined);
 });
 
 test('Guide: the search box filters it and its page has a title', () => {

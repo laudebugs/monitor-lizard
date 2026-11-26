@@ -40,6 +40,8 @@ Add a Guide nav item with a search box, topic filters, a Commands list with a de
 | File | Change |
 |---|---|
 | `web/index.html` | nav entry, `guide()` view, `FILTERABLE` entry |
+| `src/guide.rs` | search rules shared with the page; Developer tools topic |
+| `tests/fixtures/`, `tests/web/` | shared table and results, search and Copy tests |
 
 ## Steps
 
@@ -64,7 +66,7 @@ Add a Guide nav item with a search box, topic filters, a Commands list with a de
 
 ## Tests
 
-Search logic tests in the simulated DOM harness, 6 cases. Layout and keyboard use checked by hand in a real browser and recorded.
+Search, ranking, URL-state and Copy-flow logic tests in Node, with a shared table of expected results that `cargo test` also checks (see the Implementation Record for the counts). Layout and keyboard use checked by hand in a real browser and recorded.
 
 ## Verification
 
@@ -81,12 +83,14 @@ Plan status; README page list.
 ## Risks and open questions
 
 - Clipboard access inside the Tauri webview (A17) may differ; check there.
+- Open: the weak-match cutoff lives only in the page. `help` lists every match, best first.
+- Open: no screen reader was used, so the live-region wording is untested by ear.
 
 ## Definition of done
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
@@ -97,16 +101,20 @@ Plan status; README page list.
 
 **Built.** The Guide is a nav item in `web/index.html`. It fetches `/api/guide` once, on the first visit, and filters in the browser. A Commands and Glossary switch and topic chips with counts narrow the list. The detail pane shows the command, Copy, safety chip, example output, where it appears and how to undo.
 
-**Search.** Every word must match title, command, tags or description. A trailing "s" on a word longer than three letters is dropped, so "snapshots" finds "snapshot". Title, tag and command hits rank above description hits. An empty search groups entries by topic.
+**Search rules.** Every word must match title, command, tags or description. A word with no letter or digit is dropped, so `/` is an empty query. A trailing "s" on a word longer than three letters is cut. A word under three characters must stand alone in the title, command or tags. Title hits score 8, tags 4, command 4 and description 1.
 
-**URL state.** The Guide uses the existing hash code with new keys: `q` for search, `topic`, `tab` and `entry`. A new `PAGE_PARAMS` list checks each value. Choosing an entry adds a history entry; search, topic and tab replace the current one. New URL tests cover the keys, their allow-lists and the history rules.
+**Weak matches.** Results scoring under 75% of the best score are hidden behind "N weaker matches hidden" and a Show them button. At 60% the app's own snapshot entry (12 of 17) stayed in the list, so the cutoff is 0.75. Chip counts and the cutoff use the best score over all topics.
 
-**Deviations.** The topic chips come from the table, so there is no "Developer tools" chip: the Docker and Xcode commands sit under Storage. Chip labels come from the topic text, so the binary name is not in the JavaScript. The `/` shortcut works on the Guide only. Searching "snapshots" also lists the two entries about the app's own snapshot, after the Time Machine entries, because they match the word.
+**Real-table results.** With the cutoff, the first entry for each query was the one a user expects. Shown / hidden counts: snapshots 2/2, snapshot 2/2, docker 2/0, prune 1/0, sudo 2/2, simulators 1/0, free space 1/1, df 1/1, delete 2/0, brew 1/0, Time Machine 1/1, privilege 1/1. "Time Machine" hides the delete entry, and "df" hides the Docker one.
 
-**Checked in Chrome, keyboard.** Own tab, dark and light, port 4962. `/`, typing, Tab to a topic chip, a row, Copy, Clear filters and Glossary all worked, with focus kept on the control used. "snapshots" and "docker" gave the expected lists. Copy worked on the real clipboard.
+**Shared rules.** `help` in `src/guide.rs` follows the same rules, minus the cutoff. `tests/fixtures/guide-table.json` is the table, `cargo test` fails if it is stale, and `tests/fixtures/guide-search.json` holds the ordered ids for 22 queries that both Rust and the web tests check. The Docker, Xcode and Homebrew entries moved to a `developer` topic.
 
-**Checked in Chrome, other states.** A blocked clipboard was simulated by making `writeText` reject. The command was selected, the button read "Press Cmd+C", and the selection survived a 10 s poll. The empty state showed "Nothing matches that" with Clear filters. At 400 px in an iframe the list sat above the detail pane, with no horizontal scroll. The safety chip was clipped there until fixed.
+**URL state.** The Guide uses the existing hash code with keys `q`, `topic`, `tab` and `entry`. A `PAGE_PARAMS` list checks each value. Choosing an entry adds a history entry; search, topic and tab replace it. A Back or pasted link clears a stale Copy result.
 
-**After merging main.** One more look on port 4963 showed the Guide with the new product name in the topic chip.
+**Polls and focus.** Polls refresh badges as before. The Guide's content is rebuilt only when its own inputs change, so focus and the selected command survive a poll. One live region outside the rebuilt page announces result counts and the Copy result.
 
-**Pending.** The Tauri webview's clipboard (A17) and a screen reader pass.
+**Deviations.** `/` works on the Guide only. The state names `ex` and `gsel` were kept, to avoid a wide rename. Test counts: 60 web tests and 143 Rust tests passed at the last run.
+
+**Checked in Chrome** (own tab, port 4964, keyboard). `/`, typing "snapshots", Tab to Show them (focus landed on the first revealed row), a row, Copy (real clipboard worked), Glossary and back (the Copy label reset). A Persistence badge appeared while a Guide row had focus, and focus stayed. Searches `docker`, `a` and `/` gave 2, 2 and 21 commands. Dark and light looked right, and at 400 px in light the list sat above the detail pane with no horizontal scroll.
+
+**Pending.** The 400 px layout in dark after this round, a simulated blocked clipboard after this round (covered by unit tests only), the Tauri webview's clipboard (A17), and any screen reader pass. The live-region wording has not been heard.
