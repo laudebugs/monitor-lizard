@@ -81,14 +81,19 @@ fn load_at(path: &std::path::Path) -> Settings {
     fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
+#[cfg(test)]
+pub(crate) fn save_at_for_test(path: &std::path::Path) { save_at(path, &Settings::default()).unwrap(); }
+
 pub fn save(s: &Settings) -> std::io::Result<()> {
     save_at(&file(), s)
 }
 fn save_at(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().recursive(true).mode(0o700).create(path.parent().unwrap())?;
-    crate::paths::open_private(path, true)?.write_all(serde_json::to_string_pretty(s).unwrap().as_bytes())
+    let dir = path.parent().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("the settings path {} has no folder", path.display())))?;
+    crate::paths::create_private_dir(dir).map_err(|e| crate::paths::with_context("create the folder for the settings,", dir, e))?;
+    let text = serde_json::to_string_pretty(s).map_err(std::io::Error::other)?;
+    crate::paths::create_private_file_truncating(path).and_then(|mut f| f.write_all(text.as_bytes()))
+        .map_err(|e| crate::paths::with_context("write the settings to", path, e))
 }
 
 /// Applies a settings-endpoint update: parses and validates every given field before writing
