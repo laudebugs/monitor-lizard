@@ -6,7 +6,7 @@
 | Status | `ready` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | A13 |
-| ADRs | [0003](../../decisions/0003-classifier-agent-as-node-sidecar-on-buildanagent.md) (Proposed) |
+| ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
 | Branch | `feat/a15-agent-ui-shadow-mode` |
 | PR title | `feat(web): show the agent verdict in the dashboard, shadow mode first` |
 | Size | M (200-400) |
@@ -50,7 +50,7 @@ Show label, confidence band, rationale and suggested actions in the Apps drawer 
 
 | Input | Expected |
 |---|---|
-| Sidecar unavailable | Block not shown; no error banner |
+| Model server unavailable | Block not shown; no error banner |
 | Verdict suggests quit for a root-only group | Not possible: filtered by A7/A10 |
 | Rationale contains HTML | Shown as text |
 

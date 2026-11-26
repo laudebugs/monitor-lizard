@@ -12,4 +12,4 @@ One file per hard-to-reverse decision. Agents must not assume a decision that is
 |---|---|---|---|
 | [0001](0001-record-decisions-as-adrs.md) | Record decisions as ADRs | Accepted | n/a |
 | [0002](0002-rust-core-polling-collectors-local-web-ui.md) | Rust core with polling collectors and a loopback web dashboard | Accepted | [system-monitor](../plans/system-monitor.md) |
-| [0003](0003-classifier-agent-as-node-sidecar-on-buildanagent.md) | The classifier agent is a Node sidecar on the buildanagent SDK | Proposed | [system-monitor](../plans/system-monitor.md) |
+| [0003](0003-classifier-agent-rust-loop-buildanagent-evals.md) | The classifier loop lives in Rust; buildanagent is used for evals | Accepted | [system-monitor](../plans/system-monitor.md) |

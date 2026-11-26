@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `6ecc2f1`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [prior art](../research/prior-art/README.md), [local classifier](../research/local-classifier/README.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [A1](../todos/ready/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/ready/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/ready/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-sidecar-skeleton.md), [A9](../todos/ready/A9-agent-read-only-tools.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md), [A19](../todos/ready/A19-agent-packaging.md).
+- **Todos:** [A1](../todos/ready/A1-backend-persistence-history-api.md), [A2](../todos/ready/A2-persistence-page.md), [A3](../todos/ready/A3-listeners-page.md), [A4](../todos/ready/A4-network-page.md), [A5](../todos/ready/A5-history-page.md), [A6](../todos/ready/A6-rule-based-labels.md), [A11](../todos/ready/A11-rename-to-system-monitor.md). Agent: [A7](../todos/ready/A7-agent-allowed-actions-and-group-query.md), [A8](../todos/ready/A8-agent-structured-call.md), [A10](../todos/ready/A10-agent-verdict-and-validator.md), [A12](../todos/ready/A12-model-install.md), [A13](../todos/ready/A13-agent-supervisor-and-fallback.md), [A15](../todos/ready/A15-agent-ui-shadow-mode.md), [A16](../todos/ready/A16-agent-eval-corpus-and-runner.md). [A14](../todos/ready/A14-notifications-for-high-findings.md). Resource monitoring is its own plan: [resource-monitoring](resource-monitoring.md).
 
 ## 1. Goal
 
@@ -34,7 +34,7 @@ See [prior art](../research/prior-art/README.md): the Objective-See tools cover 
 - **D3.** Writes are guarded: per-run token, loopback Host and Origin, own-user processes only, audited.
 - **D4.** Rules decide the label; a model, if added, only explains and ranks suggested actions, never downgrades a rule's "suspicious", and never acts. See [local classifier](../research/local-classifier/README.md).
 - **D5.** State lives in `~/.ownwatch/` (baseline JSON, history SQLite) until [A11](../todos/ready/A11-rename-to-system-monitor.md) renames it with a migration.
-- **D7 (proposed).** The classifier agent is built with the owner's buildanagent SDK as a Node sidecar on a local llama-server: [ADR 0003](../decisions/0003-classifier-agent-as-node-sidecar-on-buildanagent.md), [research](../research/buildanagent-adoption/README.md). Needs the owner's decision against a Rust-only agent.
+- **D7.** The classifier is a bounded call from Rust to a local llama-server; buildanagent is used for evals only, not at runtime: [ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) (accepted 2026-11-26), [research](../research/buildanagent-adoption/README.md).
 - **D6.** "New" means first seen after a learning period (60 s after the very first scan of that kind), flagged for a bounded window (1 h for hosts, 7 days for startup items), so the first run is not a wall of alerts.
 
 ## 5. Order of work
@@ -48,17 +48,16 @@ See [prior art](../research/prior-art/README.md): the Objective-See tools cover 
 | A5 | History page | A1 |
 | A6 | Rule-based labels | none |
 | A7 | Allowed actions per label and read-only group query | A6 |
-| A8 | Node sidecar skeleton | A7 |
-| A9 | Read-only agent tools | A8 |
-| A10 | Verdict schema and Rust validator | A9 |
+| A8 | Structured call to a local llama-server | A7 |
+| A10 | Clamp the verdict to the rules | A8 |
 | A12 | Download and verify the model | A6 |
-| A13 | Supervisor and rules-only fallback | A10, A12 |
+| A13 | Supervise llama-server, rules-only fallback | A10, A12 |
 | A15 | Rationale and actions in the UI, shadow mode first | A13 |
 | A16 | Eval corpus and pass^k runner | A10 |
-| A19 | Package the Node runtime | A13 |
+| A14 | Notifications for high-severity findings | none |
 | A11 | Rename to system-monitor | none; do last, it touches every file |
 
-Not yet written (IDs A14, A17, A18 are free): the feedback baseline ("mark as expected"), the menu-bar app, enrichment (reverse DNS and ASN: reverse DNS tells a resolver which IPs you look up, so it needs an opt-in), and optional Endpoint Security.
+Not yet written (IDs A9, A17 to A19 are free): the feedback baseline ("mark as expected"), the menu-bar app, enrichment (reverse DNS and ASN: reverse DNS tells a resolver which IPs you look up, so it needs an opt-in), and optional Endpoint Security.
 
 ## 6. Risks and open questions
 
