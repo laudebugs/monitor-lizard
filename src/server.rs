@@ -139,3 +139,21 @@ fn urldecode(s: &str) -> String {
     }
     String::from_utf8_lossy(&out).into_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PAGE;
+
+    /// A data: URI in an attribute may not contain a raw double quote or angle bracket: the first quote
+    /// ends the attribute and the rest of the SVG is parsed as page markup, leaving stray text on screen.
+    #[test]
+    fn favicon_href_stays_inside_its_attribute() {
+        let at = PAGE.find("rel=\"icon\"").expect("icon link");
+        let after_href = PAGE[at..].split_once("href=\"").expect("href attribute").1;
+        let value = after_href.split('"').next().unwrap();
+        assert!(value.starts_with("data:image/svg+xml,"), "value: {value}");
+        assert!(!value.contains('<') && !value.contains('>'), "raw angle bracket in href: {value}");
+        assert!(value.ends_with("%3C/svg%3E"), "href was cut short: {value}");
+        assert!(after_href[value.len()..].starts_with("\">"), "attribute does not close the tag");
+    }
+}

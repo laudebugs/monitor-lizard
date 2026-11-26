@@ -6,3 +6,4 @@ Each folder holds two files that link to each other. Copy from [TEMPLATE-detail.
 
 | Bug | Symptom | Cause | Fixed in |
 |---|---|---|---|
+| [stray-quote-bracket-top-left](stray-quote-bracket-top-left/detail.md) | A stray `">` at the top left of every page | Unescaped double quotes inside the favicon data URI ended its attribute early | [resolution](stray-quote-bracket-top-left/resolution.md) |
