@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1b` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11 |
 | Depends on | T1a, N1 |
 | ADRs | None |
