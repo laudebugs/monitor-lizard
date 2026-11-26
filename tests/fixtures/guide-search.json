@@ -138,6 +138,7 @@
    "sm-snapshot",
    "sm-persistence",
    "sm-metrics",
+   "sm-storage",
    "sm-classify",
    "sm-llm-classify",
    "sm-watch",
@@ -168,7 +169,7 @@
    "group",
    "trust-label"
   ],
-  "shown": 21
+  "shown": 22
  },
  {
   "q": "  ",
@@ -176,6 +177,7 @@
    "sm-snapshot",
    "sm-persistence",
    "sm-metrics",
+   "sm-storage",
    "sm-classify",
    "sm-llm-classify",
    "sm-watch",
@@ -206,7 +208,7 @@
    "group",
    "trust-label"
   ],
-  "shown": 21
+  "shown": 22
  },
  {
   "q": "-",
@@ -214,6 +216,7 @@
    "sm-snapshot",
    "sm-persistence",
    "sm-metrics",
+   "sm-storage",
    "sm-classify",
    "sm-llm-classify",
    "sm-watch",
@@ -244,7 +247,7 @@
    "group",
    "trust-label"
   ],
-  "shown": 21
+  "shown": 22
  },
  {
   "q": "disk",
@@ -253,6 +256,7 @@
    "diskutil-apfs-list",
    "docker-df",
    "sm-metrics",
+   "sm-storage",
    "tmutil-delete"
   ],
   "terms": [
@@ -265,6 +269,7 @@
  {
   "q": "cache",
   "commands": [
+   "sm-storage",
    "du-library",
    "docker-df",
    "docker-prune",
@@ -274,7 +279,7 @@
    "purgeable",
    "system-data"
   ],
-  "shown": 1
+  "shown": 2
  },
  {
   "q": "listener",

@@ -17,6 +17,10 @@ system-monitor can stop processes on your Mac, so these matter most:
 
 Loopback only, Host and Origin checks on every request, a random per-run token on every write, own-user processes only, an audit log of every action, no telemetry. Tests need no credentials and make no network calls.
 
+## What `/api/storage` exposes
+
+`GET /api/storage` lists the names of app caches, the paths of developer projects that have a `node_modules` folder, and how big each is. It needs no token, only the Host check. The Host check and the browser's cross-origin rules stop a web page you open from reading the reply. They do not stop that page from sending the request, so a page could ask for a new scan. To limit that, a request starts a scan at most once a minute. Any process on your Mac can read the reply, because it can reach `127.0.0.1`. Cloud folders such as `~/Dropbox` are not user-content folders, so an idle `node_modules` inside one can be labelled safe.
+
 ## What the baseline means
 
 Marking an item as expected hides it from the Overview and the New filters. It does not make the item safe.

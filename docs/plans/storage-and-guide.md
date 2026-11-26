@@ -47,6 +47,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | Todo | Title | Depends on |
 |---|---|---|
 | S1 | Storage scanner and `/api/storage` | B2 |
+| S1b | Converging storage scan | S1 |
 | S2a | Storage page: status strip, treemap, table, inspector | S1, B7, T1a |
 | S2b | Storage page: suggested clean-ups, Inside System Data | S2a |
 | S3a | Move to Trash route and audit log | S1 |
@@ -69,7 +70,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | R3a | Persistence data: schedule, fingerprints, removals | M1 |
 | R3b | Persistence page redesign | R3a, T1b, N1, N3, A9 |
 
-N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2 is built (2026-11-26, PR pending merge). N3 and A9 are built and merged, and so is M1. R3a is built and merged (2026-11-26). T1a is done after a browser sweep (2026-11-26), and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
+S1 is built (2026-11-26, PR pending merge). N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2 is built (2026-11-26, PR pending merge). N3 and A9 are built and merged, and so is M1. R3a is built and merged (2026-11-26). T1a is done after a browser sweep (2026-11-26), and A17 waits for the owner's Full Disk Access test. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
 
 ## 6. Risks and open questions
 
