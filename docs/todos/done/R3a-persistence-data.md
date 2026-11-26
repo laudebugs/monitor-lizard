@@ -106,7 +106,7 @@ make test
 
 **Codesign.** Results are cached per program path and modified time, so a replaced program is read again and an unchanged one is not.
 
-**Tests.** 18 new Rust tests, 207 in all. I wrote the code and tests together, so I did not watch them fail first.
+**Tests.** New Rust tests cover the fingerprint, the diff, the migration and the cache; 207 pass. I wrote the code and tests together, so I did not watch them fail first.
 
 **Real run.** On a scratch home with a version 2 database, the new columns appeared and old rows survived. Editing a plist showed `changed`. Deleting one set `removed_at` and kept it in the response. A broken plist stayed listed with plutil's reason.
 
