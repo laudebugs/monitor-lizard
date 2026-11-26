@@ -3,11 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
+<script>(function(){var t=localStorage.getItem('ow-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
 <title>ownwatch</title>
 <style>
 /* Fonts: IBM Plex Mono if installed, else the system monospace. No remote font loading (local-first). */
-:root{--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--font:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace}
+:root{color-scheme:dark;--bg:#0e0a16;--panel:#150f20;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#12081f;--ok:#7ee2b8;--warn:#ffc857;--bad:#ff6b8b;--badfg:#1f0510;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6);--font:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35)}
 *{box-sizing:border-box;border-radius:0}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font)}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -45,19 +47,29 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .tag.bad{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
 .tbl{overflow-x:auto}
 .pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
-.pager select{height:28px;background:var(--panel2);color:var(--fg);border:1px solid var(--line);font:inherit;font-size:12px;padding:0 6px}
+.sel{position:relative;display:inline-block}
+.sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;height:28px;padding:0 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:12px}
+.sel-btn:hover,.sel-btn[aria-expanded=true]{border-color:var(--acc)}
+.sel-btn .caret{color:var(--mut);font-size:10px}
+.sel-menu{position:absolute;bottom:calc(100% + 4px);left:0;min-width:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--acc);box-shadow:0 12px 30px rgba(0,0,0,.35)}
+.sel-opt{height:32px;padding:0 12px;border:0;background:transparent;color:var(--fg);font-size:12px;text-align:left;white-space:nowrap}
+.sel-opt:hover,.sel-opt:focus-visible{background:var(--sel);outline:none}
+.sel-opt.on{color:var(--acc);box-shadow:inset 2px 0 0 var(--acc)}
+.theme-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
-@media(min-width:1101px){.tbl{overflow:visible}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
-.tr{display:grid;grid-template-columns:minmax(150px,1.6fr) 64px 64px minmax(150px,1.4fr) minmax(140px,1.2fr) 100px;gap:12px;align-items:center;min-height:46px;padding:0 16px;width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
+@media(min-width:1101px){.tbl{overflow-x:clip}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
+.tr{display:grid;grid-template-columns:minmax(0,1.6fr) 56px 56px minmax(0,1.4fr) minmax(0,1.2fr) 96px;gap:12px;align-items:center;min-height:46px;padding:0 16px;width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
 .tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
 button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
+.tr.ell{min-width:0}.tr.ell>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{height:30px;padding:0 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:13px}.chip:hover{color:var(--fg)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
-.drawer{flex:1 1 380px;max-width:460px;min-width:320px}
+.drawer{flex:1 1 380px;max-width:460px;min-width:320px;position:relative;z-index:3}
+@media(min-width:1101px){.drawer{position:sticky;top:calc(var(--hh) + 16px);align-self:flex-start;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}}
 .kv{display:grid;grid-template-columns:90px 1fr;gap:6px 12px;font-size:13px;padding:14px 16px;margin:0;border-top:1px solid var(--line)}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-all}
 .pr{display:grid;grid-template-columns:62px minmax(0,1fr) 54px 64px 64px;gap:8px;align-items:center;min-height:42px;padding:0 16px;border-top:1px solid var(--line);font-size:13px}
 .bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
+.overlay{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
 .modal{width:480px;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
 .modal h2{margin:0;font-size:17px}
 .code{font-size:12px;background:var(--bg);border:1px solid var(--line);padding:8px 10px;word-break:break-all}
@@ -68,6 +80,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 <body>
 <div class="shell">
 <nav class="side" aria-label="Sections"><div class="brand"><span class="logo"></span><span>ownwatch</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
+<div id="theme" style="padding:0 8px"></div>
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
 <main class="main">
 <header class="top"><h1 id="title">Overview</h1><div class="grow"></div><input id="q" class="search" type="search" placeholder="Search apps, ports" aria-label="Search apps and ports"></header>
@@ -87,13 +100,35 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...kids.flat(Infinity).filter((c) => c != null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', q: '', page: {}, size: 25, modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
+const S = { view: 'overview', sel: null, filter: 'all', q: '', page: {}, size: 25, menu: null, theme: localStorage.getItem('ow-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], muted: new Set(JSON.parse(localStorage.getItem('ow-muted') || '[]')) };
 const base = (p) => String(p).split('/').pop();
 const net = (g) => g.conns.some((c) => c.scope !== 'loopback');
 const apple = (g) => !!(g.signing && g.signing.apple);
 const status = (g) => (g.approved ? 'approved' : apple(g) ? 'macOS' : net(g) ? 'review' : 'idle');
 const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
 const rec = (m) => { Object.assign(S, m); render(); };
+// Background polls must not rebuild the DOM under an open menu or dialog.
+const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
+const media = matchMedia('(prefers-color-scheme: light)');
+const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
+const setTheme = (t) => { localStorage.setItem('ow-theme', t); S.theme = t; applyTheme(); render(); };
+media.addEventListener('change', applyTheme);
+
+/* Custom select: button + listbox. Arrow keys move, Enter/Space picks, Escape closes and returns focus. */
+function menuKeys(e) {
+  const items = [...e.currentTarget.querySelectorAll('.sel-opt')], i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); items[Math.min(i + 1, items.length - 1)].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); items[Math.max(i - 1, 0)].focus(); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); const k = S.menu; rec({ menu: null }); const t = document.querySelector('[data-trigger="' + k + '"]'); if (t) t.focus(); }
+  else if (e.key === 'Tab') { S.menu = null; render(); }
+}
+function dropdown(key, value, options, onPick, label) {
+  const open = S.menu === key, cur = options.find((o) => o[0] === value) || options[0];
+  return h('div', { class: 'sel' },
+    h('button', { class: 'sel-btn', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': String(open), 'aria-label': label + ': ' + cur[1], 'data-trigger': key, onClick: (e) => { e.stopPropagation(); rec({ menu: open ? null : key }); } }, h('span', {}, cur[1]), h('span', { class: 'caret', 'aria-hidden': 'true' }, '\u25BE')),
+    open ? h('div', { class: 'sel-menu', role: 'listbox', 'aria-label': label, onKeydown: menuKeys },
+      options.map(([v, text]) => h('button', { class: 'sel-opt' + (v === value ? ' on' : ''), type: 'button', role: 'option', 'aria-selected': String(v === value), 'data-autofocus': v === value ? '' : null, onClick: (e) => { e.stopPropagation(); S.menu = null; onPick(v); } }, text))) : null);
+}
 function paginate(list, key) {
   const pages = Math.max(1, Math.ceil(list.length / S.size));
   const p = Math.min(Math.max(1, S.page[key] || 1), pages);
@@ -102,7 +137,7 @@ function paginate(list, key) {
   const go = (n) => rec({ page: Object.assign({}, S.page, { [key]: n }) });
   const pager = list.length <= 10 ? null : h('div', { class: 'pager' },
     h('span', {}, (start + 1) + '-' + (start + slice.length) + ' of ' + list.length), h('span', { class: 'grow' }),
-    h('label', {}, 'Rows ', h('select', { 'aria-label': 'Rows per page', onChange: (e) => rec({ size: +e.target.value, page: {} }) }, [10, 25, 50, 100].map((n) => h('option', { value: n, selected: n === S.size }, n)))),
+    h('span', { class: 'theme-row' }, 'Rows', dropdown('rows', S.size, [10, 25, 50, 100].map((n) => [n, String(n)]), (n) => rec({ size: n, page: {} }), 'Rows per page')),
     h('button', { class: 'btn sm', disabled: p <= 1, onClick: () => go(p - 1) }, 'Prev'), h('span', {}, 'Page ' + p + ' / ' + pages),
     h('button', { class: 'btn sm', disabled: p >= pages, onClick: () => go(p + 1) }, 'Next'));
   return { slice, pager };
@@ -114,11 +149,11 @@ async function api(path, method = 'GET') {
   return r;
 }
 async function load(fresh) {
-  try { rec({ snap: await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json() }); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
+  try { quiet({ snap: await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json() }); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
   catch (e) { $('live').textContent = 'offline: ' + e.message; }
 }
-const loadPriv = async () => { try { rec({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
-const loadSudo = async () => { try { rec({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
+const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [] }); } catch (e) {} };
+const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 const toast = (t) => rec({ toast: t });
 const mute = (id) => { S.muted.add(id); localStorage.setItem('ow-muted', JSON.stringify([...S.muted])); toast('Muted. It stays visible in its own section.'); };
 async function approve(g) { try { await api('/api/approve?key=' + encodeURIComponent(g.key), 'POST'); toast('Approved ' + g.label + '. It is now part of your baseline.'); await load(true); } catch (e) { toast('Could not approve: ' + e.message); } }
@@ -187,8 +222,8 @@ function apps() {
   const sig = (g) => (!g.signing ? '-' : g.signing.apple ? 'Apple' : g.signing.signed ? 'Signed ' + (g.signing.team || '') : 'UNSIGNED');
   const pg = paginate(list, 'apps');
   const table = h('section', { class: 'card tbl', style: 'flex:999 1 640px;min-width:0' },
-    h('div', { class: 'tr h' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Trust'), h('span', {}, 'Status')),
-    pg.slice.map((g) => h('button', { class: 'tr ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
+    h('div', { class: 'tr h ell' }, h('span', {}, 'App'), h('span', { class: 'num' }, 'Procs'), h('span', { class: 'num' }, 'Out'), h('span', {}, 'Listening'), h('span', {}, 'Trust'), h('span', {}, 'Status')),
+    pg.slice.map((g) => h('button', { class: 'tr ell ' + (S.sel === g.key ? 'on' : ''), onClick: () => rec({ sel: g.key }) },
       h('span', { style: 'font-weight:500' }, g.label), h('span', { class: 'num' }, g.procs.length), h('span', { class: 'num' }, g.conns.filter((c) => c.direction === 'outbound').length),
       h('span', { class: 'mut small' }, listen(g)), h('span', { class: 'mut small' }, sig(g)), h('span', {}, h('span', { class: 'tag ' + tagOf(status(g)) }, status(g))))),
     list.length ? null : h('div', { class: 'item' }, h('p', {}, 'No apps match.')), pg.pager);
@@ -247,6 +282,7 @@ function render() {
   // createElement has no SVG namespace; set the icon markup after the fact.
   document.querySelectorAll('#nav svg').forEach((svg, i) => { svg.innerHTML = '<path d="' + NAV[i][2] + '" stroke-linecap="round" stroke-linejoin="round"/>'; });
   $('title').textContent = TITLES[S.view] || (SOON[S.view] || [''])[0];
+  $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (!S.snap) c.replaceChildren(h('p', { class: 'mut' }, 'Collecting the first snapshot...'));
   else if (S.view === 'overview') c.replaceChildren(...overview());
@@ -261,10 +297,12 @@ function render() {
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn danger', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn solid', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   $('layer').replaceChildren(...layer);
+  const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
 }
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (S.view !== 'apps' && S.q) S.view = 'apps'; render(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
-render(); load(); loadPriv(); loadSudo();
+document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
+applyTheme(); render(); load(); loadPriv(); loadSudo();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000);
 </script>
 </body>
