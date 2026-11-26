@@ -27,11 +27,18 @@ pub struct Conn {
 #[derive(Clone, Serialize, Debug, Default)]
 pub struct Signing { pub signed: bool, pub team: Option<String>, pub authority: Option<String>, pub apple: bool }
 
+/// How far an app group can be trusted, decided by rules only (see `rules::classify`).
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Label { Trusted, Unknown, Suspicious }
+
 #[derive(Serialize, Debug)]
 pub struct Group {
     pub key: String, pub label: String, pub category: String,
     pub procs: Vec<Proc>, pub conns: Vec<Conn>,
     pub signing: Option<Signing>, pub approved: bool,
+    /// `trust` and `rules_fired` are filled in by `snapshot::take` after the rules run.
+    pub trust: Label, pub rules_fired: Vec<&'static str>,
 }
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -39,7 +46,7 @@ pub struct Group {
 pub enum Severity { High, Medium, Low }
 
 #[derive(Serialize, Debug)]
-pub struct Finding { pub severity: Severity, pub group: String, pub rule: &'static str, pub detail: String }
+pub struct Finding { pub severity: Severity, pub group: String, pub group_key: String, pub rule: &'static str, pub detail: String }
 
 #[derive(Serialize, Debug)]
 pub struct Totals { pub processes: usize, pub connections: usize, pub groups: usize, pub listening: usize, pub outbound: usize, pub findings: usize }
