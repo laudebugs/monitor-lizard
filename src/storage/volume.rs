@@ -42,6 +42,12 @@ pub fn split_capacity(statfs: Option<(u64, u64)>, volume: Option<(u64, u64)>) ->
     }
 }
 
+/// The boot volume's capacity as JSON for `/api/volume`: the same reading a scan takes, without the
+/// folder walk or `tmutil`, so a page that only draws the capacity bar never starts a scan.
+pub fn boot_capacity_json() -> String {
+    serde_json::to_string(&split_capacity(crate::iokit::boot_volume_capacity(), available_and_important())).unwrap_or_default()
+}
+
 /// (available, important-usage) bytes for `/`, readable without root, through the safe
 /// CoreFoundation wrappers: every object is released by its wrapper, so nothing is hand-released.
 pub fn available_and_important() -> Option<(u64, u64)> {
@@ -111,6 +117,14 @@ pub fn local_snapshots() -> Snapshots {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_capacity_reply_has_one_reading_per_part_and_starts_no_scan() {
+        let v: serde_json::Value = serde_json::from_str(&boot_capacity_json()).unwrap();
+        for k in ["total", "used", "purgeable", "free"] { assert!(v.get(k).is_some(), "{k}"); }
+        assert!(v.get("categories").is_none() && v.get("snapshots").is_none());
+        assert!(v["total"]["value"].as_u64().unwrap() > 0);
+    }
 
     #[test]
     fn capacity_splits_purgeable_from_free_and_says_why_when_it_cannot() {

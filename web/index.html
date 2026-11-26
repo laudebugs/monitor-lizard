@@ -133,7 +133,7 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 .pr{display:grid;grid-template-columns:62px minmax(0,1fr) 54px 64px 64px;gap:8px;align-items:center;min-height:42px;padding:0 16px;border-top:1px solid var(--line);font-size:13px}
 .expander{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);cursor:pointer;color:var(--acc);font-weight:500}
 .expander:hover{background:var(--sel)}
-.bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.capbar{display:flex;height:14px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}.capbar i{display:block;height:100%}.bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
 .overlay{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
 .modal{width:480px;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
 .modal h2{margin:0;font-size:17px}
@@ -160,6 +160,40 @@ button.tr:hover{background:var(--sel)}button.tr.on{background:var(--sel);box-sha
 <script>
 const TOKEN = "__TOKEN__";
 const $ = (id) => document.getElementById(id);
+/* disk-net:begin */
+// Pure logic for the Disk and network tab and the capacity bar: no DOM, no storage, so a Node test can load it.
+const DISK_REASON_UNKNOWN = 'not read yet';
+// Sizes the segments of a capacity bar. `args` is { used, purgeable, free, unavailable }: bytes for each part,
+// or null when that part could not be read; `unavailable` is the reason purgeable is null. Purgeable space is
+// counted as in use by macOS but can be reclaimed, so it gets its own segment and is never folded into free.
+// With used or free missing there is nothing true to draw, so the result has no segments and says why.
+function capacitySegments({ used, purgeable, free, unavailable }) {
+  if (used == null || free == null) return { segments: [], total: null, note: unavailable || DISK_REASON_UNKNOWN };
+  const parts = [['used', used], ['purgeable', purgeable], ['free', free]].filter(([, bytes]) => bytes != null);
+  const total = parts.reduce((sum, [, bytes]) => sum + bytes, 0);
+  const segments = parts.map(([key, bytes]) => ({ key, bytes, pct: total > 0 ? bytes / total * 100 : 0 }));
+  return { segments, total, note: purgeable == null ? 'Purgeable space could not be read (' + (unavailable || DISK_REASON_UNKNOWN) + '), so the bar shows used and free only; used includes any purgeable space.' : null };
+}
+const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+// Decimal units, matching what macOS shows. null is "unavailable", never 0.
+function formatBytes(n) {
+  if (n == null || !Number.isFinite(n)) return 'unavailable';
+  let v = n, i = 0;
+  while (v >= 1000 && i < SIZE_UNITS.length - 1) { v /= 1000; i++; }
+  return (i === 0 || v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + SIZE_UNITS[i];
+}
+const formatRate = (n) => (n == null || !Number.isFinite(n) ? 'unavailable' : formatBytes(n) + '/s');
+const formatOps = (n) => (n == null || !Number.isFinite(n) ? 'unavailable' : Math.round(n).toLocaleString('en-US') + ' ops/s');
+// What the network card says. `interfacesUp` 0 is a real "no connection" and must not be drawn as an idle 0 B/s;
+// null means the interface list could not be read, which is "unavailable", a different statement.
+function networkState({ interfacesUp, down, up }) {
+  if (interfacesUp === 0) return { kind: 'no-connection', text: 'No connection' };
+  if (down == null && up == null) return { kind: 'unavailable', text: 'unavailable' };
+  return { kind: 'ok', text: null };
+}
+// A chart's top: the largest value in view, at least `floor`, so a quiet disk does not fill the chart with noise.
+const rateChartMax = (series, floor) => Math.max(floor, ...series.flat().filter((v) => v != null));
+/* disk-net:end */
 /* view-items:begin */
 // The one rule for "nothing to show". h() and render() both use it: Element.append and replaceChildren write a
 // null argument as the text "null", so a conditional section (`cond ? h(...) : null`) must be dropped first.
@@ -176,7 +210,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', volume: null, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -1168,8 +1202,7 @@ function coreBars(label, cores) {
         h('div', { class: 'bar', style: 'flex:1' }, h('i', { style: 'width:' + Math.min(pct, 100) + '%;background:' + loadColor(pct) })),
         h('span', { class: 'small', style: 'width:36px;text-align:right;flex:none' }, pct == null ? '-' : Math.round(pct) + '%')))));
 }
-// Only the CPU and GPU tiles pass a `go` handler below: they're the only two with a detail tab to
-// open into. Memory, Disk and Network still show live data here, just not yet a place to click through to.
+// Only tiles with a detail tab pass a `go` handler below. Memory still shows live data here, just not yet a place to click through to.
 function perfOverviewTab_(win, last, stale, winLabel) {
   const f1 = (v) => v.toFixed(1), f0 = (v) => Math.round(v);
   const cpu = perfSeries(win, (s) => s.cpu.total_pct), cpuLast = rv(last && last.cpu.total_pct);
@@ -1189,8 +1222,8 @@ function perfOverviewTab_(win, last, stale, winLabel) {
     tile('CPU', cpu, cpuLast, 100, (v) => f0(v) + '%', 'total, last ' + winLabel, 'CPU utilization, now ' + f0(cpuLast || 0) + '%', () => rReason(last && last.cpu.total_pct), () => rec({ perfTab: 'cpugpu' })),
     tile('GPU', gpu, gpuLast, 100, (v) => f0(v) + '%', 'device utilization', 'GPU utilization, now ' + f0(gpuLast || 0) + '%', () => rReason(last && last.gpu.device_pct), () => rec({ perfTab: 'cpugpu' })),
     tile('Memory', memUsed, memLast, memTotal || 1, (v) => f1(v / 1e9) + ' GB', 'used' + (memTotal ? ' of ' + f1(memTotal / 1e9) + ' GB' : ''), 'Memory used, now ' + f1((memLast || 0) / 1e9) + ' gigabytes', memReason),
-    tile('Disk', disk, diskLast, Math.max(1, ...disk.filter((v) => v != null), 1e6), (v) => f1(v / 1e6) + ' MB/s', 'read now', 'Disk read throughput, now ' + f1((diskLast || 0) / 1e6) + ' megabytes per second', () => rReason(last && last.disk.read_bytes_per_sec)),
-    tile('Network', net, netLast, Math.max(1, ...net.filter((v) => v != null), 1e6), (v) => f1(v / 1e6) + ' MB/s', 'down now', 'Network download, now ' + f1((netLast || 0) / 1e6) + ' megabytes per second', () => rReason(last && last.network.down_bytes_per_sec)),
+    tile('Disk', disk, diskLast, Math.max(1, ...disk.filter((v) => v != null), 1e6), (v) => f1(v / 1e6) + ' MB/s', 'read now', 'Disk read throughput, now ' + f1((diskLast || 0) / 1e6) + ' megabytes per second', () => rReason(last && last.disk.read_bytes_per_sec), () => { rec({ perfTab: 'disknet' }); loadVolume(); }),
+    tile('Network', net, netLast, Math.max(1, ...net.filter((v) => v != null), 1e6), (v) => f1(v / 1e6) + ' MB/s', 'down now', 'Network download, now ' + f1((netLast || 0) / 1e6) + ' megabytes per second', () => rReason(last && last.network.down_bytes_per_sec), () => { rec({ perfTab: 'disknet' }); loadVolume(); }),
     h('div', { class: 'tile na' }, h('span', { class: 'l' }, h('span', {}, 'Power and thermals'), h('span', { class: 'tag' }, 'needs administrator')), h('span', { class: 'v mut' }, 'Unavailable'), h('span', { class: 's' }, 'powermetrics needs administrator rights on this Mac; never shown as 0 W.')),
   ];
   return h('div', { class: 'tiles' }, tiles);
@@ -1244,6 +1277,62 @@ function perfCpuGpuTab_(win, last, winLabel) {
     h('p', { class: 'mut small', style: 'margin:10px 0 0' }, 'Per-core frequency, GPU power and per-process GPU use are not measured on this Mac.'));
   return [cpuCard, loadRow, coreCard, gpuCard];
 }
+// The one capacity bar. Pass { used, purgeable, free, unavailable } as capacitySegments() documents; a part that
+// could not be read is null, never 0. The Storage page draws its bar with this too, so there is no second copy.
+function capacityBar(args, label) {
+  const { segments, total, note } = capacitySegments(args);
+  const COLORS = { used: 'var(--acc)', purgeable: 'var(--warn)', free: 'var(--line)' };
+  const NAMES = { used: 'Used', purgeable: 'Purgeable', free: 'Free' };
+  if (!segments.length) return h('p', { class: 'mut small', style: 'margin:0' }, 'Capacity unavailable: ' + note);
+  const summary = segments.map((x) => NAMES[x.key] + ' ' + formatBytes(x.bytes)).join(', ') + (total ? ', of ' + formatBytes(total) : '');
+  return h('div', {},
+    h('div', { class: 'capbar', role: 'img', 'aria-label': (label || 'Capacity') + ': ' + summary },
+      segments.map((x) => h('i', { style: 'width:' + x.pct.toFixed(2) + '%;background:' + COLORS[x.key] }))),
+    h('div', { style: 'display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px' },
+      segments.map((x) => legendDot(COLORS[x.key], NAMES[x.key] + ' ' + formatBytes(x.bytes) + ' (' + Math.round(x.pct) + '%)'))),
+    note ? h('p', { class: 'mut small', style: 'margin:8px 0 0' }, note) : null);
+}
+// Reads /api/volume's capacity (a Reading per part) into capacityBar's argument.
+function volumeBarArgs(vol) {
+  if (!vol) return { used: null, purgeable: null, free: null, unavailable: DISK_REASON_UNKNOWN };
+  const reason = [vol.purgeable, vol.used, vol.free].map((r) => (r && 'unavailable' in r ? r.unavailable : null)).find(Boolean);
+  return { used: rv(vol.used), purgeable: rv(vol.purgeable), free: rv(vol.free), unavailable: reason || null };
+}
+async function loadVolume() {
+  if (document.hidden || S.view !== 'performance' || S.perfTab !== 'disknet') return;
+  try { quiet({ volume: await (await api('/api/volume')).json() }); } catch (e) {}
+}
+// Cards use one rate chart each: the series share an axis, and the legend gives the current value in words
+// so the colors are never the only carrier.
+function rateCard(title, series, lastValues, fmt, floor) {
+  const nothing = lastValues.every((v) => v.value == null);
+  return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px' },
+    h('h3', { class: 'sec', style: 'margin:0 0 10px' }, title),
+    nothing ? h('p', { class: 'mut small', style: 'margin:0' }, lastValues.map((v) => v.reason).find(Boolean) || 'not sampled yet')
+      : [linesChart(series.map((values, i) => ({ values, color: lastValues[i].color })), rateChartMax(series, floor), 90),
+        h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px;flex-wrap:wrap' }, lastValues.map((v) => legendDot(v.color, v.label + ' ' + fmt(v.value))))]);
+}
+function perfDiskNetTab_(win, last) {
+  const pick = (f) => perfSeries(win, f), lastOf = (r) => rv(r), why = (r) => rReason(r);
+  const d = last && last.disk, n = last && last.network;
+  const rd = d && d.read_bytes_per_sec, wr = d && d.write_bytes_per_sec, ro = d && d.read_ops_per_sec, wo = d && d.write_ops_per_sec;
+  const throughput = rateCard('Disk throughput', [pick((s) => s.disk.read_bytes_per_sec), pick((s) => s.disk.write_bytes_per_sec)],
+    [{ label: 'Read', color: 'var(--acc)', value: lastOf(rd), reason: why(rd) }, { label: 'Write', color: 'var(--ok)', value: lastOf(wr), reason: why(wr) }], formatRate, 1e6);
+  const ops = rateCard('Operations per second', [pick((s) => s.disk.read_ops_per_sec), pick((s) => s.disk.write_ops_per_sec)],
+    [{ label: 'Read', color: 'var(--acc)', value: lastOf(ro), reason: why(ro) }, { label: 'Write', color: 'var(--ok)', value: lastOf(wo), reason: why(wo) }], formatOps, 100);
+  const capacity = h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px' },
+    h('h3', { class: 'sec', style: 'margin:0 0 10px' }, 'Capacity of the startup disk'), capacityBar(volumeBarArgs(S.volume), 'Startup disk capacity'));
+  const nd = n && n.down_bytes_per_sec, nu = n && n.up_bytes_per_sec;
+  const state = networkState({ interfacesUp: n ? n.interfaces_up : null, down: lastOf(nd), up: lastOf(nu) });
+  const network = state.kind === 'ok'
+    ? rateCard('Network', [pick((s) => s.network.down_bytes_per_sec), pick((s) => s.network.up_bytes_per_sec)],
+      [{ label: 'Download', color: 'var(--acc)', value: lastOf(nd), reason: why(nd) }, { label: 'Upload', color: 'var(--ok)', value: lastOf(nu), reason: why(nu) }], formatRate, 1e6)
+    : h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px' }, h('h3', { class: 'sec', style: 'margin:0 0 10px' }, 'Network'),
+      h('p', { class: state.kind === 'no-connection' ? '' : 'mut small', style: 'margin:0;font-weight:' + (state.kind === 'no-connection' ? '600' : '400') }, state.kind === 'no-connection' ? state.text : 'Network rates are unavailable: ' + why(nd || nu)),
+      state.kind === 'no-connection' ? h('p', { class: 'mut small', style: 'margin:6px 0 0' }, 'No network interface is up, so there is nothing to measure.') : null);
+  return [capacity, throughput, ops, network,
+    h('p', { class: 'mut small' }, 'Totals cover the startup disk and every network interface except loopback. Per-process disk use is not shown here.')];
+}
 // Trailing underscore: this view function would otherwise shadow the global window.performance.
 function performanceView_() {
   const win = perfWindowed(), last = S.metrics[S.metrics.length - 1];
@@ -1251,15 +1340,15 @@ function performanceView_() {
   // the opposite, no fresh sample to report on at all, so the tiles shown are old news.
   const stale = !!last && (Date.now() / 1000 - last.ts) > 8;
   const winLabel = S.perfWin === '1h' ? 'hour' : '5 min';
-  const tabs = [['overview', 'Overview'], ['cpugpu', 'CPU and GPU']];
+  const tabs = [['overview', 'Overview'], ['cpugpu', 'CPU and GPU'], ['disknet', 'Disk and network']];
   return [
     h('div', { class: 'filters' },
-      h('div', { class: 'seg', role: 'group', 'aria-label': 'Performance tab' }, tabs.map(([id, l]) => h('button', { class: S.perfTab === id ? 'chip on' : 'chip', style: 'height:34px', onClick: () => rec({ perfTab: id }) }, l))),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Performance tab' }, tabs.map(([id, l]) => h('button', { class: S.perfTab === id ? 'chip on' : 'chip', style: 'height:34px', onClick: () => { rec({ perfTab: id }); if (id === 'disknet') loadVolume(); } }, l))),
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Time window' }, [['5m', 'Last 5 min'], ['1h', 'Last hour']].map(([v, l]) => h('button', { class: S.perfWin === v ? 'chip on' : 'chip', style: 'height:34px', onClick: () => rec({ perfWin: v }) }, l))),
       h('span', { class: 'grow' }),
       h('span', { class: 'small mut' }, last ? (S.perfLive ? 'live, every 2 s' : 'paused') : 'collecting the first sample...'),
       h('button', { class: 'btn sm', onClick: () => rec({ perfLive: !S.perfLive }) }, S.perfLive ? 'Pause' : 'Resume')),
-    S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : perfOverviewTab_(win, last, stale, winLabel),
+    S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : S.perfTab === 'disknet' ? h('div', {}, ...perfDiskNetTab_(win, last)) : perfOverviewTab_(win, last, stale, winLabel),
   ];
 }
 
@@ -1394,6 +1483,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
 applyTheme(); fromHash(); render(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
+setInterval(loadVolume, 30000);
 setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that checks S.perfLive, document.hidden and the active view
 // A tab backgrounded for a while is caught up in this one listener-driven fetch, not by the interval
 // above firing a burst once visible again (it only ever requests what's new since the last ts held).
