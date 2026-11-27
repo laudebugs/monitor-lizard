@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1c` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9 |
 | Depends on | T1a |
 | ADRs | None |
@@ -86,8 +86,30 @@ The T1a Implementation Record gets a one-line pointer to this todo's result; pla
 ## Definition of done
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` green; `make test` not run here (the Rust needs macOS, and this change touches no Rust)
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record (2026-11-27)
+
+No CSS changed. The todo was run on Linux with headless Chromium through Playwright, not by the owner in Mac Chrome DevTools, so the checks marked pending still need a person with the real app.
+
+**Method.** The server is macOS-only, so the app could not run. I served `web/index.html` as a static file with every `/api/*` call answering 404. With no data the page shows its shell (sidebar, search box, breadcrumb, Overview "Collecting the first snapshot..."). To exercise the CSS I inserted the page's own markup (each `.btn` variant enabled and disabled, `.chip` selected and not, `.tag` and `.badge` variants, a `.sel-btn`) into that page and Tabbed to a button. Playwright's `forcedColors: 'active'` and `reducedMotion: 'reduce'` set the media features. Emulated, not Windows High Contrast.
+
+**Forced colors (emulated): pass.**
+
+- Every button variant has a visible edge; disabled ones look lighter and use `GrayText`, which Chromium paints dark red in its emulated palette.
+- The focused button (quiet danger) has a thicker `Highlight` edge than the rest-state edge of the others.
+- The selected chip has a thick `Highlight` edge and the other chips keep a `ButtonText` border; tags, badges and the select button keep a border and readable text.
+- The sidebar, theme and notify select buttons, search box and breadcrumb are readable in the shell.
+
+**Reduced motion: pass, by construction.** `web/index.html` has no `transition`, `animation`, `@keyframes`, `.animate(` or smooth-scroll rule. The reduced-motion block is a guard for the first one added. With `reduce` set, `document.getAnimations()` was empty and no element in the probe had a non-zero transition duration. `requestAnimationFrame` is used twice (table decoration on resize, drawer drag) and moves nothing by itself.
+
+**Not possible here (pending, for the owner):**
+
+- Overview, Apps with an app selected, Network and Guide with real data under forced colors. Without the server there are no rows, so table rows, the Stop dialog and the tile focus edge were not seen.
+- Hover, a page change and a 2 s refresh under reduced motion on the live app.
+- The CPU and GPU tab at 1352 px in both themes: it needs the sampler.
+- The optional macOS Increase contrast and Reduce motion look.

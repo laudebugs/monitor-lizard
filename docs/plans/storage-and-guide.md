@@ -70,7 +70,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | A9 | Mark as expected (feedback baseline) | None |
 | M1 | SQLite schema versioning | None |
 | T1a | Design tokens, buttons and chips (done; forced-colors and reduced-motion checks moved to T1c) | None |
-| T1c | Check forced colors and reduced motion (the owner's DevTools check) | T1a |
+| T1c | Check forced colors and reduced motion (done 2026-11-27, emulated on Linux; the live-app and CPU and GPU checks are pending for the owner) | T1a |
 | T2 | Split the dashboard page into CSS and script files (after S4) | S4 |
 | T1b | Page shell, sidebar groups, table styles (done 2026-11-26; forced colors in T1c) | T1a, N1 |
 | R1 | Overview redesign | T1b, N1, A9 |
