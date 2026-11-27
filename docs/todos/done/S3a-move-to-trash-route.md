@@ -10,7 +10,7 @@
 | Branch | `feat/s3a-move-to-trash-route` |
 | PR title | `feat(storage): move scanned items to the Trash with an audit entry` |
 | Size | M (200-400) |
-| PR | [#59](https://github.com/laudebugs/monitor-lizard/pull/59) |
+| PR | [#60](https://github.com/laudebugs/monitor-lizard/pull/60) |
 
 ## Goal
 
