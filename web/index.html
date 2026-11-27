@@ -593,7 +593,7 @@ function nextSort(key, col) {
 /* Pure helpers for the Privilege page's requester detail (no DOM, no storage: the tests load this block alone).
    A hop is { pid, exe, command, started?, tty?, cwd?, detail?, more? }; rows saved by an older build lack the last
    five, and `detail: true` is what separates "could not be read" from "was not recorded". */
-const UNKNOWN_REQUESTER = 'launched before Monitor Lizard was running or exited before capture';
+const UNKNOWN_REQUESTER = 'no matching launch recorded (launched before Monitor Lizard was running, exited before capture, or older than the records kept)';
 const NO_PARENT = '(parent not captured)';
 const COMMAND_CUT = 300; // the collector keeps this many characters (code points) of a command line
 const MAX_HOPS = 12;     // and this many hops of a chain
@@ -664,7 +664,7 @@ const hopLabel = (hop) => visible(rawLabel(hop && hop.command, hop && hop.exe));
 // The compact chain, nearest parent first: `bash run.sh < zsh < claude`.
 const chainLabel = (chain) => (Array.isArray(chain) && chain.length ? chain.map(hopLabel).join(' < ') : NO_PARENT);
 // Said when the walk stopped at the hop limit with parents still above it.
-const chainCutNote = (chain) => (Array.isArray(chain) && chain.length && chain[chain.length - 1].more ? 'chain cut at ' + MAX_HOPS + ' hops: the parents above the last one were not recorded' : '');
+const chainCutNote = (chain) => (Array.isArray(chain) && chain.length && chain[chain.length - 1].more ? 'chain cut at ' + MAX_HOPS + ' hops: older parents were not recorded' : '');
 
 // Terminals, editors and agents, matched on the whole name of the app bundle (lower case) or of the program, never
 // on a prefix, so an unrelated app that starts with the same letters is not mislabelled. A hint, not an answer.
@@ -701,8 +701,9 @@ function requesterApp(chain) {
 function terminalNote(chain) {
   const hop = Array.isArray(chain) ? chain.find((x) => x && x.detail) : null;
   if (!hop) return 'not recorded';
-  return hop.tty ? 'terminal ' + visible(hop.tty) + ' (a person may have typed it)' : 'no terminal (a script or background job)';
+  return hop.tty ? 'terminal ' + visible(hop.tty) + ' (a person may have typed it)' : 'no terminal (probably a script or background job)';
 }
+const UNREADABLE = 'not readable (the process had exited, or belongs to another user)';
 const NOT_RECORDED = 'not recorded (captured by an older version)';
 // The facts shown for one hop, as [label, text] pairs. `fmt` formats epoch seconds. Nothing is ever blank, and
 // nothing a stranger chose is shown without `visible`.
@@ -710,11 +711,11 @@ function hopFacts(hop, fmt) {
   const seen = !!hop.detail, cmd = String(hop.command || '');
   return [
     ['pid', String(hop.pid)],
-    ['command', cmd ? cutText(cmd) : 'not readable (the process had exited)'],
-    ['executable', hop.exe ? visible(hop.exe) : 'not readable (the process had exited)'],
-    ['working directory', hop.cwd ? visible(hop.cwd) : (seen ? "not readable (another user's process, or it had exited)" : NOT_RECORDED)],
-    ['started', typeof hop.started === 'number' ? fmt(hop.started) : (seen ? 'not readable' : NOT_RECORDED)],
-    ['terminal', hop.tty ? visible(hop.tty) : (seen ? 'none (no controlling terminal)' : NOT_RECORDED)],
+    ['command', cmd ? cutText(cmd) : UNREADABLE],
+    ['executable', hop.exe ? visible(hop.exe) : UNREADABLE],
+    ['working directory', hop.cwd ? visible(hop.cwd) : (seen ? UNREADABLE : NOT_RECORDED)],
+    ['started', typeof hop.started === 'number' ? fmt(hop.started) : (seen ? UNREADABLE : NOT_RECORDED)],
+    ['terminal', hop.tty ? visible(hop.tty) : (seen ? 'none, or ' + UNREADABLE : NOT_RECORDED)],
   ];
 }
 // The whole chain as plain text, one hop per line, for CSV cells and the clipboard.
@@ -744,7 +745,7 @@ function authRequester(e) {
   const who = visible(baseName(e.client));
   if (e.source === 'captured' && e.chain && e.chain.length) return who + ' < ' + chainLabel(e.chain);
   if (e.source === 'ps' && e.parent) return who + ' < ' + visible(e.parent.split(' ').slice(1).join(' ').slice(0, 60));
-  return who + ' (' + UNKNOWN_REQUESTER + ')';
+  return who + ': ' + UNKNOWN_REQUESTER;
 }
 /* requester:end */
 /* export:begin */
@@ -1277,7 +1278,7 @@ function priv() {
       has && S.reqOpen[id] ? requesterDetail(reqDomId(id), cap ? e.chain : [], authNote(e)) : null];
   };
   return pageShell({ title: verdict('priv', { failed: failedAuth() }), body: [
-    failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. Open a row to see every program and script that led to it. A request with no chain was ' + UNKNOWN_REQUESTER + '.')))) : null,
+    failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. Open a row to see every program and script that led to it. A request marked "no matching launch recorded" was launched before Monitor Lizard was running, exited before capture, or is older than the records kept.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
     h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'App (a guess)', id: 'app' }, { label: 'Requester chain', id: 'requester_chain' }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }], TS),
       S.sudo.length ? sp.slice.map(sudoRow) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Monitor Lizard is serving shows up here.')), sp.pager),

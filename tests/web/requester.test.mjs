@@ -67,7 +67,7 @@ test('app: unknown and empty chains say so and never return an empty name', () =
 
 test('terminal note: a person at the keyboard, a script, or an old row', () => {
   assert.match(R.terminalNote([hop('zsh', '', { detail: true, tty: 'ttys003' })]), /ttys003.*person/);
-  assert.match(R.terminalNote([hop('zsh', '', { detail: true, tty: null })]), /no terminal/);
+  assert.match(R.terminalNote([hop('zsh', '', { detail: true, tty: null })]), /no terminal \(probably a script/);
   assert.equal(R.terminalNote([hop('zsh')]), 'not recorded');
   assert.equal(R.terminalNote([]), 'not recorded');
 });
@@ -79,7 +79,9 @@ test('facts: nothing is blank; an old row and an unreadable field read different
   assert.equal(fresh.terminal, 'ttys001');
   const unreadable = Object.fromEntries(R.hopFacts(hop('node a.js', '/bin/node', { detail: true }), fmt));
   assert.match(unreadable['working directory'], /^not readable/);
-  assert.match(unreadable.terminal, /^none/);
+  assert.match(unreadable.terminal, /^none, or not readable/);
+  assert.equal(unreadable['working directory'], unreadable.started, 'one reason text for every unreadable field');
+  assert.equal(Object.fromEntries(R.hopFacts({ pid: 1, detail: true }, fmt)).command, unreadable.started);
   const old = Object.fromEntries(R.hopFacts(hop('node a.js', '/bin/node'), fmt));
   assert.match(old['working directory'], /not recorded/);
   assert.match(old.started, /not recorded/);
@@ -111,7 +113,7 @@ test('authorization requester: the chain, the parent, or the plain reason', () =
   assert.equal(R.authRequester({ ...base, source: 'captured', chain: [hop('bash run.sh'), hop('zsh')] }), 'sudo < bash run.sh < zsh');
   assert.equal(R.authRequester({ ...base, source: 'ps', parent: '77 bash -c x' }), 'sudo < bash -c x');
   const gone = R.authRequester(base);
-  assert.ok(gone.includes('launched before Monitor Lizard was running or exited before capture'));
+  assert.ok(gone.includes('no matching launch recorded (launched before Monitor Lizard was running, exited before capture, or older than the records kept)'));
   assert.ok(!gone.includes('(exited)'));
   assert.equal(R.authRequester({ client: '/usr/bin/sudo' }), gone, 'a reply from an older server has no source');
 });

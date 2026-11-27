@@ -29,7 +29,7 @@ pub struct PrivEvent {
 }
 
 /// What the page and the CLI say when no chain could be found for an authorization.
-pub const UNKNOWN_REQUESTER: &str = "launched before Monitor Lizard was running or exited before capture";
+pub const UNKNOWN_REQUESTER: &str = "no matching launch recorded (launched before Monitor Lizard was running, exited before capture, or older than the records kept)";
 
 /// authd's `2026-11-26 14:03:22.123456-0800` as seconds since the epoch.
 pub fn parse_log_time(t: &str) -> Option<u64> {

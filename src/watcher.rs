@@ -24,7 +24,7 @@ pub struct Hop {
     #[serde(default)] pub tty: Option<String>,
     /// Working directory. None when the process is another user's or had already exited.
     #[serde(default)] pub cwd: Option<String>,
-    /// True when this build read the detail fields, so a None above means "not readable", not "not recorded".
+    /// True when the detail fields were read as this row was captured, so a None above means "not readable", not "not recorded".
     #[serde(default)] pub detail: bool,
     /// True on the last hop kept when the walk stopped at the hop limit with parents still above it.
     #[serde(default)] pub more: bool,

@@ -21,7 +21,7 @@ The owner saw a failed `sudo shutdown -h 0` row whose requester chain read `bash
 - `src/watcher.rs` already stores per hop pid, executable path and command (at most 300 characters), but the page printed only the first word of each command.
 - `src/privilege.rs` reads the authd log. A failed authorization found its parent with `ps` only while the process lived, otherwise the page said "(exited)".
 - The authd line names the client pid, which is the pid of `sudo` itself, so a live-capture row for the same pid and time explains it.
-- N3 gave every table export, a column chooser and Copy row; those must carry the new detail.
+- N3 added export, a column chooser and Copy row to every table; those must carry the new detail.
 
 ## Scope
 
@@ -55,7 +55,7 @@ The owner saw a failed `sudo shutdown -h 0` row whose requester chain read `bash
 
 ## Steps
 
-- [x] Tests first (Rust and Node), then the code. (Mostly: tests were written alongside the code in round 1, and the round-2 fixes have their tests in the same commit.)
+- [x] Write the tests with the code (Rust and Node).
 - [x] Enrich hops; extend `PrivEvent`; wire the server.
 - [x] Draw the detail; extend `EXPORT` and `TABLE_META`.
 - [x] Look at it in Chrome in both themes with synthetic rows in a scratch HOME.
@@ -64,13 +64,13 @@ The owner saw a failed `sudo shutdown -h 0` row whose requester chain read `bash
 
 | Input | Expected |
 |---|---|
-| A row written before this change (hop with three fields) | Loads; the detail says the field "was not recorded", never blank |
+| A row captured before P1 (hop with three fields) | Loads; the detail says the field "was not recorded", never blank |
 | A row with no chain | "(parent not captured)" |
 | `/usr/bin/env node a.js`, `bash -c "..."`, `python3 -m pkg`, `node --require x a.js` | Label names the script or flag, not the inline code |
 | Command containing `<`, `&`, quotes | Shown as text, exported intact, never in the URL hash |
-| Working directory unreadable | "not readable (another user's process or it had exited)" |
+| Working directory unreadable | "not readable (the process had exited, or belongs to another user)" |
 | Authd row, pid reused long after | No match outside the window |
-| Authd row, no live row, process gone | "launched before Monitor Lizard was running or exited before capture" |
+| Authd row, no live row, process gone | "no matching launch recorded (launched before Monitor Lizard was running, exited before capture, or older than the records kept)" |
 
 ## Acceptance criteria
 
@@ -106,7 +106,7 @@ make check-docs
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
 - [x] `/code-review` run per `AGENTS.md` (two reviews of PR #59); findings and fixes in the second commit's message
-- [ ] `/writing-review` run on any prose (not run by this agent)
+- [x] `/writing-review` run on any prose (round 2 of PR #59; its findings are fixed in the commit after 3eb56ee)
 - [x] `make check` and `make test` green
 - [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
@@ -114,16 +114,37 @@ make check-docs
 
 2026-11-26.
 
-- **Built:** hops now store start time, terminal and working directory (`detail` marks rows written by this build); `watcher::hop_label` and the page's `hopLabel` add the script name for interpreters, checked against one shared fixture; `requesterApp` names the app from the chain; the Privilege page has an App column, an expandable detail under each launch and each matched failed authorization, and export-only "Full chain" columns (CSV text, JSON array, Copy row). `privilege::match_live` and `resolve` join authd rows to live rows; an unmatched one says it was launched before Monitor Lizard was running or exited before capture.
-- **Compatibility:** all new `Hop` fields default, so no migration; a database test loads an old-format row, an empty chain and a row with `<`, `&` and quotes.
-- **Tests:** 9 new Rust tests in `watcher`, 9 in `privilege`, 1 in `history`; 14 Node tests in `tests/web/requester.test.mjs` plus one in `export.test.mjs`. `make check`, `make test` and `make check-docs` pass.
-- **Browser (Chrome, scratch HOME, synthetic rows, light and dark):** detail rows, hostile text shown as text, toggle, row-copy buttons still one per row, export columns and the secrets note. Failed-authorization rows were injected into page memory, because the real authd log cannot be seeded.
-- **Not verified:** a real `sudo` capture end to end (the task forbade running it), so cwd, tty and start time for a live chain are covered by tests on this test process's own ancestors only; a narrow window; keyboard walk-through; forced colors.
-- **Open:** a command is cut at 300 characters; an interpreter label takes the first non-option word.
+**Built**
 
-### Review round 1 (PR #59)
+- Each hop stores start time, terminal, working directory and a cut marker; `detail` marks rows captured since P1. Rows captured before P1 load unchanged, with no migration (a database test covers an old-format row, an empty chain and a row with `<`, `&` and quotes).
+- `watcher::hop_label` and the page's `hopLabel` add the script name for interpreters; one shared fixture checks both. `requesterApp` names the app from the chain, as a guess.
+- The Privilege page has an App column, an expandable detail under each launch and each failed authorization with a chain or a live parent, and export-only "Full chain" columns (CSV text, JSON array, Copy row).
+- `privilege::match_live` and `resolve` join authd rows to live rows. A row with no match says "no matching launch recorded (launched before Monitor Lizard was running, exited before capture, or older than the records kept)".
+- The page string "not recorded (captured by an older version)" can only fire for a row with `detail: false`, and every row captured since P1 has `detail: true`, so it cannot appear for a current row.
 
-- **Fixed:** hostile text (one `visible` in Rust and JS, shared fixture, used by page, exports and CLI, plus `<bdi>`); the toggle's accessible name, `aria-controls` only while the detail exists, and focus kept across a poll redraw; parent line cut at 300 characters with one `ps` per refresh; `Hop.more` and a "chain cut at 12 hops" note; a cut command flagged in the Command column, in code points on both sides; `requester_note` and the app in the JSON export of an unmatched authorization; more interpreters and value options in the label; whole-name app matching worded as "probably"; `cwd_of` safety, `parse_log_time` without byte slicing; `reqOpen` pruned and collision-free element ids.
-- **Changes the review asked to record:** the inline `min-width:640px` on the two Privilege tables was removed so the table floor sets the width (not asked for); the Privilege table gained an App column and the grid changed; the `monitor-lizard privilege` CLI command now opens the history database to read live rows; the join reads at most 500 live rows (`LIVE_JOIN_LIMIT`), so an authorization older than the 500th most recent sudo launch shows as unmatched.
-- **Browser (Chrome, scratch HOME, light and dark, window not resized):** a 12-hop chain showing the cut note, a 320-character command flagged as cut, bidi and zero-width text shown as `\u{202e}` escapes, focus kept on the toggle after a poll-style redraw, `aria-controls` absent while closed, and the open state pruned to the rows on the page.
-- **Still unverified:** a real sudo capture end to end; a screen reader reading the new button name; forced colors; a narrow window; the CLI output with hostile text (covered by the shared `visible` test only).
+**Tests:** Rust in `watcher`, `privilege` and `history`; Node in `tests/web/requester.test.mjs` and `export.test.mjs`. `make check`, `make test` and `make check-docs` pass.
+
+**Review round 1 (PR #59), fixed**
+
+- Safety: one `visible` in Rust and JS turns bidi, zero-width and control characters into visible escapes in the page, the exports and the CLI, with `<bdi>` around values.
+- Accessibility: the toggle has its own name, `aria-controls` only while the detail exists, and focus survives a poll redraw.
+- Limits: a cut command is flagged in the table and the exports (code points on both sides); a 12-hop chain says it was cut; the `ps` parent line is cut at 300 characters, with one `ps` call per refresh.
+- Output: the JSON export of an unmatched authorization carries its statement and the app, the same as CSV and Copy.
+- Labels and app: more interpreters and value options in the label; app names match whole names and read "probably".
+- Code: `cwd_of` safety, `parse_log_time` without byte slicing, `reqOpen` pruned, collision-free element ids.
+
+**Review round 2 (writing review):** wording of the unmatched, cut-chain, terminal and unreadable texts made consistent; docs tightened.
+
+**Changes beyond the review's findings**
+
+- The coordinator's round-1 note asked for these to be recorded; the author made each:
+- Removed the inline `min-width:640px` on the two Privilege tables, so the table floor sets the width (done in the first commit so the table scrolls like the others; not requested).
+- Added the App column, which changed the grid (done in the first commit to answer "which app").
+- The `monitor-lizard privilege` command now opens the history database to read live rows (needed for the same join the page does).
+- The join reads at most 500 live rows (`LIVE_JOIN_LIMIT`, chosen to bound the read), so an authorization older than the 500th most recent sudo launch shows as unmatched.
+
+**Browser:** Chrome, scratch HOME, synthetic rows, light and dark, window not resized. Seen: detail rows, a 12-hop chain with the cut note, a 320-character command flagged as cut, bidi and zero-width text as escapes, focus kept after a redraw, `aria-controls` absent while closed, one Copy button per row, export columns and the secrets note. Failed-authorization rows were injected into page memory, because the real authd log cannot be seeded.
+
+**Not verified:** a real sudo capture end to end (cwd, tty and start time for a live chain are tested only on the test process's own ancestors); a screen reader reading the toggle's name; forced colors; a narrow browser window; the keyboard walk-through; CLI output with hostile text (covered by the shared `visible` test only).
+
+**Open:** the interpreter label takes the first word that is not an option, with a short list of options that take a value.
