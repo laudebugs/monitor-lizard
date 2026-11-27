@@ -8,24 +8,24 @@
 | Depends on | U6a |
 | ADRs | [0005](../../decisions/0005-preact-vendored-no-build-step.md) |
 | Branch | `refactor/u6b-medium-pages` |
-| PR title | `refactor(web): run Guide, Overview, Apps and Privilege on the Preact path` |
+| PR title | `refactor(web): run Guide, Overview, Apps and Privilege on the Preact renderer` |
 | Size | L (over 400: split by page if needed) |
 | PR | — |
 
 ## Goal
 
-Same process as U6a for the four pages with more state: the Guide (it skips redraws with `gsig` and announces changes), Overview, Apps (detail drawer, resizable handle, `data-req` focus) and Privilege (requester chain, detail).
+The same process as U6a for the four pages with more state: the Guide (it skips redraws with `gsig` and announces changes), Overview, Apps (detail drawer, resizable handle, `data-req` focus) and Privilege (requester chain, detail).
 
 ## Context
 
 - `web/page-guide.js` (`guideAct`, `gsig`), `web/page-apps.js`, `web/page-privilege.js`, `web/page-overview.js`; `web/table.js` drawer handle (`hadFocus`, `.drawer`).
-- The Guide's `gsig` skip exists to avoid losing focus; on Preact it can go, but its announce logic stays.
+- On the Preact renderer the `gsig` skip and `guideAct` are unnecessary; the announce logic stays.
 
 ## Scope
 
 **In scope:**
 
-- Per page: DOM diff, keys, remove `guideAct` and `data-req` focus code on the Preact path, drawer resize still works (it writes `--dw` on the live element: it must survive a commit), tests for markup helpers.
+- Per page: DOM diff, keys, escaping tests, delete `guideAct`, `data-req` and the nav `had` restore on the Preact renderer, make the drawer survive commits (it writes `--dw` and a `sized` class on a live element: move the width into `S` and a `style` prop if it fights Preact).
 
 **Out of scope** (name the todo that covers it):
 
@@ -35,38 +35,43 @@ Same process as U6a for the four pages with more state: the Guide (it skips redr
 
 | File | Change |
 |---|---|
-| `web/page-guide.js`, `web/page-apps.js`, `web/page-privilege.js`, `web/page-overview.js`, `web/table.js` | keys, neutral helpers, drawer survives commits |
+| `web/page-guide.js`, `web/page-apps.js`, `web/page-privilege.js`, `web/page-overview.js`, `web/table.js`, `web/shell.js` | keys, neutral helpers, drawer, nav |
 
 ## Steps
 
-- [ ] Guide: type in the search box, pick a command, keep focus in the box through a poll; announcements still fire only on a real change.
-- [ ] Apps: select an app, open the drawer, drag the handle, press Stop (dialog from U5), poll arrives.
-- [ ] Privilege: open a request chain, copy the chain text and JSON.
+- [ ] Guide: type in the search box, pick a command, keep focus through a poll; announcements fire only on a real change.
+- [ ] Apps: select an app, open the drawer, drag the handle, press Stop (dialog from U5) while a poll arrives.
+- [ ] Privilege: open a request chain; copy the chain text and JSON.
 - [ ] Overview: badges and links open the right filtered pages.
+- [ ] Sidebar: Tab to a nav button and let a poll arrive; focus stays.
 
 ## Edge cases (must be covered)
 
 | Input | Expected |
 |---|---|
-| Drawer resized, then a commit | width kept (`--dw` and `sized` class survive) |
+| Drawer resized, then a commit | width kept |
 | Guide search with no match | the empty state with its button, focus kept |
-| `Escape` in the drawer | as today |
-| App disappears while selected | selection handling as today (`selPatch`) |
-| Search typed in `#q` | the box keeps focus (it is outside the container) |
+| Escape in the drawer | as today |
+| An app disappears while selected | `selPatch` handling as today |
+| Typing in `#q` | the box keeps focus (it is outside the container) |
+| A hostile app or command name | escaped by `visible()` |
+| Column menu open when a poll arrives | stays open (`quiet()` still guards; U7 replaces it) |
 
 ## Acceptance criteria
 
-- All four pages match the old path in DOM and behaviour; `guideAct` and `data-req` are unused on the Preact path.
+- All four pages match the old renderer in DOM and behaviour; `guideAct`, `data-req` and the nav focus restore are unused on the Preact renderer.
+- **Maintainability (the reason for this plan):** each page or component moved deletes the workarounds it needed (a `data-req` or `stFocus`-style focus restore, a `quiet()` guard, a dataset-cached state) and the PR description records before and after counts of those workarounds and of lines in the files touched. Logic that a page owns (labels, rows, text) is tested in Node against the vnode stand-in, with no browser needed; only behaviour that needs a real browser (focus, `inert`, scroll) is checked by hand.
 
 ## Tests
 
-Markup cases per page; browser checks recorded.
+Markup, key and escaping cases per page; browser checks recorded.
 
 ## Verification
 
+Run `make check` and `make test` (the standard pair), plus:
+
 ```sh
-make check
-make test
+node --test tests/web/*.test.mjs
 ```
 
 ## Docs to update
@@ -75,18 +80,13 @@ make test
 
 ## Risks and open questions
 
-- The drawer handle code mutates live elements; if it fights Preact, move its width into `S` and a style attribute.
+- The drawer handle mutates live elements; it is the likeliest place for a foreign-mutation fight.
 
-## Rollback and how the page keeps working
+## Rollback and how the dashboard keeps working
 
 - **Rollback:** Revert the PR.
-- **Why the page works at every step:** Old path is the default; only the opt-in path changes.
+- **Why the dashboard works at every step:** The default is the old renderer; only the Preact renderer changes.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+The standard list in [TEMPLATE.md](../TEMPLATE.md#definition-of-done), plus a browser check recorded for every UI change.
