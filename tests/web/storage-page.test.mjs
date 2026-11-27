@@ -226,7 +226,7 @@ test('the tile ids the address accepts are the scanner sections plus all, other 
   assert.deepEqual([...P.ST_TILES].sort(), ['all', ...Object.keys(P.ST_CATEGORIES), 'other', 'rest'].sort());
 });
 
-test('page wiring: removal is disabled with its reason, and the page never writes the address itself', () => {
+test('page wiring: Move to Trash is disabled with its reason, and the page never writes the address itself', () => {
   const view = html.slice(html.indexOf('const stRelated'), html.indexOf('const SAFETY_TAG'));
   assert.match(view, /'aria-disabled': sel\.ok \? null : 'true',\s*'aria-describedby': 'st-trash-why'/, 'focusable, with its reason wired in');
   assert.doesNotMatch(view, /disabled: true/);

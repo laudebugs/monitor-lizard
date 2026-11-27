@@ -185,7 +185,7 @@ test('Tab stays inside the dialog: it wraps at both ends', () => {
   assert.equal(w.doc.activeElement, btns[0]);
 });
 
-test('one Escape closes one layer: the removal dialog first, then the Stop dialog', () => {
+test('one Escape closes one layer: the Trash dialog first, then the Stop dialog', () => {
   const w = world();
   w.S.modal = { label: 'x' };
   w.S.trash = { phase: 'previewed', seq: 1, ids: [hex(1)], yours: [], known: {}, token: 'T', summary: { counts: { would_move: 1 }, items: [] } };
@@ -233,4 +233,30 @@ test('a reply that arrives after the dialog was closed changes nothing', async (
   w.S.trash = w.P.trashIdle();
   await w.P.trashRequest(fx);
   assert.equal(w.S.trash.phase, 'idle');
+});
+
+test('the yours step reads as a question, not a final yes, and repeats the Put Back caveat', () => {
+  const w = world();
+  w.S.trash = { phase: 'confirming-yours', seq: 2, ids: [hex(3)], yours: [{ id: hex(3), name: 'Taxes', path: '/Users/me/Taxes', label: 'yours', bytes: 1 }], known: {}, confirmYours: false, summary: null };
+  const dlg = w.P.trashDialog(), all = dlg.allText();
+  assert.match(dlg.all().find((e) => e.attrs.id === 'trash-title').text, /^Include your own folder in the preview\?$/);
+  assert.ok(all.includes('Nothing moves yet. You will see one more preview before the final Move.'));
+  assert.ok(all.includes('until you move it back from the Trash by hand'));
+  assert.ok(!/put it back/i.test(all), 'no promise that Put Back works');
+  assert.ok(all.includes('Put Back may not be offered'));
+  assert.ok(dlg.querySelectorAll('button:not([disabled]), a[href]').some((b) => b.text === 'Include \u201cTaxes\u201d and preview again'));
+  assert.ok(!/removal|removed/i.test(all));
+});
+
+test('the result: the rescan advice sits above the History link, failed folders say to check the Trash', () => {
+  const w = world();
+  const sum = w.P.trashSummary({ ok: false, dry_run: false, history_id: 9, items: [item(1, 'moved'), item(2, 'failed', { reason: 'busy', bytes: null }), item(4, 'not_attempted', { bytes: null })] }, {});
+  w.S.trash = { phase: 'done', seq: 3, ids: [hex(1)], yours: [], known: {}, confirmYours: false, summary: sum };
+  const dlg = w.P.trashDialog(), all = dlg.allText();
+  assert.ok(all.indexOf('Moved folders may stay listed for up to a minute. Wait, then press Rescan.') > -1);
+  assert.ok(all.indexOf('Moved folders may stay listed') < all.indexOf('Open History'));
+  assert.ok(!all.includes('The page asked for a fresh scan'));
+  assert.ok(all.includes('Check your Trash for the failed and not attempted folders.'));
+  assert.ok(all.includes('Moved 1 of 3 folders to the Trash (1.0 GB).'));
+  assert.ok(!/removal|removed|\bitems?\b/i.test(dlg.text), 'folder and Trash are the only terms');
 });

@@ -59,7 +59,7 @@ test('the preview shows sizes and keeps the token only for movable items', () =>
   assert.equal(s.phase, 'previewed');
   assert.equal(s.token, 'tok1');
   assert.equal(s.summary.counts.would_move, 2);
-  assert.equal(P.trashHeadline(s.summary, true), '2 folders would move to the Trash, 3.0 GB.');
+  assert.equal(P.trashHeadline(s.summary, true), '2 folders would move to the Trash (3.0 GB).');
   const none = previewed([1], [item(1, 'refused', { code: 'symlink', reason: 'is a symlink' })], { ok: false, confirm_token: null });
   assert.equal(none.phase, 'previewed');
   assert.equal(none.token, null, 'nothing movable has no token');
@@ -157,7 +157,7 @@ test('a refusal lists the item with its reason while the others still move', () 
   assert.deepEqual([sum.counts.moved, sum.counts.refused, sum.counts.failed, sum.counts.not_attempted], [1, 1, 0, 0]);
   assert.equal(sum.items[1].reason, 'changed since the scan');
   assert.equal(sum.historyId, 42);
-  assert.equal(P.trashHeadline(sum, false), 'Moved 1 of 2 items to the Trash, 1.0 GB.');
+  assert.equal(P.trashHeadline(sum, false), 'Moved 1 of 2 folders to the Trash (1.0 GB).');
   assert.ok(kinds(r.fx).includes('rescan'), 'a rescan follows');
   assert.equal('token' in r.s && r.s.token, null);
 });
@@ -181,7 +181,7 @@ test('ok:false with everything refused is shown as nothing moved', () => {
   const m = run(s, { type: 'move' }).s;
   const r = run(m, reply(m, 200, commit([item(1, 'refused', { code: 'changed', reason: 'x' }), item(2, 'refused', { code: 'gone', reason: 'y' })], { ok: false, history_id: 7 })));
   assert.equal(r.s.phase, 'done');
-  assert.equal(P.trashHeadline(r.s.summary, false), 'Nothing was moved: all 2 items were refused.');
+  assert.equal(P.trashHeadline(r.s.summary, false), 'Nothing was moved: all 2 folders were refused.');
   assert.equal(r.s.summary.okFlag, false);
 });
 
@@ -207,15 +207,15 @@ test('a network error on the commit says it cannot tell, and shows nothing as mo
 });
 
 test('each server refusal gets a plain message and a way forward', () => {
-  const cases = [[409, 'busy', /another removal is still running/i], [409, 'confirmation_expired', /expired/], [409, 'confirmation_mismatch', /no longer applies/],
-    [409, 'confirmation_invalid', /no longer valid/], [400, 'confirmation_required', /needs a preview/], [429, 'too_many_previews', /preview again/i]];
+  const cases = [[409, 'busy', /another move to the Trash is still running/i], [409, 'confirmation_expired', /expired/], [409, 'confirmation_mismatch', /no longer applies/],
+    [409, 'confirmation_invalid', /no longer valid/], [400, 'confirmation_required', /needs a preview/], [429, 'too_many_previews', /wait up to 10 minutes.*restart the dashboard/i]];
   for (const [status, code, re] of cases) {
     const s = previewed([1], [item(1, 'would_move')]);
     const m = run(s, { type: 'move' }).s;
     const e = run(m, reply(m, status, { ok: false, code, error: 'x' })).s;
     assert.equal(e.phase, 'error', code);
     assert.match(e.message.text, re, code);
-    assert.match(e.message.text, /[Pp]review again/, code + ' names the way forward');
+    assert.match(e.message.text, /[Pp]review again|restart the dashboard/, code + ' names the way forward');
     assert.equal(e.message.retry, true, code);
     assert.equal(e.summary, null, 'nothing is shown as moved: ' + code);
   }
@@ -223,6 +223,14 @@ test('each server refusal gets a plain message and a way forward', () => {
   const busy = run(s, reply(s, 429, { ok: false, code: 'too_many_previews' }));
   assert.equal(busy.s.phase, 'error');
   assert.equal(P.trashProblem(429, null, false).includes('10 minutes'), true);
+  for (const code of ['audit_unavailable', 'home_untrusted']) {
+    const t = P.trashProblem(500, code, true);
+    assert.match(t, /^Nothing was moved\. The dashboard could not confirm .* Restart the dashboard and try again\.$/, code);
+    assert.ok(!/trust/i.test(t), 'no jargon');
+  }
+  for (const code of ['busy', 'confirmation_expired', 'confirmation_mismatch', 'confirmation_invalid', 'confirmation_required', 'unknown_id', 'audit_unavailable', 'home_untrusted', 'too_many_previews']) {
+    assert.ok((P.trashProblem(409, code, true).match(/Nothing was moved/g) || []).length <= 1, code + ' says it at most once');
+  }
 });
 
 test('a scan that no longer has the folder offers no blind retry', () => {
@@ -320,7 +328,7 @@ test('totals that disagree with the item list raise a visible warning', () => {
   };
   for (const [name, body] of Object.entries(bad)) {
     const sum = P.trashSummary(body, {});
-    assert.ok(sum.warning && /may be wrong/.test(sum.warning) && /History/.test(sum.warning), name);
+    assert.equal(sum.warning, 'The totals and the item list disagree, so this summary may be wrong. Open History to see what was recorded.', name);
   }
   assert.equal(P.trashSummary(commit([item(1, 'moved')], { ok: false, audit_error: 'disk full' }), {}).warning, null, 'ok false with an audit error is consistent');
   const s = previewed([1, 2], [item(1, 'would_move'), item(2, 'would_move')]);
@@ -356,12 +364,12 @@ test('History rows: every state reads honestly, and nothing unknown is shown as 
   const rows = P.trashHistoryRows(moves);
   assert.equal(rows.length, 7);
   assert.equal(rows[0].requestText, 'Request 7');
-  assert.match(rows[2].stateText, /may or may not have moved/);
-  assert.match(rows[3].stateText, /no result recorded/);
-  assert.match(rows[4].stateText, /stopped while moving/);
+  assert.match(rows[2].stateText, /may or may not have moved\. Check your Trash/);
+  assert.match(rows[3].stateText, /not started yet/);
+  assert.match(rows[4].stateText, /stopped while moving\. Check your Trash/);
   assert.match(rows[5].stateText, /^Unknown state: teleported\\u\{202e\}$/);
-  assert.equal(rows[6].requestText, 'Earlier log');
-  assert.equal(rows[6].stateText, 'Unreadable record');
+  assert.equal(rows[6].requestText, 'Older record');
+  assert.equal(rows[6].stateText, 'Could not read this record. Check your Trash');
   assert.equal(rows[6].path, '(no path)');
   assert.equal(rows[1].why, 'changed since the scan');
   assert.equal(rows[0].sizeText, '5 B');

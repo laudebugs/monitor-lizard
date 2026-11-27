@@ -411,7 +411,7 @@ function trashSync(selection) {
   if (trashApply({ type: 'selection', key: selection.key })) setTimeout(trashFocusBack, 0);
 }
 const trashClose = () => trashDispatch({ type: 'close' });
-// One Escape closes one layer: the removal dialog if it is open, otherwise the Stop dialog.
+// One Escape closes one layer: the Trash dialog if it is open, otherwise the Stop dialog.
 function closeTopLayer() {
   if (trashOpen()) { trashClose(); return 'trash'; }
   if (S.modal) { rec({ modal: null }); return 'stop'; }
@@ -444,21 +444,24 @@ function trashBody(t) {
     return [p('This selection includes ' + plural(t.yours.length, 'folder', 'folders') + ' labelled YOURS. ' + (t.yours.length === 1 ? 'It holds' : 'They hold') + ' your own files, not a cache:'),
       h('ul', { class: 'tr-list' }, t.yours.map((y) => h('li', { class: 'tr-item' }, h('div', { class: 'tr-name' }, h('strong', { class: 'tr-path', title: visible(y.path) }, visible(homeRelative(y.path))), labelTag(y.label)),
         h('div', { class: 'small tr-meta' }, y.bytes == null ? 'size unknown' : formatBytes(y.bytes))))),
-      p('Move ' + trashNames(t.yours) + ' to the Trash? Anything that uses it may stop working until you put it back. Confirming asks the server for a new preview that includes it.', 'small')];
+      p('Nothing moves yet. You will see one more preview before the final Move.'),
+      p('Anything that uses ' + (t.yours.length === 1 ? 'it' : 'them') + ' may stop working until you move ' + (t.yours.length === 1 ? 'it' : 'them') + ' back from the Trash by hand.', 'small'),
+      p(TRASH_PUT_BACK, 'small mut')];
   }
   const done = t.phase === 'done', moved = done ? sum.items.filter((i) => i.status === 'moved') : [], rest = sum.items.filter((i) => i.status !== 'moved');
   const lines = [p(trashHeadline(sum, !done), 'tr-head')];
   if (sum.warning) lines.push(p(sum.warning, 'tr-warn'));
   if (done) lines.push(p(trashCounts(sum.counts), 'small mut'));
+  if (done && sum.counts.failed + sum.counts.not_attempted > 0) lines.push(p('Check your Trash for the failed and not attempted folders.', 'small'));
   if (sum.auditError) lines.push(p('History could not be written: ' + sum.auditError, 'small'));
-  if (!done && sum.counts.refused) lines.push(p(plural(sum.counts.refused, 'item is', 'items are') + ' refused and stays where it is. The rest can still move.', 'small'));
+  if (!done && sum.counts.refused) lines.push(p(plural(sum.counts.refused, 'folder is', 'folders are') + ' refused and stays where it is. The rest can still move.', 'small'));
   if (!done && t.yours.length && !t.confirmYours) lines.push(p('Your own folder ' + trashNames(t.yours) + ' needs a separate confirmation on the next step.', 'small'));
-  lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per item' : 'What would move' }, [...moved, ...rest].map(trashItemRow)));
+  lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per folder' : 'What would move' }, [...moved, ...rest].map(trashItemRow)));
   lines.push(p(sum.note, 'small mut'));
   if (done) {
+    lines.push(p('Moved folders may stay listed for up to a minute. Wait, then press Rescan.', 'small'));
     lines.push(p(sum.historyId == null ? 'The server did not report a History entry for this request.' : 'Recorded as request ' + sum.historyId + ' in History.', 'small'));
     lines.push(h('a', { class: 'small', href: writeHash({ view: 'history' }) }, 'Open History'));
-    lines.push(p('The page asked for a fresh scan. The server reuses a scan under a minute old, so moved folders can stay listed until you Rescan.', 'small mut'));
   }
   return lines;
 }
@@ -479,7 +482,7 @@ function trashButtons(t) {
 function trashDialog() {
   const t = S.trash;
   if (!t || t.phase === 'idle') return null;
-  const title = { previewing: 'Checking before anything moves', previewed: 'Move to the Trash?', 'confirming-yours': 'Move your own folder to the Trash?',
+  const title = { previewing: 'Checking before anything moves', previewed: 'Move to the Trash?', 'confirming-yours': t.yours.length === 1 ? 'Include your own folder in the preview?' : 'Include your own folders in the preview?',
     moving: 'Moving to the Trash', done: 'Result', error: 'Could not finish' }[t.phase];
   return h('div', { class: 'overlay' }, h('div', { class: 'modal trash-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'trash-title', 'aria-describedby': 'trash-desc',
     'aria-busy': t.phase === 'previewing' || t.phase === 'moving' ? 'true' : null, tabindex: '-1', onKeydown: trashKeys },
@@ -497,7 +500,7 @@ function trashLayer() {
   catch (e) {
     const moving = S.trash && S.trash.phase === 'moving';
     S.trash = trashIdle();
-    announce('The removal dialog could not be drawn and was closed. ' + (moving ? 'A move may have started: open History to check.' : 'Nothing was moved.'));
+    announce('The dialog could not be drawn and was closed. ' + (moving ? 'A move may have started: open History to check.' : 'Nothing was moved.'));
   }
   if (shell) shell.inert = !!node; // the page behind a dialog is out of reach of the keyboard and screen readers
   return node;

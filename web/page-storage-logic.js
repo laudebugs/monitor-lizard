@@ -377,7 +377,7 @@ function reportHtml({ d, rows, shownRows, system, generated, filterText }) {
 // `confirming-yours`, with the ids it was issued for, and is dropped by every other transition.
 const TRASH_MAX_IDS = 50; // src/storage/trash.rs MAX_IDS
 const TRASH_ID = /^[0-9a-f]{16}$/i;
-const TRASH_PUT_BACK = 'Items go to your Trash, not to a permanent delete. Finder’s Put Back may not be offered for them; History keeps the original path of every item, so you can move one back by hand.';
+const TRASH_PUT_BACK = 'Folders go to your Trash, not to a permanent delete. Finder’s Put Back may not be offered for them; History keeps the original path of every folder, so you can move one back by hand.';
 // What a preview belongs to: the ids and the label each had when it was asked for. A rescan that flips a label
 // changes the key, so a preview for a folder that is now YOURS is never committed without its confirmation.
 const trashKey = (items) => (items || []).map((i) => i.id + ':' + i.label).sort().join(',');
@@ -391,8 +391,8 @@ function trashSelection(rows, ids) {
   const items = picked.map(named), yours = items.filter((r) => r.label === ST_LABEL.yours);
   let why = null;
   if (!want.length) why = 'Select a folder first';
-  else if (picked.length !== want.length) why = 'A selected folder is not in the latest scan. Rescan first';
-  else if (picked.some((r) => !TRASH_ID.test(r.id))) why = 'This folder has no id from the scan, so it cannot be removed. Rescan first';
+  else if (picked.length !== want.length) why = 'This folder is missing from the latest scan. Rescan first.';
+  else if (picked.some((r) => !TRASH_ID.test(r.id))) why = 'This folder has no id from the scan, so it cannot be moved. Rescan first.';
   else if (picked.length > TRASH_MAX_IDS) why = 'At most ' + TRASH_MAX_IDS + ' folders at a time';
   return { ok: why == null, why, ids: items.map((r) => r.id), items, yours, key: trashKey(items) };
 }
@@ -417,7 +417,7 @@ function trashSummary(body, known) {
     note: typeof b.note === 'string' && b.note ? visible(b.note) : TRASH_PUT_BACK, auditError: typeof b.audit_error === 'string' && b.audit_error ? visible(b.audit_error) : null,
     hasItems: items.length > 0, warning: trashDisagrees(b, items, counts) ? TRASH_DISAGREES : null };
 }
-const TRASH_DISAGREES = 'The server\u2019s own totals do not match its list of items, so this summary may be wrong. Open History to see what was recorded.';
+const TRASH_DISAGREES = 'The totals and the item list disagree, so this summary may be wrong. Open History to see what was recorded.';
 // The server's top-level ok, counts, failed and moved are a second account of the same request. When they differ from
 // what the item list adds up to, neither is trusted silently: the page shows a warning.
 function trashDisagrees(b, items, counts) {
@@ -434,15 +434,15 @@ const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0).replace(/^unavailable$
 function trashProblem(status, code, committing) {
   const again = ' Nothing was moved. Preview again to continue.';
   const table = {
-    busy: 'Another removal is still running. Nothing was moved. Wait for it to finish, then preview again.',
+    busy: 'Another move to the Trash is still running. Nothing was moved. Wait for it to finish, then preview again.',
     confirmation_expired: 'The preview is older than 10 minutes and has expired.' + again,
     confirmation_mismatch: 'The selection or the scan changed after the preview, so it no longer applies.' + again,
     confirmation_invalid: 'The preview is no longer valid (it may already have been used).' + again,
     confirmation_required: 'The server needs a preview of this exact selection first.' + again,
-    too_many_previews: 'Too many previews are waiting. Previews expire after 10 minutes. Wait a moment and preview again.',
-    unknown_id: 'A folder is not in the latest scan any more. Nothing was moved. Rescan, then select again.',
-    home_untrusted: 'The server does not trust this home folder, so it moves nothing. Nothing was moved.',
-    audit_unavailable: 'The server could not write the History entry, so it moved nothing. Nothing was moved. Preview again once History is available.',
+    too_many_previews: 'Too many previews are waiting. Wait up to 10 minutes for old previews to expire, or restart the dashboard.',
+    unknown_id: 'A folder is missing from the latest scan. Nothing was moved. Rescan, then select again.',
+    home_untrusted: 'Nothing was moved. The dashboard could not confirm that your home folder is safe to use. Restart the dashboard and try again.',
+    audit_unavailable: 'Nothing was moved. The dashboard could not confirm it can keep a record. Restart the dashboard and try again.',
   };
   if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(table, code)) return table[code];
   if (status === 0) return committing ? 'The page could not read the server’s reply, so it cannot say whether anything moved. Nothing is shown as moved. Open History to check, then preview again.'
@@ -459,9 +459,9 @@ const trashUrl = (fx) => '/api/trash?ids=' + fx.ids.map(encodeURIComponent).join
 const trashNeedsYours = (s) => s.yours.length > 0 && !s.confirmYours;
 function trashHeadline(sum, preview) {
   const c = sum.counts, n = sum.items.length;
-  if (preview) return c.would_move ? plural(c.would_move, 'folder', 'folders') + ' would move to the Trash, ' + trashBytes(sum.would) + '.' : 'None of the ' + plural(n, 'folder', 'folders') + ' can be moved.';
-  if (c.moved === 0) return 'Nothing was moved' + (n ? ': ' + (c.refused === n ? (n === 1 ? 'the item was refused' : 'all ' + n + ' items were refused') : plural(c.failed + c.refused + c.not_attempted, 'item was', 'items were') + ' not moved') : '') + '.';
-  return 'Moved ' + c.moved + ' of ' + plural(n, 'item', 'items') + ' to the Trash, ' + trashBytes(sum.moved) + '.';
+  if (preview) return c.would_move ? plural(c.would_move, 'folder', 'folders') + ' would move to the Trash (' + trashBytes(sum.would) + ').' : 'None of the ' + plural(n, 'folder', 'folders') + ' can be moved.';
+  if (c.moved === 0) return 'Nothing was moved' + (n ? ': ' + (c.refused === n ? (n === 1 ? 'the folder was refused' : 'all ' + n + ' folders were refused') : plural(c.failed + c.refused + c.not_attempted, 'folder was', 'folders were') + ' not moved') : '') + '.';
+  return 'Moved ' + c.moved + ' of ' + plural(n, 'folder', 'folders') + ' to the Trash (' + trashBytes(sum.moved) + ').';
 }
 function trashStep(s, ev) {
   const none = { state: s, fx: [] }, say = (text) => ({ do: 'announce', text });
@@ -514,19 +514,19 @@ function trashStep(s, ev) {
     }
     case 'selection': {
       if (!['previewing', 'previewed', 'confirming-yours', 'error'].includes(phase) || ev.key === s.key) return none;
-      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say('The removal dialog closed because the selection or a label changed. Nothing was moved.')] };
+      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say('The dialog closed because the selection or a label changed. Nothing was moved.')] };
     }
     case 'leave': {
       if (phase === 'idle' || phase === 'moving') return none;
-      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say('The removal dialog closed because you left the Storage page. Nothing was moved.')] };
+      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say('The dialog closed because you left the Storage page. Nothing was moved.')] };
     }
     default: return none;
   }
 }
 // ---- History: every row of GET /api/history `trash_moves`, one row per item. Text a stranger can choose (a folder name, an
 // OS error) goes through visible(), and a state the page does not know is shown as unknown, never as moved.
-const TRASH_STATE_TEXT = { moved: 'Moved', refused: 'Refused', failed: 'Failed', not_attempted: 'Not attempted', pending: 'Pending: no result recorded yet',
-  moving: 'Moving now, or stopped while moving', interrupted: 'Interrupted: it may or may not have moved', unreadable: 'Unreadable record' };
+const TRASH_STATE_TEXT = { moved: 'Moved', refused: 'Refused', failed: 'Failed. Check your Trash', not_attempted: 'Not attempted', pending: 'Pending: not started yet',
+  moving: 'Moving, or stopped while moving. Check your Trash', interrupted: 'Interrupted: it may or may not have moved. Check your Trash', unreadable: 'Could not read this record. Check your Trash' };
 function trashHistoryRows(moves) {
   const out = [];
   for (const m of Array.isArray(moves) ? moves : []) {
@@ -536,7 +536,7 @@ function trashHistoryRows(moves) {
       if (!i || typeof i !== 'object') return;
       const state = typeof i.state === 'string' ? i.state : '', d = pathDisplay(typeof i.path === 'string' ? i.path : '');
       const code = typeof i.code === 'string' ? i.code : '', reason = typeof i.reason === 'string' ? i.reason : '';
-      out.push({ key: (request == null ? 'old' : request) + ':' + n + ':' + ts, request, requestText: request == null ? 'Earlier log' : 'Request ' + request, ts, state,
+      out.push({ key: (request == null ? 'old' : request) + ':' + n + ':' + ts, request, requestText: request == null ? 'Older record' : 'Request ' + request, ts, state,
         stateText: Object.prototype.hasOwnProperty.call(TRASH_STATE_TEXT, state) ? TRASH_STATE_TEXT[state] : 'Unknown state: ' + visible(state),
         path: visible(d.text) || '(no path)', head: visible(d.head), tail: visible(d.tail) || '(no path)', label: i.label === ST_LABEL.safe || i.label === ST_LABEL.yours || i.label === ST_LABEL.review ? i.label : 'unknown',
         why: visible(reason || code), bytes: trashNum(i.bytes), sizeText: trashNum(i.bytes) == null ? '-' : formatBytes(i.bytes) });
