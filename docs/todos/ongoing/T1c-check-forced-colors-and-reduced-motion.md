@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `T1c` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9 |
 | Depends on | T1a |
 | ADRs | None |
@@ -85,7 +85,7 @@ The T1a Implementation Record gets a one-line pointer to this todo's result; pla
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [ ] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
