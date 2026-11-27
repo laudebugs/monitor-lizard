@@ -6,6 +6,8 @@ import { readdirSync } from 'node:fs';
 import vm from 'node:vm';
 import { shell, css, scriptFiles, scriptTexts, webFile } from './page.mjs';
 
+// Every script joined in load order, as the browser runs them.
+const script = scriptTexts.join('');
 const NEW_TOKEN_LINE = "const TOKEN = document.querySelector('meta[name=ml-token]').content;";
 
 test('split: every script is under the 800-line budget and web/ holds no file the shell does not load', () => {
