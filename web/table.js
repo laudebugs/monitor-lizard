@@ -269,6 +269,7 @@ const EXPORT = {
   hist: { when: (s) => s.first_seen, app: (s) => labelOf(s.group_key), host: (s) => s.remote, hits: (s) => s.hits },
   store: { folder: (r) => r.path, section: (r) => r.category || '', label: (r) => r.label || '', size: (r) => sizeText(r), share: (r) => noDash(shareText(r)), measured: (r) => r.measuredText },
   act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => noDash(refusedText(a)) },
+  trash: { when: (r) => r.ts, request: (r) => r.requestText, folder: (r) => r.path, state: (r) => r.stateText, size: (r) => noDash(r.sizeText), why: (r) => r.why },
 };
 /* export-cols:end */
 // Columns whose JSON is structured data (the full chain) rather than the text the CSV holds.
@@ -291,6 +292,7 @@ const TABLE_META = {
   hist: { file: 'new-hosts', info: 'app names and the hosts they first contacted', time: ['when'] },
   store: { file: 'storage', info: 'folder paths and their sizes as shown, with the words "at least" or the reason where a size is a lower bound or unavailable', time: [] },
   act: { file: 'actions', info: 'which processes you stopped and when', time: ['when'] },
+  trash: { file: 'trash-moves', info: 'folder paths you moved or tried to move to the Trash, with the result and reason for each', time: ['when'] },
 };
 // The filtered, sorted rows of each table (all pages), left by paginate() for the toolbar and the row buttons.
 const TABLES = {};
@@ -381,7 +383,7 @@ function setFloor(sec, head, tracks, name, viewportW) {
 const nameAttrs = (text, style) => ({ style: 'font-weight:500' + (style ? ';' + style : ''), title: String(text) });
 /* floor:end */
 const warned = new Set();
-const TABLE_NAME = { sudo: 'sudo and su launches', auth: 'Authorization requests', apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', store: 'Storage folders' };
+const TABLE_NAME = { sudo: 'sudo and su launches', auth: 'Authorization requests', apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', trash: 'Moves to the Trash', store: 'Storage folders' };
 function decorateTables() {
   for (const head of document.querySelectorAll('.tr.h[data-table]')) {
     const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');

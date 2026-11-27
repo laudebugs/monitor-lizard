@@ -175,7 +175,7 @@ const PAGE_SORTS = {
   persist: { pers: ['label', 'kind', 'scope', 'program', 'trust', 'added'] },
   network: { net: ['app', 'remote', 'scope', 'sockets', 'seen'] },
   priv: { sudo: ['time', 'command'], auth: ['time', 'result', 'right', 'requester'] },
-  history: { hist: ['when', 'app', 'host', 'hits'], act: ['when', 'signal', 'sent', 'refused'] },
+  history: { hist: ['when', 'app', 'host', 'hits'], act: ['when', 'signal', 'sent', 'refused'], trash: ['when', 'request', 'folder', 'state', 'size'] },
   storage: { store: ['folder', 'section', 'label', 'size', 'share'] },
 };
 const HASH_MAX = 2048; // browsers and chat apps start truncating long addresses around here
@@ -368,7 +368,7 @@ async function copyFlow(command, { write, show, byId, select }) {
 
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
-const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
+const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !trashOpen()) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
 const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
 const setTheme = (t) => { localStorage.setItem('monitor-lizard-theme', t); S.theme = t; applyTheme(); render(); };

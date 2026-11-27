@@ -1,6 +1,6 @@
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'X-MonitorLizard-Token': TOKEN } });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { const text = await r.text(), e = new Error(text); e.status = r.status; e.text = text; throw e; } // the Trash flow reads the status and the body of a refusal
   return r;
 }
 async function load(fresh) {
@@ -14,7 +14,7 @@ const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privi
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 // The reply is { items, changes }. Items that are no longer found stay in the data but not on this page, which lists what is installed now.
 const loadPers = async () => { try { const d = await (await api('/api/persistence')).json(); quiet({ pers: (Array.isArray(d) ? d : (d && d.items) || []).filter((i) => !i.removed_at), persOk: true }); } catch (e) {} };
-const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [], histOk: true }); } catch (e) {} };
+const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [], trashMoves: Array.isArray(h.trash_moves) ? h.trash_moves : [], histOk: true }); } catch (e) {} };
 const expectedTag = () => h('span', { class: 'tag', title: 'You marked this as expected' }, 'expected');
 // params is one of { key } (the server's own key for a finding or startup item) or { app, addr } for a host:
 // the page never builds baseline keys. kind is app, host, startup or finding; the server audits each change first.
