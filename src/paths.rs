@@ -210,6 +210,20 @@ fn copy_dir(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// For the lock tests: whether `f` gets its lock within `limit`, trying every millisecond. A lock
+/// just released is retried, not checked once, because in a full test run it stayed held for about
+/// a millisecond after the drop. The likely cause is a process another test started at that moment,
+/// holding an inherited copy of the descriptor until it ran its program.
+#[cfg(test)]
+pub(crate) fn try_lock_within(f: &fs::File, limit: std::time::Duration) -> bool {
+    let until = std::time::Instant::now() + limit;
+    loop {
+        if f.try_lock().is_ok() { return true; }
+        if std::time::Instant::now() >= until { return false; }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
