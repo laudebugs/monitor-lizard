@@ -93,6 +93,10 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .tag.ok{--c-bg:var(--chip-ok-bg);--c-fg:var(--chip-ok-fg)}
 .tag.warn,.badge.warn{--c-bg:var(--chip-warn-bg);--c-fg:var(--chip-warn-fg)}
 .tag.bad,.badge.bad{--c-bg:var(--chip-bad-bg);--c-fg:var(--chip-bad-fg)}
+.disc{display:inline-flex;align-items:center;gap:6px;padding:2px 4px;margin:-2px -4px;background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}.disc:hover{color:var(--acc)}.disc:focus-visible{outline:2px solid var(--focus-edge,var(--fg));outline-offset:1px}.disc .caret{color:var(--mut)}
+.reqdetail{padding:12px 16px 14px 32px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;line-height:1.5;min-width:0}
+.reqdetail p{margin:0 0 8px}.reqdetail ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.reqdetail li{border-left:2px solid var(--line);padding-left:10px;min-width:0}
+.reqdetail .hophead{margin-bottom:2px}.reqdetail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 12px;margin:0}.reqdetail dt{color:var(--mut)}.reqdetail dd{margin:0;font-family:var(--font-mono);overflow-wrap:anywhere;min-width:0}
 .tbl{overflow-x:auto;position:relative}
 .xbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
 .xnote{flex:1 1 220px;min-width:0}
@@ -268,7 +272,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -585,6 +589,165 @@ function nextSort(key, col) {
   if (!s || s.col !== col) n[key] = { col, dir: 'asc' }; else if (s.dir === 'asc') n[key] = { col, dir: 'desc' }; else delete n[key];
   return n;
 }
+/* requester:begin */
+/* Pure helpers for the Privilege page's requester detail (no DOM, no storage: the tests load this block alone).
+   A hop is { pid, exe, command, started?, tty?, cwd?, detail?, more? }; rows saved by an older build lack the last
+   five, and `detail: true` is what separates "could not be read" from "was not recorded". */
+const UNKNOWN_REQUESTER = 'no matching launch recorded (launched before Monitor Lizard was running, exited before capture, or older than the records kept)';
+const NO_PARENT = '(parent not captured)';
+const COMMAND_CUT = 300; // the collector keeps this many characters (code points) of a command line
+const MAX_HOPS = 12;     // and this many hops of a chain
+// Text a stranger can choose (a command line, a folder) is shown and exported with control and format characters
+// (bidi overrides, zero-width characters) as visible escapes, so it cannot reorder or hide what a person reads.
+// The Rust side has the same function (watcher::visible); tests/fixtures/visible.json is checked by both.
+const visible = (s) => String(s == null ? '' : s).replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c) => '\\u{' + c.codePointAt(0).toString(16) + '}');
+const codePoints = (s) => [...String(s || '')].length;
+// A command at the collector's limit was cut; the text says so wherever it is shown or exported.
+const cutText = (s) => visible(s) + (codePoints(s) >= COMMAND_CUT ? '  (cut at ' + COMMAND_CUT + ' characters)' : '');
+const INTERPRETERS = ['node', 'bun', 'deno', 'ruby', 'perl', 'php', 'bash', 'zsh', 'sh', 'dash', 'fish', 'ksh', 'tcsh', 'csh', 'lua', 'Rscript', 'osascript',
+  'npm', 'npx', 'pnpm', 'yarn', 'tsx', 'ts-node', 'vite-node', 'nodemon', 'uv', 'java'];
+const VALUE_OPTIONS = ['-r', '--require', '--loader', '--import', '--experimental-loader', '--conditions', '-C', '-W', '-X', '-I', '-o', '-O', '--rcfile', '--init-file',
+  '--max-old-space-size', '--stack-size', '--env-file', '--with', '--python', '-cp', '-classpath', '--class-path'];
+const INLINE_OPTIONS = ['-c', '-e', '-p', '-E'];
+const SUBCOMMAND_TOOLS = ['npm', 'pnpm', 'yarn', 'bun', 'deno', 'uv'];
+const RUN_WORDS = ['run', 'exec', 'dlx', 'x', 'run-script'];
+const WRAPPERS = ['tsx', 'ts-node', 'ts-node-esm', 'vite-node', 'nodemon', 'npx', 'npm', 'pnpm', 'yarn'];
+const baseName = (p) => String(p).split('/').pop();
+const isInterpreter = (n) => INTERPRETERS.includes(n) || /^python[0-9.]*$/.test(n);
+// Index of the first word that is not an option or an option's value, from `from`.
+function firstOperand(words, from) {
+  let i = from;
+  while (i < words.length) {
+    const w = words[i];
+    if (VALUE_OPTIONS.includes(w)) { i += 2; continue; }
+    if (w.startsWith('--') && !w.includes('=') && /^\d+$/.test(words[i + 1] || '')) { i += 2; continue; }
+    if (w.startsWith('-')) { i++; continue; }
+    return i;
+  }
+  return -1;
+}
+function rawLabel(command, exe) {
+  command = String(command || '').trim(); exe = String(exe || '');
+  let first, rest;
+  if (exe && command.startsWith(exe) && (command.length === exe.length || command[exe.length] === ' ')) { first = exe; rest = command.slice(exe.length); }
+  else { const m = /^(\S*)\s*([\s\S]*)$/.exec(command); first = m[1]; rest = m[2]; }
+  let words = rest.split(/\s+/).filter(Boolean);
+  let name = baseName(first).replace(/^-+/, '') || baseName(exe);
+  if (!name) return '?';
+  if (name === 'env') {
+    let skip = 0;
+    while (skip < words.length && (words[skip].startsWith('-') || words[skip].includes('='))) skip++;
+    if (skip < words.length) { name = baseName(words[skip]); words = words.slice(skip + 1); }
+  }
+  if (!isInterpreter(name)) return name;
+  let i = 0;
+  while (i < words.length) {
+    const w = words[i];
+    if (INLINE_OPTIONS.includes(w)) return name + ' ' + w;
+    if (w === '-m') return words[i + 1] ? name + ' -m ' + words[i + 1] : name + ' -m';
+    if (w === '-jar') return words[i + 1] ? name + ' -jar ' + baseName(words[i + 1]) : name + ' -jar';
+    const k = firstOperand(words, i);
+    if (k < 0) break;
+    if (k !== i) { i = k; continue; }
+    if (SUBCOMMAND_TOOLS.includes(name) && RUN_WORDS.includes(w)) {
+      const n = firstOperand(words, i + 1);
+      return n < 0 ? name + ' ' + w : name + ' ' + w + ' ' + baseName(words[n]);
+    }
+    if (WRAPPERS.includes(baseName(w))) return rawLabel(words.slice(i).join(' '), '');
+    return name + ' ' + baseName(w);
+  }
+  return name;
+}
+// A short name for one hop: the program and, when it is an interpreter, the script or module it runs. The Rust side
+// has the same function (hop_label); tests/fixtures/hop-labels.json is checked by both.
+const hopLabel = (hop) => visible(rawLabel(hop && hop.command, hop && hop.exe));
+// The compact chain, nearest parent first: `bash run.sh < zsh < claude`.
+const chainLabel = (chain) => (Array.isArray(chain) && chain.length ? chain.map(hopLabel).join(' < ') : NO_PARENT);
+// Said when the walk stopped at the hop limit with parents still above it.
+const chainCutNote = (chain) => (Array.isArray(chain) && chain.length && chain[chain.length - 1].more ? 'chain cut at ' + MAX_HOPS + ' hops: older parents were not recorded' : '');
+
+// Terminals, editors and agents, matched on the whole name of the app bundle (lower case) or of the program, never
+// on a prefix, so an unrelated app that starts with the same letters is not mislabelled. A hint, not an answer.
+const BUNDLE_APPS = {
+  'terminal': 'Terminal', 'iterm': 'iTerm', 'iterm2': 'iTerm', 'ghostty': 'Ghostty', 'warp': 'Warp', 'alacritty': 'Alacritty', 'wezterm': 'WezTerm', 'kitty': 'kitty', 'hyper': 'Hyper',
+  'visual studio code': 'Visual Studio Code', 'visual studio code - insiders': 'Visual Studio Code', 'cursor': 'Cursor', 'zed': 'Zed', 'zed preview': 'Zed', 'xcode': 'Xcode', 'xcode-beta': 'Xcode',
+  'sublime text': 'Sublime Text', 'nova': 'Nova', 'intellij idea': 'IntelliJ IDEA', 'intellij idea ce': 'IntelliJ IDEA', 'pycharm': 'PyCharm', 'pycharm ce': 'PyCharm', 'webstorm': 'WebStorm',
+  'goland': 'GoLand', 'clion': 'CLion', 'rubymine': 'RubyMine', 'phpstorm': 'PhpStorm', 'android studio': 'Android Studio', 'claude': 'Claude (desktop app)',
+};
+const TERMINAL_APPS = ['Terminal', 'iTerm', 'Ghostty', 'Warp', 'Alacritty', 'WezTerm', 'kitty', 'Hyper', 'tmux', 'screen'];
+const PROGRAM_APPS = { claude: 'Claude Code', tmux: 'tmux', screen: 'screen', sshd: 'a remote SSH session', cron: 'cron (a scheduled job)' };
+const hasOwn2 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+function appOfHop(hop) {
+  const exe = String((hop && hop.exe) || ''), cmd = String((hop && hop.command) || '');
+  for (const prog of [baseName(exe), baseName(cmd.split(/\s+/)[0]).replace(/^-+/, '')]) if (hasOwn2(PROGRAM_APPS, prog)) return PROGRAM_APPS[prog];
+  const m = /(?:^|\/)([^/]+)\.app(?:\/|$)/.exec(exe || cmd);
+  if (!m) return null;
+  const low = m[1].toLowerCase();
+  return hasOwn2(BUNDLE_APPS, low) ? BUNDLE_APPS[low] : m[1];
+}
+// A guess at which app the request came from: every recognised app in the chain, nearest first. `name` is the bare
+// answer and `hint` the wording to show ("probably ..."), because a name in a process list proves little.
+function requesterApp(chain) {
+  if (!Array.isArray(chain) || !chain.length) return { name: 'unknown (parent not captured)', hint: 'unknown (parent not captured)', apps: [], known: false };
+  const apps = [];
+  for (const hop of chain) { const a = appOfHop(hop); if (a && !apps.includes(a)) apps.push(a); }
+  const login = chain.some((hop) => baseName(hop.exe || String(hop.command || '').split(/\s+/)[0]) === 'login');
+  if (!apps.length) { const n = login ? 'a login shell (no known app in the chain)' : 'unknown (no known app in the chain)'; return { name: n, hint: n, apps, known: false }; }
+  const inTerminal = apps.some((a) => TERMINAL_APPS.includes(a));
+  const name = visible(apps.join(' in ') + (login && !inTerminal ? ' in a login session' : ''));
+  return { name, hint: 'probably ' + name, apps, known: true };
+}
+// Whether the nearest hop (the process that ran sudo) had a terminal: a hint of a person at the keyboard, not proof.
+function terminalNote(chain) {
+  const hop = Array.isArray(chain) ? chain.find((x) => x && x.detail) : null;
+  if (!hop) return 'not recorded';
+  return hop.tty ? 'terminal ' + visible(hop.tty) + ' (a person may have typed it)' : 'no terminal (probably a script or background job)';
+}
+const UNREADABLE = 'not readable (the process had exited, or belongs to another user)';
+const NOT_RECORDED = 'not recorded (captured by an older version)';
+// The facts shown for one hop, as [label, text] pairs. `fmt` formats epoch seconds. Nothing is ever blank, and
+// nothing a stranger chose is shown without `visible`.
+function hopFacts(hop, fmt) {
+  const seen = !!hop.detail, cmd = String(hop.command || '');
+  return [
+    ['pid', String(hop.pid)],
+    ['command', cmd ? cutText(cmd) : UNREADABLE],
+    ['executable', hop.exe ? visible(hop.exe) : UNREADABLE],
+    ['working directory', hop.cwd ? visible(hop.cwd) : (seen ? UNREADABLE : NOT_RECORDED)],
+    ['started', typeof hop.started === 'number' ? fmt(hop.started) : (seen ? UNREADABLE : NOT_RECORDED)],
+    ['terminal', hop.tty ? visible(hop.tty) : (seen ? 'none, or ' + UNREADABLE : NOT_RECORDED)],
+  ];
+}
+// The whole chain as plain text, one hop per line, for CSV cells and the clipboard.
+function chainText(chain, fmt) {
+  if (!Array.isArray(chain) || !chain.length) return NO_PARENT;
+  const lines = chain.map((hop, i) => (i + 1) + '. ' + hopFacts(hop, fmt).map(([k, v]) => k + ': ' + v).join(' | '));
+  const cut = chainCutNote(chain);
+  return (cut ? lines.concat(cut) : lines).join('\n');
+}
+// The whole chain as data for the JSON export: unreadable fields are null, never invented.
+function chainJson(chain) {
+  const iso = (s) => { const d = typeof s === 'number' ? new Date(s * 1000) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString() : null; };
+  const v = (x) => (x ? visible(x) : null);
+  return (Array.isArray(chain) ? chain : []).map((hop) => ({
+    pid: hop.pid, label: hopLabel(hop), command: hop.command ? cutText(hop.command) : null, exe: v(hop.exe), cwd: v(hop.cwd),
+    started: typeof hop.started === 'number' ? hop.started : null, started_iso: iso(hop.started), tty: v(hop.tty), detail_recorded: !!hop.detail, more_parents_not_recorded: !!hop.more,
+  }));
+}
+// What a failed authorization knows about its requester, in words: the same text in the table, the CSV, the JSON and the copied row.
+function authNote(e) {
+  if (e.source === 'captured' && e.chain && e.chain.length) return 'matched to a sudo or su launch Monitor Lizard recorded for this process' + (chainCutNote(e.chain) ? '; ' + chainCutNote(e.chain) : '');
+  if (e.source === 'ps' && e.parent) return 'process still running; only its parent could be read: ' + visible(e.parent);
+  return UNKNOWN_REQUESTER;
+}
+// The Requester cell of a failed authorization: its program, then where the request came from.
+function authRequester(e) {
+  const who = visible(baseName(e.client));
+  if (e.source === 'captured' && e.chain && e.chain.length) return who + ' < ' + chainLabel(e.chain);
+  if (e.source === 'ps' && e.parent) return who + ' < ' + visible(e.parent.split(' ').slice(1).join(' ').slice(0, 60));
+  return who + ': ' + UNKNOWN_REQUESTER;
+}
+/* requester:end */
 /* export:begin */
 /* Pure helpers for table export and the column chooser (no DOM, no storage: the tests load this block alone).
    A column is { id, label, get(row), time? }; a time column's value is epoch seconds. */
@@ -608,7 +771,7 @@ function toCsv(cols, rows) {
 function rowObject(cols, row) {
   const o = Object.create(null);
   for (const c of cols) {
-    const v = c.get(row);
+    const v = c.getJson ? c.getJson(row) : c.get(row);
     o[c.id] = v === undefined || (typeof v === 'number' && !Number.isFinite(v)) ? null : v;
     if (c.time) o[c.id + '_iso'] = isoOf(v);
   }
@@ -664,8 +827,8 @@ function pruneTables(tables, keep) {
 const noDash = (s) => (s === '-' ? '' : s);
 const EXPORT = {
   apps: { app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length, listening: (g) => noDash(listenText(g)), signing: (g) => noDash(signText(g)), status: (g) => status(g), label: (g) => g.trust },
-  sudo: { time: (e) => e.ts, command: (e) => e.args, requester_chain: (e) => (e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)') },
-  auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)') },
+  sudo: { time: (e) => e.ts, command: (e) => cutText(e.args), app: (e) => requesterApp(e.chain).hint, requester_chain: (e) => chainLabel(e.chain), requester_detail: (e) => chainText(e.chain, fmtWhen) },
+  auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => authRequester(e), app: (e) => requesterApp(e.source === 'captured' ? e.chain : []).hint, requester_detail: (e) => (e.source === 'captured' ? chainText(e.chain, fmtWhen) : authNote(e)), requester_note: (e) => authNote(e) },
   listen: { port: (r) => r.c.local_port, proto: (r) => r.c.proto, bind: (r) => r.c.local_addr, app: (r) => r.g.label, pid: (r) => r.c.pid, reach: (r) => reachOf(r) },
   pers: { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen },
   net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(', '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
@@ -674,13 +837,20 @@ const EXPORT = {
   act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => noDash(refusedText(a)) },
 };
 /* export-cols:end */
+// Columns whose JSON is structured data (the full chain) rather than the text the CSV holds.
+const EXPORT_JSON = {
+  sudo: { requester_detail: (e) => chainJson(e.chain) },
+  auth: { requester_detail: (e) => (e.source === 'captured' ? chainJson(e.chain) : []) }, // an unmatched row has no hops; requester_note says why
+};
+// A time inside an exported chain: the full local time, to the second, which stays readable in a spreadsheet.
+const fmtWhen = (sec) => new Date(sec * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 // One descriptor per table: file name, what the file holds (shown beside the buttons, since a shared file shows
 // habits such as apps, hosts and paths), which columns are times, and an optional warning where one is needed.
 const SECRETS = 'Commands can contain secrets in their arguments.';
 const TABLE_META = {
   apps: { file: 'apps', info: 'app names, signing details and listening ports', time: [] },
-  sudo: { file: 'sudo-launches', info: 'the commands run with sudo and the programs that ran them', warn: SECRETS, time: ['time'] },
-  auth: { file: 'authorization-requests', info: 'authorization rights and the programs that asked', warn: SECRETS, time: [] },
+  sudo: { file: 'sudo-launches', info: 'the commands run with sudo and, for each, the programs and scripts that ran it, with their full command lines, folders, start times and terminals', warn: SECRETS, time: ['time'] },
+  auth: { file: 'authorization-requests', info: 'authorization rights and the programs that asked, with the full chain of programs and scripts where one was captured', warn: SECRETS, time: [] },
   listen: { file: 'listeners', info: 'app names, ports and bind addresses', time: [] },
   pers: { file: 'persistence', info: 'startup item names and program paths', time: ['added'] },
   net: { file: 'network', info: 'app names and the remote hosts they contacted', time: ['seen'] },
@@ -708,7 +878,7 @@ function setHidden(key, list) {
 // An action column (buttons, not data) is part of the drawn table but is never exported or offered in the column chooser.
 const exportCols = (key, header) => header.filter((c) => !c.action).map((c) => {
   const id = colId(c);
-  return { id, label: c.label, get: (EXPORT[key] && EXPORT[key][id]) || (() => null), time: ((TABLE_META[key] || {}).time || []).includes(id) };
+  return { id, label: c.label, get: (EXPORT[key] && EXPORT[key][id]) || (() => null), getJson: (EXPORT_JSON[key] && EXPORT_JSON[key][id]) || null, time: ((TABLE_META[key] || {}).time || []).includes(id) };
 });
 function download(name, mime, text) {
   const url = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
@@ -777,7 +947,7 @@ function setFloor(sec, head, tracks, name, viewportW) {
 const nameAttrs = (text, style) => ({ style: 'font-weight:500' + (style ? ';' + style : ''), title: String(text) });
 /* floor:end */
 const warned = new Set();
-const TABLE_NAME = { apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', store: 'Storage folders' };
+const TABLE_NAME = { sudo: 'sudo and su launches', auth: 'Authorization requests', apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', store: 'Storage folders' };
 function decorateTables() {
   for (const head of document.querySelectorAll('.tr.h[data-table]')) {
     const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');
@@ -816,7 +986,9 @@ function copyText(text) {
 function sortHeader(key, cols, style, extra) {
   const s = S.sorts[key];
   HEADERS[key] = cols;
-  const head = h('div', { class: 'tr h ' + (extra || ''), style: style || '', 'data-table': key, 'data-cols': cols.map(colId).join(',') }, cols.map((c) => {
+  // An export-only column is in the export and the column chooser but is not drawn.
+  const drawn = cols.filter((c) => !c.exportOnly);
+  const head = h('div', { class: 'tr h ' + (extra || ''), style: style || '', 'data-table': key, 'data-cols': drawn.map(colId).join(',') }, drawn.map((c) => {
     if (!c.sort) return h('span', { class: c.cls || '' }, c.label);
     const on = !!s && s.col === c.sort;
     return h('span', { class: c.cls || '' }, h('button', { class: 'th' + (on ? ' on' : ''), type: 'button', title: c.title || 'Sort by ' + c.label, onClick: () => rec({ sorts: nextSort(key, c.sort), page: {} }) },
@@ -1061,22 +1233,59 @@ function drawer(g, listen, sig) {
       g.conns.length > 20 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { conns: !S.expand.conns }) }) }, S.expand.conns ? 'Show fewer' : 'Show all ' + g.conns.length) : null));
 }
 
+// The detail under a row: the app (a guess), the terminal hint and every hop with the facts the collector read.
+// Text only, and every value a stranger chose has been through `visible`; <bdi> keeps a right-to-left name from
+// reordering its neighbours.
+function requesterDetail(id, chain, note) {
+  const app = requesterApp(chain), cut = chainCutNote(chain);
+  return h('div', { class: 'reqdetail', id, role: 'group', 'aria-label': 'Requester detail' },
+    h('p', { class: 'sum' }, h('strong', {}, 'App: '), h('bdi', {}, app.hint), h('span', { class: 'mut' }, '  ·  '), h('strong', {}, 'Terminal: '), h('bdi', {}, terminalNote(chain))),
+    note ? h('p', { class: 'mut sum' }, h('bdi', {}, note)) : null,
+    chain.length ? h('ol', {}, chain.map((hop, i) => h('li', {}, h('div', { class: 'hophead' }, h('span', { class: 'mut' }, i === 0 ? 'ran sudo' : 'started by the one above'), ' ', h('strong', { class: 'mono' }, h('bdi', {}, hopLabel(hop)))),
+      h('dl', {}, hopFacts(hop, fmtWhen).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, h('bdi', {}, v))])))), cut ? h('li', { class: 'mut' }, cut) : null) : h('p', {}, NO_PARENT));
+}
+// A collision-free element id for a row id: every character outside [A-Za-z0-9-] becomes _<hex>_, and `_` itself is one of them.
+const reqDomId = (id) => 'req-' + [...id].map((c) => (/[A-Za-z0-9-]/.test(c) ? c : '_' + c.codePointAt(0).toString(16) + '_')).join('');
+// The time cell with a button that opens the row's detail. `id` names the row (a time and a pid, never a command).
+// The button has its own name (the time alone says nothing to a screen reader), points at the detail only while
+// it exists, and carries `data-req` so render() can give it focus back after a poll redraws the page.
+function reqToggle(id, cell, when) {
+  const open = !!S.reqOpen[id];
+  return h('button', { class: 'disc', type: 'button', 'data-req': id, 'aria-expanded': String(open), 'aria-controls': open ? reqDomId(id) : null, 'aria-label': (open ? 'Hide who ran this, ' : 'Show who ran this, ') + when,
+    title: open ? 'Hide who ran this' : 'Show every program and script that led to this',
+    onClick: () => rec({ reqOpen: Object.assign({}, S.reqOpen, { [id]: !open }) }) }, h('span', { 'aria-hidden': 'true', class: 'caret' }, open ? '▾' : '▸'), cell);
+}
 function priv() {
   const failed = failedSudo();
-  const T = 'grid-template-columns:90px 70px minmax(180px,1.4fr) minmax(220px,2fr);min-width:640px';
+  const T = 'grid-template-columns:100px 70px minmax(180px,1.4fr) minmax(220px,2fr)';
+  const TS = 'grid-template-columns:100px minmax(180px,1.2fr) minmax(130px,.8fr) minmax(220px,2fr)';
   const fRes = fv('auth-result');
   const sp = paginate(sortRows(S.sudo, 'sudo', { time: (e) => e.ts, command: (e) => e.args }), 'sudo');
   const authRows = S.priv.filter((e) => fRes === 'all' || (fRes === 'ok' ? e.ok : !e.ok));
   const ap = paginate(sortRows(authRows, 'auth', { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right, requester: (e) => base(e.client) }), 'auth');
+  const wrap = { style: 'min-width:0;overflow-wrap:anywhere' };
+  // Keep the open state of the rows on this page only, so it cannot grow with every row ever opened.
+  const onPage = new Set([...sp.slice.map((e) => 'sudo:' + e.ts + ':' + e.pid), ...ap.slice.map((e) => 'auth:' + e.time + ':' + e.pid + ':' + e.right)]);
+  if (Object.keys(S.reqOpen).some((k) => !onPage.has(k))) S.reqOpen = Object.fromEntries(Object.entries(S.reqOpen).filter(([k]) => onPage.has(k)));
+  const sudoRow = (e) => {
+    const id = 'sudo:' + e.ts + ':' + e.pid, has = Array.isArray(e.chain) && e.chain.length > 0;
+    return [h('div', { class: 'tr', style: TS + ';cursor:default' }, has ? reqToggle(id, timeCell(e.ts), fmtWhen(e.ts)) : h('span', {}, timeCell(e.ts)), h('span', { class: 'small', ...wrap }, h('bdi', {}, cutText(e.args))), h('span', { class: 'small', ...wrap }, h('bdi', {}, requesterApp(e.chain).hint)), h('span', { class: 'mut small', ...wrap }, h('bdi', {}, chainLabel(e.chain)))),
+      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), e.chain) : null];
+  };
+  const authRow = (e) => {
+    const id = 'auth:' + e.time + ':' + e.pid + ':' + e.right, cap = e.source === 'captured' && Array.isArray(e.chain) && e.chain.length > 0, has = cap || (e.source === 'ps' && !!e.parent);
+    return [h('div', { class: 'tr', style: T + ';cursor:default' }, has ? reqToggle(id, h('span', {}, e.time.slice(11, 19)), e.time.slice(0, 19)) : h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', ...wrap }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', ...wrap }, h('bdi', {}, authRequester(e)))),
+      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), cap ? e.chain : [], authNote(e)) : null];
+  };
   return pageShell({ title: verdict('priv', { failed: failedAuth() }), body: [
-    failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. If the requester shows "(exited)", it was gone before it could be read. The live capture below records new ones with their parent chain.')))) : null,
+    failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. Open a row to see every program and script that led to it. A request marked "no matching launch recorded" was launched before Monitor Lizard was running, exited before capture, or is older than the records kept.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
-    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'Requester chain' }], 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px'),
-      S.sudo.length ? sp.slice.map((e) => h('div', { class: 'tr', style: 'grid-template-columns:90px minmax(200px,1.4fr) minmax(220px,2fr);min-width:640px;cursor:default' }, h('span', {}, timeCell(e.ts)), h('span', { class: 'small' }, e.args), h('span', { class: 'mut small' }, e.chain.length ? e.chain.map((x) => base((x.command || x.exe).split(' ')[0])).join(' < ') : '(parent not captured)'))) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Monitor Lizard is serving shows up here.')), sp.pager),
+    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'App (a guess)', id: 'app' }, { label: 'Requester chain', id: 'requester_chain' }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }], TS),
+      S.sudo.length ? sp.slice.map(sudoRow) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Monitor Lizard is serving shows up here.')), sp.pager),
     h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
       dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
-    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }], T),
-      ap.slice.map((e) => h('div', { class: 'tr', style: T + ';cursor:default' }, h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', style: 'min-width:0;overflow-wrap:anywhere' }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', style: 'min-width:0;overflow-wrap:anywhere' }, base(e.client) + (e.parent ? ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60) : ' (exited)')))), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
+    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }, { label: 'App (a guess)', id: 'app', exportOnly: true }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }, { label: 'Requester note', id: 'requester_note', exportOnly: true }], T),
+      ap.slice.map(authRow), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
   ] });
 }
 
@@ -2451,6 +2660,7 @@ const show = (page) => { $('crumb').replaceChildren(...nodesOf(page.crumb)); $('
 function render() {
   pruneTables(TABLES, Object.keys(PAGE_SORTS[S.view] || {})); pruneTables(HEADERS, Object.keys(PAGE_SORTS[S.view] || {}));
   drawNav();
+  const hadReq = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.req : null;
   const searchHint = S.view === 'guide' ? 'Search commands and terms' : S.view === 'storage' ? 'Search folders' : 'Search apps, ports';
   $('q').placeholder = searchHint; $('q').setAttribute('aria-label', S.view === 'guide' || S.view === 'storage' ? searchHint : 'Search apps and ports');
   $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
@@ -2493,6 +2703,7 @@ function render() {
   $('layer').replaceChildren(...layer);
   decorateTables();
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
+  else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
 }

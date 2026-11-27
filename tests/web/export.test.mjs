@@ -144,7 +144,7 @@ test('every table column the page draws has an export value', () => {
   for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
     seen++;
     // Action columns hold buttons, not data, and are never exported.
-    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ sort: x[2], label: x[1] }));
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?(?:, id: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ id: x[3], sort: x[2], label: x[1] }));
     assert.deepEqual([...(have[mm[1]] || [])].sort(), ids.sort(), 'table ' + mm[1]);
   }
   assert.equal(seen, 9);
@@ -175,7 +175,7 @@ test('real refusals and ports keep the on-screen text', () => {
 test('a column id that equals another column time-twin name would collide in JSON', () => {
   for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
     // Action columns hold buttons, not data, and are never exported.
-    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ sort: x[2], label: x[1] }));
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?(?:, id: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ id: x[3], sort: x[2], label: x[1] }));
     for (const id of ids) assert.ok(!ids.includes(id + '_iso'), mm[1] + ': ' + id);
     assert.equal(new Set(ids).size, ids.length, mm[1] + ' has duplicate ids');
   }
@@ -209,4 +209,33 @@ test('pruneTables keeps only the tables of the page being drawn', () => {
 
 test('the page prunes tables on every render, using the page sort list', () => {
   assert.match(html, /function render\(\) \{\n\s+pruneTables\(TABLES, Object\.keys\(PAGE_SORTS\[S\.view\] \|\| \{\}\)\)/);
+});
+
+test('a column with structured JSON writes text to the CSV and data to the JSON and the copied row', () => {
+  const chain = [{ pid: 1, command: 'bash -c "a<b&c"' }];
+  const cols = [col('chain', () => '1. pid: 1\n2. pid: 2', { getJson: () => chain })];
+  assert.equal(csv(cols, [{}]), 'CHAIN\r\n"1. pid: 1\n2. pid: 2"\r\n');
+  assert.deepEqual(JSON.parse(X.toJson(cols, [{}]))[0].chain, chain);
+  assert.deepEqual(X.rowObject(cols, {}).chain, chain);
+});
+
+// CSV, JSON and the copied row are built from the same columns, so an unmatched authorization says the same thing in all three.
+test('an authorization without a chain carries its statement and app in CSV, JSON and Copy alike', () => {
+  const req = html.match(/\/\* requester:begin \*\/([\s\S]*?)\/\* requester:end \*\//)[1];
+  const json = html.match(/^const EXPORT_JSON = \{[\s\S]*?\n\};/m)[0];
+  const F = new Function('base', 'status', 'reachOf', 'psig', 'labelOf',
+    [req, helper(/^const fmtWhen = .*$/m), helper(/^const listenText = .*$/m), helper(/^const signText = .*$/m), helper(/^function jsonOr.*$/m), helper(/function refusedText[\s\S]*?\n}\n/), region, json].join('\n') + '\nreturn { EXPORT, EXPORT_JSON, UNKNOWN_REQUESTER };')(
+    (p) => String(p).split('/').pop(), () => 'idle', () => 'local', () => null, (k) => k);
+  const cols = ['time', 'requester', 'app', 'requester_detail', 'requester_note'].map((id) => col(id, F.EXPORT.auth[id], { getJson: (F.EXPORT_JSON.auth || {})[id] || null }));
+  const gone = { time: 't', client: '/usr/bin/sudo', source: 'none', chain: [], parent: null };
+  const ps = { ...gone, source: 'ps', parent: '77 bash ‮-c x' };
+  for (const [row, statement] of [[gone, F.UNKNOWN_REQUESTER], [ps, 'process still running']]) {
+    const asCsv = csv(cols, [row]), asJson = JSON.stringify(JSON.parse(X.toJson(cols, [row]))), asCopy = JSON.stringify(X.rowObject(cols, row));
+    for (const out of [asCsv, asJson, asCopy]) {
+      assert.ok(out.includes(statement), statement + ' in ' + out);
+      assert.ok(out.includes('unknown'), 'the app value is there');
+      assert.ok(!out.includes('‮'), 'no raw bidi override');
+    }
+    assert.deepEqual(JSON.parse(asJson).length === undefined ? null : JSON.parse(X.toJson(cols, [row]))[0].requester_detail, []);
+  }
 });

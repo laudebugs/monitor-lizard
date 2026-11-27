@@ -84,7 +84,7 @@ test('floor: decorateTables calls setFloor before and after it trims hidden colu
   assert.equal((body.match(/setFloor\(sec, head, /g) || []).length, 2);
   assert.match(body, /TABLE_NAME\[key\]/);
   const names = html.match(/const TABLE_NAME = \{([^}]*)\}/)[1];
-  for (const k of [...html.matchAll(/sortHeader\('(\w+)'/g)].map((x) => x[1])) if (k !== 'sudo' && k !== 'auth') assert.match(names, new RegExp('\\b' + k + ':'), 'no name for table ' + k);
+  for (const k of [...html.matchAll(/sortHeader\('(\w+)'/g)].map((x) => x[1])) assert.match(names, new RegExp('\\b' + k + ':'), 'no name for table ' + k);
   assert.match(html, /\.tbl:focus-visible\{[^}]*outline:2px solid var\(--focus-edge\)/);
 });
 

@@ -15,6 +15,8 @@ const MONO_MEDIUM: &[u8] = include_bytes!("../web/fonts/IBMPlexMono-Medium.woff2
 const MONO_SEMIBOLD: &[u8] = include_bytes!("../web/fonts/IBMPlexMono-SemiBold.woff2");
 /// How many rows `/api/history` returns: newest first, enough for the History page.
 const SEEN_LIMIT: usize = 2000;
+/// Live sudo/su rows read to explain the last two hours of authorization failures.
+const LIVE_JOIN_LIMIT: usize = 500;
 const ACTION_LIMIT: usize = 200;
 const BASELINE_CHANGE_LIMIT: usize = 200;
 /// Shorter than `llm::classify`'s own 20 s default: see the comment at its call site in `/api/classify`.
@@ -72,7 +74,15 @@ pub fn serve_on(server: Arc<Server>) {
     let page = PAGE.replace("__TOKEN__", &secret);
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
-    refresh(&privs, Duration::from_secs(30), || privilege::recent(120));
+    refresh(&privs, Duration::from_secs(30), || {
+        // The live-capture rows explain failed authorizations whose process is already gone.
+        let live = History::open().and_then(|h| h.recent_sudo(LIVE_JOIN_LIMIT)).unwrap_or_else(|e| {
+            // Say so: otherwise every failed authorization silently reads as "no capture".
+            eprintln!("monitor-lizard: could not read the sudo history to explain authorization failures: {}", history::unavailable(&e));
+            Vec::new()
+        });
+        privilege::recent(120, &live)
+    });
     {
         let pers = pers.clone();
         thread::spawn(move || loop { persistence::refresh_cache(&pers); thread::sleep(Duration::from_secs(60)); });

@@ -1,0 +1,30 @@
+[
+ {
+  "in": "plain text 123",
+  "out": "plain text 123"
+ },
+ {
+  "in": "a\u202eb",
+  "out": "a\\u{202e}b"
+ },
+ {
+  "in": "\u2066x\u2069",
+  "out": "\\u{2066}x\\u{2069}"
+ },
+ {
+  "in": "zero\u200bwidth\ufeff",
+  "out": "zero\\u{200b}width\\u{feff}"
+ },
+ {
+  "in": "line\nbreak\ttab\u0007bell\u001b[0m",
+  "out": "line\\u{a}break\\u{9}tab\\u{7}bell\\u{1b}[0m"
+ },
+ {
+  "in": "caf\u00e9 \u65e5\u672c <b>&\"'",
+  "out": "caf\u00e9 \u65e5\u672c <b>&\"'"
+ },
+ {
+  "in": "\u2028\u2029",
+  "out": "\\u{2028}\\u{2029}"
+ }
+]
