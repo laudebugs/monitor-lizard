@@ -9,6 +9,7 @@ Local-first macOS monitor that groups every process and network socket by app an
     cargo run --release -- privilege 60   # sudo/admin authorization requests, last 60 min
     cargo run --release -- watch          # live: catch every sudo/su launch with its parent chain
     cargo run --release -- sudo-log 20    # stored sudo/su launches
+    cargo run --release -- model install --model qwen3-4b --yes   # downloads and verifies the local classifier model
     cargo test
 
 State (baseline and history) lives in `~/.monitor-lizard/`; a one-time migration copies whichever of `~/.sys-monitor/` or `~/.ownwatch/` is found, the first time it finds no new folder.
@@ -37,7 +38,7 @@ Rules for people and AI agents are in [AGENTS.md](AGENTS.md). Work comes from th
 
 ## Status and safety
 
-macOS only, early. Read-only by default and local-only (binds 127.0.0.1). The dashboard can stop your own processes after a confirmation; it never signals root processes, launchd or itself, and every write needs a per-run token. No telemetry, no network calls. The dashboard's type is bundled (IBM Plex Sans and Mono), so it looks the same whether or not those fonts are installed; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+macOS only, early. Read-only by default and local-only (binds 127.0.0.1). The dashboard can stop your own processes after a confirmation; it never signals root processes, launchd or itself, and every write needs a per-run token. No telemetry, and no network calls except `monitor-lizard model install`, which only ever contacts Hugging Face for the one pinned file it was told to fetch. The dashboard's type is bundled (IBM Plex Sans and Mono), so it looks the same whether or not those fonts are installed; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## License
 
