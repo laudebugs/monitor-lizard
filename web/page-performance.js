@@ -91,7 +91,7 @@ const stackedArea = (bottom, top, max, hgt) => stackedAreaN([{ values: bottom, c
 // quiet under 65%, a warning up to 85%, bad above it -- never a fourth color, so this stays one scale.
 const loadColor = (pct) => (pct > 85 ? 'var(--bad)' : pct > 65 ? 'var(--warn)' : 'var(--acc)');
 // A colored square plus its series name and current value, for the legend under a multi-line chart.
-const legendDot = (color, text) => h('span', { class: 'mut' }, h('i', { style: 'display:inline-block;width:8px;height:8px;background:' + color + ';margin-right:4px' }), text);
+const legendDot = (color, text) => h('span', { class: 'mut' }, h('i', { class: 'legend-dot', style: 'display:inline-block;width:8px;height:8px;background:' + color + ';margin-right:4px' }), text);
 function coreBars(label, cores) {
   // A definite flex-basis, not just flex:1: without it this div shrinks to its content's min
   // width inside the wrapping flex row, and the bar's percentage width inside it resolves against
@@ -188,7 +188,7 @@ function perfCpuGpuTab_(win, last, winLabel) {
 function capacityBar(args) {
   const { segments, total, note } = capacitySegments(args);
   // Purgeable is hatched, not just amber: green and amber sit at nearly the same lightness, so the stripes carry the difference for a reader who cannot tell the hues apart.
-  const COLORS = { used: 'var(--acc)', purgeable: 'repeating-linear-gradient(135deg,var(--warn) 0 3px,var(--panel2) 3px 5px)', free: 'var(--line)' };
+  const COLORS = { used: 'var(--acc)', purgeable: 'repeating-linear-gradient(135deg,var(--s3) 0 3px,var(--panel2) 3px 5px)', free: 'var(--line)' };
   const NAMES = { used: 'Used', purgeable: 'Purgeable', free: 'Free' };
   if (!segments.length) return h('p', { class: 'mut small', style: 'margin:0' }, 'Capacity unavailable: ' + note);
   const summary = segments.map((x) => NAMES[x.key] + ' ' + formatBytes(x.bytes)).join(', ') + (total ? ', of ' + formatBytes(total) : '');
@@ -257,7 +257,7 @@ function perfDiskNetTab_(win, last) {
 }
 // label, color and the MemorySample field each legend dot and the stacked chart read; one list drives
 // both so adding or reordering a layer can't desync a legend dot from the series it describes.
-const MEMORY_LAYERS = [['app', 'App', 'var(--acc)'], ['wired', 'Wired', 'var(--s2)'], ['compressed', 'Compressed', 'var(--warn)'], ['cached', 'Cached', 'var(--line)']];
+const MEMORY_LAYERS = [['app', 'App', 'var(--acc)'], ['wired', 'Wired', 'var(--s2)'], ['compressed', 'Compressed', 'var(--s3)'], ['cached', 'Cached', 'var(--line)']];
 function perfMemoryTab_(win, last) {
   const seriesOf = { app: perfSeries(win, (s) => s.memory.app_bytes), wired: perfSeries(win, (s) => s.memory.wired_bytes), compressed: perfSeries(win, (s) => s.memory.compressed_bytes), cached: perfSeries(win, (s) => s.memory.cached_bytes) };
   const m = last && last.memory;

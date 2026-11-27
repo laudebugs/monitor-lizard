@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `T6` |
-| Status | `done` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9 and D16 |
 | Depends on | T1a, T1b |
 | ADRs | None |
 | Branch | `feat/moss-theme-outline-buttons` |
 | PR title | `feat(web): switch to the Moss green theme with outline buttons` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#90](https://github.com/laudebugs/monitor-lizard/pull/90) |
 
 ## Goal
 
@@ -18,9 +18,9 @@ Replace the violet console palette with the Moss green palette the owner chose o
 
 ## Context
 
-- [T1a](T1a-design-tokens-buttons-chips.md) made the tokens and the chamfered buttons; [T1c](T1c-check-forced-colors-and-reduced-motion.md) checked forced colors on them. This todo changes the values and the button shape, not the token names.
+- [T1a](../done/T1a-design-tokens-buttons-chips.md) made the tokens and the chamfered buttons; [T1c](../done/T1c-check-forced-colors-and-reduced-motion.md) checked forced colors on them. This todo changes the values and the button shape, not the token names.
 - The owner's decision: Moss palette, option B (outline) buttons, boards J, K, L and M of the canvas "Sys Monitor Redesign Directions".
-- The logo and favicon are not touched here: the pulse-and-tail logo is [L2](../ongoing/L2-pulse-and-tail-logo-and-app-icons.md) (PR 88), which also adds a forced-colors `.logo` rule to `web/app.css`.
+- The logo and favicon are not touched here: the pulse-and-tail logo is [L2](L2-pulse-and-tail-logo-and-app-icons.md) (PR 88), which also adds a forced-colors `.logo` rule to `web/app.css`.
 
 ## Scope
 
@@ -33,7 +33,7 @@ Replace the violet console palette with the Moss green palette the owner chose o
 
 **Out of scope:**
 
-- The logo, favicon and app icons ([L2](../ongoing/L2-pulse-and-tail-logo-and-app-icons.md)).
+- The logo, favicon and app icons ([L2](L2-pulse-and-tail-logo-and-app-icons.md)).
 - Checking forced colors in a forced-colors browser ([T1d](../ready/T1d-live-app-forced-colors-reduced-motion-and-cpu-gpu-tab.md)).
 - The exported Storage report, a standalone print page with its own inline style.
 
@@ -44,7 +44,7 @@ Replace the violet console palette with the Moss green palette the owner chose o
 | `web/app.css` | Moss tokens; outline buttons; chips, fields and focus on the new tokens; forced-colors block for the new buttons |
 | `web/page-performance.js` | Second chart series uses `--s2`; the purgeable capacity segment is hatched |
 | `tests/web/theme-contrast.test.mjs` | (new) contrast ratios, no violet, no stray hex, button rules, forced-colors rules |
-| `docs/plans/storage-and-guide.md` | Decision D12 and the T6 row |
+| `docs/plans/storage-and-guide.md` | Decision D16 and the T6 row |
 | `docs/agents/layout.md` | Palette and token note |
 
 ## Steps
@@ -86,7 +86,7 @@ node --test tests/web/theme-contrast.test.mjs
 
 ## Docs to update
 
-`docs/plans/storage-and-guide.md` (D12, T6 row), `docs/agents/layout.md`.
+`docs/plans/storage-and-guide.md` (D16, T6 row), `docs/agents/layout.md`.
 
 ## Risks and open questions
 

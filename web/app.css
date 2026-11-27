@@ -10,13 +10,13 @@
 @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('/fonts/IBMPlexMono-SemiBold.woff2') format('woff2')}
 /* Fonts: IBM Plex Sans for text, IBM Plex Mono for data, both only if installed; otherwise the system fonts. No remote font loading (local-first, ADR 0002). */
 :root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--hh:65px;
-/* Moss palette, dark. --edge is a control's own border (3:1 against every surface it sits on); --edge2 is the softer one for chips, menus and fields. */
---bg:#0b1410;--panel:#0f1b16;--panel2:#15261f;--sel:#17302a;--line:#26423a;--line2:#1d332b;--edge:#6f9a86;--edge2:#56786a;--fg:#e8f5ee;--fg2:#c9ddd2;--mut:#a3bfb0;
---acc:#4fd18b;--acchov:#7ae6a8;--accfg:#07140d;--link:var(--acchov);--ok:#5ad8e6;--warn:#f6c565;--bad:#ff8f7e;--badfg:#2a0a05;--s2:#3aa6c4;--input-bg:#08100d;--input-bd:#4e7564;--scrim:rgba(3,10,7,.62);
+/* Moss palette, dark. --edge is a control's own border; --edge2 is the softer one for chips, menus and selects (both 3:1 on every surface). --s2 and --s3 are the second and third chart series: they differ from --acc and each other in lightness as well as hue. */
+--bg:#0b1410;--panel:#0f1b16;--panel2:#15261f;--sel:#17302a;--line:#26423a;--line2:#1d332b;--edge:#6f9a86;--edge2:#5a7d6e;--fg:#e8f5ee;--fg2:#c9ddd2;--mut:#a3bfb0;
+--acc:#4fd18b;--acchov:#7ae6a8;--accfg:#07140d;--link:var(--acchov);--ok:#5ad8e6;--warn:#f6c565;--bad:#ff8f7e;--badfg:#2a0a05;--s2:#35a0c0;--s3:#ffd37a;--input-bg:#08100d;--input-bd:#4e7564;--scrim:rgba(3,10,7,.62);
 --chip-ok-bg:#0f3a40;--chip-ok-fg:#7fe3ee;--chip-warn-bg:#3f2e0b;--chip-warn-fg:#f6c565;--chip-bad-bg:#4a1f1a;--chip-bad-fg:#ffb3a6;--chip-n-bg:#1c2f28;--chip-n-fg:#cfe3d8}
 :root[data-theme=light]{color-scheme:light;
 --bg:#f2f7f3;--panel:#ffffff;--panel2:#e6f0e9;--sel:#e2f0e7;--line:#c4d8cb;--line2:#dbe8df;--edge:#4d7a63;--edge2:#5f8a73;--fg:#10201a;--fg2:#2f4a3d;--mut:#4a6357;
---acc:#157a3a;--acchov:#0f6a33;--accfg:#ffffff;--link:var(--acc);--ok:#0e7490;--warn:#8a5a00;--bad:#b42318;--badfg:#ffffff;--s2:#1a8fa9;--input-bg:#ffffff;--input-bd:#6f9784;--scrim:rgba(16,32,26,.38);
+--acc:#157a3a;--acchov:#0f6a33;--accfg:#ffffff;--link:var(--acc);--ok:#0e7490;--warn:#8a5a00;--bad:#b42318;--badfg:#ffffff;--s2:#1f9fbd;--s3:#ac7200;--input-bg:#ffffff;--input-bd:#6f9784;--scrim:rgba(16,32,26,.38);
 --chip-ok-bg:#cdeef2;--chip-ok-fg:#0b5663;--chip-warn-bg:#f9e7bd;--chip-warn-fg:#6b4500;--chip-bad-bg:#fbdcd5;--chip-bad-fg:#8f1d0e;--chip-n-bg:#e0ece4;--chip-n-fg:#2f4a3d}
 *{box-sizing:border-box;border-radius:0}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}
@@ -170,6 +170,7 @@ button.tr:hover{background:var(--sel)}.tr.on{background:var(--sel);box-shadow:in
 .expander{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);cursor:pointer;color:var(--acc);font-weight:500}
 .expander:hover{background:var(--sel)}
 .capbar{display:flex;height:14px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}.capbar i{display:block;height:100%}.bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+@media(forced-colors:active){.capbar{border-color:ButtonText}.capbar i{border-right:2px solid ButtonText;forced-color-adjust:none}.capbar i:last-child{border-right:0}.legend-dot{border:1px solid ButtonText;forced-color-adjust:none}}
 .overlay{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
 .modal{width:480px;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
 .modal h2{margin:0;font-size:17px}

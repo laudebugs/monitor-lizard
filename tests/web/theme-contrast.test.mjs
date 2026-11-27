@@ -41,6 +41,14 @@ const hue = (hex) => {
 };
 
 const SURFACES = ['bg', 'panel', 'panel2'];
+/** The colour tokens each chart in web/page-performance.js draws together (memory also draws --line for Cached, which is a track colour). */
+const CHARTS = {
+  'CPU user and system': ['acc', 's2'],
+  'GPU device, renderer and tiler': ['fg', 'acc', 's2'],
+  'Disk throughput, operations, network': ['acc', 's2'],
+  'Memory layers': ['acc', 's2', 's3'],
+  'Capacity bar': ['acc', 's3'],
+};
 /** [foreground token, background token, minimum ratio, what the pair is] */
 const PAIRS = [
   ...['bg', 'panel', 'panel2', 'sel'].map((s) => ['fg', s, 4.5, 'body text']),
@@ -62,10 +70,12 @@ const PAIRS = [
   ['input-bd', 'input-bg', 3, 'field border'],
   ['input-bd', 'panel', 3, 'field border against the page'],
   ...SURFACES.map((s) => ['edge', s, 3, 'button border']),
-  ...SURFACES.map((s) => ['edge2', s, 3, 'chip, menu and select border']),
+  ...[...SURFACES, 'sel'].map((s) => ['edge2', s, 3, 'chip, menu and select border (a chip can sit on a selected row)']),
   ...SURFACES.map((s) => ['fg', s, 3, 'focus ring']),
   ...SURFACES.map((s) => ['acc', s, 3, 'chart series, selected-row bar']),
-  ...SURFACES.map((s) => ['s2', s, 3, 'second chart series']),
+  ['s2', 'panel', 3, 'second chart series (charts sit in cards)'],
+  ['s2', 'panel2', 2.4, 'second chart series on a track'],
+  ...['bg', 'panel'].map((s) => ['s3', s, 3, 'third chart series and the purgeable stripes']),
   ...SURFACES.map((s) => ['ok', s, 3, 'chart or tile in the OK colour']),
   ...SURFACES.map((s) => ['warn', s, 3, 'warning meter or segment']),
   ...SURFACES.map((s) => ['bad', s, 3, 'danger meter']),
@@ -99,8 +109,28 @@ for (const [name, get] of Object.entries(themes)) {
     assert.ok(Math.abs(hue(get('s2')) - hue(get('acc'))) >= 25, 'the second chart series must not be the accent green');
   });
 
-  test(name + ' theme: the second chart series differs from the first in lightness, not only hue', () => {
-    assert.ok(ratio(get('acc'), get('s2')) >= 1.3, 'acc vs s2 is ' + ratio(get('acc'), get('s2')).toFixed(2));
+  test(name + ' theme: the second chart series differs from the accent in lightness, not only hue', () => {
+    assert.ok(ratio(get('acc'), get('s2')) >= 1.5, 'acc vs s2 is ' + ratio(get('acc'), get('s2')).toFixed(2));
+  });
+
+  test(name + ' theme: series drawn on the same chart differ pairwise in lightness (colour-blind readers)', () => {
+    const bad = [];
+    for (const [chart, series] of Object.entries(CHARTS)) {
+      for (let i = 0; i < series.length; i++) for (let j = i + 1; j < series.length; j++) {
+        const r = ratio(get(series[i]), get(series[j]));
+        if (r < 1.3) bad.push(chart + ': --' + series[i] + ' vs --' + series[j] + ' is ' + r.toFixed(2));
+      }
+    }
+    assert.deepEqual(bad, []);
+  });
+
+  test(name + ' theme: --ok is defined and has a consumer, so a rename fails here', () => {
+    assert.match(get('ok'), /^#[0-9a-f]{6}$/i);
+    // Nothing in the stylesheet reads --ok. The Overview tile reads it through var(--' + col + ') and passes 'ok' for a healthy count.
+    const overview = scriptTexts.find((t) => /const tile = \(l, v, sub, to, col\)/.test(t));
+    assert.ok(overview, 'the Overview tile builder moved');
+    assert.match(overview, /'color:var\(--' \+ col \+ '\)'/);
+    assert.match(overview, /review \? 'warn' : 'ok'/);
   });
 }
 
@@ -129,11 +159,30 @@ test('no violet or old-theme colour is left in web/', () => {
   }
 });
 
-test('colours live in the token blocks: no hex colour elsewhere in app.css or the page scripts', () => {
-  const rest = css.replace(/:root(\[data-theme=light\])?\{[^}]*\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+const NAMED = ['black', 'white', 'red', 'green', 'blue', 'yellow', 'orange', 'purple', 'violet', 'pink', 'gray', 'grey', 'cyan', 'magenta', 'teal', 'navy',
+  'maroon', 'olive', 'lime', 'aqua', 'silver', 'gold', 'brown', 'indigo', 'tan', 'coral', 'salmon', 'crimson', 'lavender', 'plum', 'orchid', 'turquoise', 'khaki'];
+// The only literal colours outside the token blocks: black drop shadows, which are the same in both themes.
+const SHADOWS = ['0 12px 30px rgba(0,0,0,.35)', '0 24px 60px rgba(0,0,0,.6)', '2px 0 16px rgba(0,0,0,.3)'];
+
+test('colours live in the token blocks: no hex, rgb, hsl or named colour elsewhere in app.css', () => {
+  let rest = css.replace(/:root(\[data-theme=light\])?\{[^}]*\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const sh of SHADOWS) { assert.ok(rest.includes(sh), 'allowed shadow gone, trim the list: ' + sh); rest = rest.split(sh).join(''); }
   assert.deepEqual(rest.match(/#[0-9a-f]{3,8}\b/gi) || [], []);
+  assert.deepEqual(rest.match(/\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi) || [], []);
+  // Only declaration values: a selector or a font name is not a colour.
+  const values = [...rest.matchAll(/([a-z-]+)\s*:\s*([^;{}]+)/g)].filter(([, prop]) => !/^(font|font-family|content|src)$/.test(prop)).map((m) => m[2]);
+  const named = values.flatMap((v) => v.replace(/var\([^)]*\)|url\([^)]*\)|'[^']*'/g, '').toLowerCase().split(/[^a-z-]+/)).filter((w) => NAMED.includes(w));
+  assert.deepEqual(named, []);
+});
+
+test('colours live in the token blocks: no literal colour in the page scripts (the report page excepted)', () => {
   // The exported report is a standalone print page with its own inline style, so it is the one exception.
-  for (const t of scriptTexts) assert.deepEqual((t.replace(/const REPORT_CSS[\s\S]*?;\n/, '').match(/['"`]#[0-9a-f]{3,8}\b/gi)) || [], []);
+  for (const t of scriptTexts) {
+    const code = t.replace(/const REPORT_CSS[\s\S]*?;\n/, '');
+    assert.deepEqual(code.match(/['"`]#[0-9a-f]{3,8}\b/gi) || [], []);
+    assert.deepEqual(code.match(/\b(rgba?|hsla?)\(/g) || [], []);
+    assert.deepEqual(code.match(new RegExp('(?:background|color|fill|stroke)(?:-color)?\\s*[:=]\\s*[\'"]?(?:' + NAMED.join('|') + ')\\b', 'gi')) || [], []);
+  }
 });
 
 test('buttons are outlined and square: no chamfer, no clip-path, a 2px border, a dashed disabled border', () => {
@@ -145,6 +194,12 @@ test('buttons are outlined and square: no chamfer, no clip-path, a 2px border, a
   assert.match(btn, /\[aria-disabled=true\]\{[^}]*border-style:dashed;opacity:\.75/);
   assert.match(btn, /\.btn\.btn-acc\{[^}]*--fill:var\(--acc\)[^}]*--ink:var\(--accfg\)/);
   assert.match(btn, /\.btn\.btn-danger\{[^}]*--fill:var\(--bad\)[^}]*--ink:var\(--badfg\)/);
+});
+
+test('forced colors keep the capacity bar segments and legend squares apart', () => {
+  const fc = css.match(/@media\(forced-colors:active\)\{\.capbar\{.*\n/)[0];
+  assert.match(fc, /\.capbar i\{border-right:2px solid ButtonText;forced-color-adjust:none\}/);
+  assert.match(fc, /\.legend-dot\{border:1px solid ButtonText;forced-color-adjust:none\}/);
 });
 
 test('forced colors name a border for every button variant and GrayText for a disabled one', () => {
