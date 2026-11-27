@@ -21,6 +21,7 @@ pub mod privilege;
 pub mod procusage;
 pub mod rules;
 pub mod sampler;
+pub mod query;
 pub mod server;
 pub mod settings;
 pub mod snapshot;

@@ -29,6 +29,8 @@ pub mod reason {
     pub const CHANGED: &str = "changed since the scan; rescan";
     pub const NOT_OWNED: &str = "is owned by another user (for example root), so this app cannot move it to your Trash";
     pub const MOUNT_INSIDE: &str = "has another volume mounted inside it, so it was not moved";
+    pub const MOUNT_POINT: &str = "is a mount point (another volume), so it was not moved";
+    pub const NOT_PREVIEWED: &str = "was not part of the preview this confirmation was issued for, so it was not moved; preview again";
     pub const NOT_ATTEMPTED: &str = "not attempted: an earlier move in this request failed";
     pub const TIME_BUDGET: &str = "not attempted: the time allowed for this request ran out; ask again";
     pub const AUDIT: &str = "not attempted: the audit log could not be written";
@@ -37,14 +39,14 @@ pub mod reason {
 /// Why an item was not moved, as a stable word for the page and the audit log.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Code { Gone, Symlink, Outside, NeedsYoursConfirmation, Unmeasured, Changed, NotOwned, MountInside, Unreadable, TimeBudget, EarlierMoveFailed, AuditFailed, MoveNotPermitted, MoveFailed }
+pub enum Code { Gone, Symlink, Outside, NeedsYoursConfirmation, Unmeasured, Changed, NotOwned, MountInside, NotPreviewed, Unreadable, TimeBudget, EarlierMoveFailed, AuditFailed, MoveNotPermitted, MoveFailed }
 
 impl Code {
     pub fn as_str(self) -> &'static str {
         match self {
             Code::Gone => "gone", Code::Symlink => "symlink", Code::Outside => "outside_allowed_folders",
             Code::NeedsYoursConfirmation => "needs_yours_confirmation", Code::Unmeasured => "unmeasured",
-            Code::Changed => "changed", Code::NotOwned => "not_owned", Code::MountInside => "mount_inside",
+            Code::Changed => "changed", Code::NotOwned => "not_owned", Code::MountInside => "mount_inside", Code::NotPreviewed => "not_previewed",
             Code::Unreadable => "unreadable", Code::TimeBudget => "time_budget", Code::EarlierMoveFailed => "earlier_move_failed",
             Code::AuditFailed => "audit_failed", Code::MoveNotPermitted => "move_not_permitted", Code::MoveFailed => "move_failed",
         }
@@ -173,6 +175,9 @@ pub struct Policy<'a> {
     /// The user running this app: an item owned by anyone else is refused.
     pub uid: u32,
     pub confirm_yours: bool,
+    /// For a real move: the ids the preview showed as movable. Any other item is refused, so what moves
+    /// is never more than what was previewed. None only for a preview.
+    pub previewed: Option<&'a [String]>,
     /// When the request's time runs out; items not reached are not attempted.
     pub deadline: Instant,
 }
@@ -194,6 +199,8 @@ fn path_checks(item: &Item, pol: &Policy) -> Result<(), Refuse> {
     let inside = |root: &Path| root.canonicalize().is_ok_and(|r| canonical != r && canonical.starts_with(&r));
     if canonical != path || !(inside(pol.home) || inside(pol.apps)) { return Err((Code::Outside, reason::OUTSIDE)); }
     if meta.uid() != pol.uid { return Err((Code::NotOwned, reason::NOT_OWNED)); }
+    // An item that is itself a mount point lives on another device than the folder holding it.
+    if path.parent().and_then(|p| std::fs::symlink_metadata(p).ok()).is_some_and(|p| p.dev() != meta.dev()) { return Err((Code::MountInside, reason::MOUNT_POINT)); }
     if item.label == Label::Yours && !pol.confirm_yours { return Err((Code::NeedsYoursConfirmation, reason::YOURS)); }
     if !matches!(item.size, Reading::Value(_)) || !item.complete { return Err((Code::Unmeasured, reason::UNMEASURED)); }
     if item.modified_ns.is_none() || modified_ns(path) != item.modified_ns { return Err((Code::Changed, reason::CHANGED)); }
@@ -222,51 +229,63 @@ fn check(item: &Item, pol: &Policy) -> Result<u64, Refuse> {
     }
 }
 
+fn result(item: &Item, status: Status, code: Option<Code>, why: Option<String>, bytes: Option<u64>) -> ItemResult {
+    ItemResult { id: item.id.clone(), path: item.path.clone(), label: item.label, status, code, reason: why, bytes }
+}
+
+/// The state of one request while it runs.
+struct Runner<'a> {
+    pol: &'a Policy<'a>,
+    mover: Mover<'a>,
+    audit: &'a mut dyn Audit,
+    /// Why every remaining item is not attempted, once the request has stopped.
+    stopped: Option<(Code, &'static str)>,
+}
+
+impl Runner<'_> {
+    fn not_attempted(&mut self, item: &Item, (code, why): (Code, &'static str)) -> ItemResult {
+        self.stopped = Some((code, why));
+        result(item, Status::NotAttempted, Some(code), Some(why.to_string()), None)
+    }
+
+    fn item(&mut self, item: &Item, dry: bool) -> ItemResult {
+        if let Some(s) = self.stopped { return self.not_attempted(item, s); }
+        if Instant::now() >= self.pol.deadline { return self.not_attempted(item, (Code::TimeBudget, reason::TIME_BUDGET)); }
+        match check(item, self.pol) {
+            Err((Code::TimeBudget, why)) => self.not_attempted(item, (Code::TimeBudget, why)),
+            Err((code, why)) => result(item, Status::Refused, Some(code), Some(why.to_string()), None),
+            Ok(bytes) if dry => result(item, Status::WouldMove, None, None, Some(bytes)),
+            Ok(_) if self.pol.previewed.is_some_and(|p| !p.contains(&item.id)) => result(item, Status::Refused, Some(Code::NotPreviewed), Some(reason::NOT_PREVIEWED.to_string()), None),
+            Ok(bytes) => self.move_item(item, bytes),
+        }
+    }
+
+    /// The audited part of a real move: row first, path check again, then the move.
+    fn move_item(&mut self, item: &Item, bytes: u64) -> ItemResult {
+        if self.audit.attempting(item).is_err() { return self.not_attempted(item, (Code::AuditFailed, reason::AUDIT)); }
+        // The time between the first check and now is where a path could be swapped for a link.
+        if let Err((code, why)) = path_checks(item, self.pol) { return result(item, Status::Refused, Some(code), Some(why.to_string()), None); }
+        match (self.mover)(Path::new(&item.path)) {
+            Ok(()) => result(item, Status::Moved, None, None, Some(bytes)),
+            Err(e) => { self.stopped = Some((Code::EarlierMoveFailed, reason::NOT_ATTEMPTED)); result(item, Status::Failed, Some(e.code()), Some(e.to_string()), None) }
+        }
+    }
+}
+
 /// Checks every item, then (unless `dry`) moves the ones that passed with `mover`, in request order.
 /// A refusal of one item never stops the others. A failed move, a failed audit write or the end of the
 /// time budget stops the request: the rest are listed as not attempted, so a half-done batch never
 /// looks like it finished, and nothing is moved without its audit row.
 pub fn run(items: &[Item], pol: &Policy, dry: bool, mover: Mover, audit: &mut dyn Audit) -> Outcome {
     let mut out = Outcome { dry_run: dry, ..Outcome::default() };
-    // Why every remaining item is not attempted, once the request has stopped.
-    let mut stopped: Option<(Code, &'static str)> = None;
+    let mut runner = Runner { pol, mover, audit, stopped: None };
     for item in items {
-        let result = |status: Status, code: Option<Code>, why: Option<String>, bytes: Option<u64>| ItemResult { id: item.id.clone(), path: item.path.clone(), label: item.label, status, code, reason: why, bytes };
-        let not_attempted = |(code, why): (Code, &'static str)| result(Status::NotAttempted, Some(code), Some(why.to_string()), None);
-        let r = if let Some(s) = stopped { not_attempted(s) } else if Instant::now() >= pol.deadline {
-            stopped = Some((Code::TimeBudget, reason::TIME_BUDGET));
-            not_attempted((Code::TimeBudget, reason::TIME_BUDGET))
-        } else {
-            match check(item, pol) {
-                Err((Code::TimeBudget, why)) => { stopped = Some((Code::TimeBudget, why)); not_attempted((Code::TimeBudget, why)) }
-                Err((code, why)) => result(Status::Refused, Some(code), Some(why.to_string()), None),
-                Ok(bytes) if dry => result(Status::WouldMove, None, None, Some(bytes)),
-                Ok(bytes) => move_one(item, pol, bytes, mover, audit, &mut stopped, &result, &not_attempted),
-            }
-        };
+        let r = runner.item(item, dry);
         if matches!(r.status, Status::Moved | Status::WouldMove) { out.bytes = out.bytes.saturating_add(r.bytes.unwrap_or(0)); }
-        if !dry {
-            if let Err(e) = audit.finished(&r) { out.audit_error.get_or_insert(e); }
-        }
+        if !dry { if let Err(e) = runner.audit.finished(&r) { out.audit_error.get_or_insert(e); } }
         out.items.push(r);
     }
     out
-}
-
-/// The audited part of a real move: row first, path check again, then the move.
-#[allow(clippy::too_many_arguments)]
-fn move_one(item: &Item, pol: &Policy, bytes: u64, mover: Mover, audit: &mut dyn Audit, stopped: &mut Option<(Code, &'static str)>,
-    result: &dyn Fn(Status, Option<Code>, Option<String>, Option<u64>) -> ItemResult, not_attempted: &dyn Fn((Code, &'static str)) -> ItemResult) -> ItemResult {
-    if audit.attempting(item).is_err() {
-        *stopped = Some((Code::AuditFailed, reason::AUDIT));
-        return not_attempted((Code::AuditFailed, reason::AUDIT));
-    }
-    // The time between the first check and now is where a path could be swapped for a link.
-    if let Err((code, why)) = path_checks(item, pol) { return result(Status::Refused, Some(code), Some(why.to_string()), None); }
-    match mover(Path::new(&item.path)) {
-        Ok(()) => result(Status::Moved, None, None, Some(bytes)),
-        Err(e) => { *stopped = Some((Code::EarlierMoveFailed, reason::NOT_ATTEMPTED)); result(Status::Failed, Some(e.code()), Some(e.to_string()), None) }
-    }
 }
 
 #[cfg(test)]
@@ -277,11 +296,27 @@ pub(crate) mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    /// Removes the temp folders a test made when its thread ends, pass or fail. A folder that
+    /// something is still mounted on is skipped (see `keep`): walking into a mount would delete the
+    /// mounted volume's files.
+    #[derive(Default)]
+    struct Cleanup { made: Vec<PathBuf>, keep: Vec<PathBuf> }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for p in &self.made { if !self.keep.iter().any(|k| k.starts_with(p)) { let _ = fs::remove_dir_all(p); } }
+        }
+    }
+    thread_local!(static CLEANUP: RefCell<Cleanup> = RefCell::new(Cleanup::default()));
+    /// Excludes everything above `inside` from the end-of-test cleanup.
+    pub(crate) fn keep(inside: &Path) { CLEANUP.with(|c| c.borrow_mut().keep.push(inside.to_path_buf())); }
+
     pub(crate) fn temp(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("ml-trash-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
-        p.canonicalize().unwrap()
+        let p = p.canonicalize().unwrap();
+        CLEANUP.with(|c| c.borrow_mut().made.push(p.clone()));
+        p
     }
 
     /// An item as a scan of `path` would have produced it.
@@ -291,13 +326,10 @@ pub(crate) mod tests {
         Item { id: item_id(&text), path: text, category: Category::Caches, label, rule: Rule::AppCache, size: Reading::Value(w.allocated), apparent_bytes: Some(w.apparent), entries: w.entries, complete: true, unreadable: 0, modified_ns: modified_ns(path) }
     }
 
-    fn me() -> u32 {
-        // SAFETY: geteuid has no arguments and cannot fail.
-        unsafe { libc::geteuid() }
-    }
+    fn me() -> u32 { crate::storage::current_uid() }
 
     fn pol<'a>(home: &'a Path, apps: &'a Path) -> Policy<'a> {
-        Policy { home, apps, uid: me(), confirm_yours: false, deadline: Instant::now() + Duration::from_secs(60) }
+        Policy { home, apps, uid: me(), confirm_yours: false, previewed: None, deadline: Instant::now() + Duration::from_secs(60) }
     }
 
     fn go(items: &[Item], p: &Policy, dry: bool, mover: Mover) -> Outcome { run(items, p, dry, mover, &mut NoAudit) }
@@ -608,25 +640,79 @@ pub(crate) mod tests {
         assert!(log.borrow().0.is_empty());
     }
 
-    /// A different device inside the item: attached with `hdiutil` at a mount point in a temp folder.
-    /// Skipped (with a note) where a disk image cannot be attached, such as a sandbox.
+    /// Runs a command, killing it after `secs`; true only for a clean exit.
+    fn run_within(cmd: &mut std::process::Command, secs: u64) -> bool {
+        let Ok(mut child) = cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() else { return false };
+        let until = Instant::now() + Duration::from_secs(secs);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(50)),
+                _ => { let _ = child.kill(); let _ = child.wait(); return false; }
+            }
+        }
+    }
+
+    /// A disk image attached at a mount point in a temp folder. Dropping it detaches the volume, even
+    /// when the test panics; if that fails the folders are left alone rather than walked into.
+    struct Mounted { mnt: PathBuf, root: PathBuf }
+    impl Mounted {
+        /// None where a disk image cannot be attached (a sandbox, a headless runner).
+        fn attach(mnt: &Path, scratch: &Path, root: &Path) -> Option<Mounted> {
+            use std::process::Command;
+            let img = scratch.join("v.dmg");
+            let made = run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "8m", "-fs", "HFS+", "-volname", "mltest", "-quiet"]).arg(&img), 60);
+            let guard = Mounted { mnt: mnt.to_path_buf(), root: root.to_path_buf() };
+            if made && run_within(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-quiet", "-mountpoint"]).arg(mnt).arg(&img), 60) { Some(guard) } else {
+                eprintln!("skipped: hdiutil could not attach a disk image here");
+                std::mem::forget(guard);
+                None
+            }
+        }
+    }
+    impl Drop for Mounted {
+        fn drop(&mut self) {
+            if !run_within(std::process::Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&self.mnt), 60) {
+                eprintln!("could not detach the test volume at {:?}; leaving its folders in place", self.mnt);
+                keep(&self.root);
+            }
+        }
+    }
+
     #[test]
     fn an_item_with_a_volume_mounted_inside_it_is_refused() {
-        use std::process::Command;
-        let (home, apps) = (temp("mount"), temp("mount-apps"));
-        let scratch = temp("mount-img");
+        let (home, apps, scratch) = (temp("mount"), temp("mount-apps"), temp("mount-img"));
         let d = cache_dir(&home, "app");
         let mnt = d.join("mnt");
         fs::create_dir_all(&mnt).unwrap();
-        let img = scratch.join("v.dmg");
-        let made = Command::new("/usr/bin/hdiutil").args(["create", "-size", "8m", "-fs", "HFS+", "-volname", "mltest", "-quiet"]).arg(&img).status();
-        let attached = made.is_ok_and(|s| s.success()) && Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-quiet", "-mountpoint"]).arg(&mnt).arg(&img).status().is_ok_and(|s| s.success());
-        if !attached { eprintln!("skipped: hdiutil could not attach a disk image here"); return; }
+        let Some(_volume) = Mounted::attach(&mnt, &scratch, &home) else { return };
         let item = scanned(&d, Label::Safe);
         let o = go(&[item], &pol(&home, &apps), false, &never);
-        let detach = Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&mnt).status();
-        assert!(detach.is_ok_and(|s| s.success()), "could not detach the test volume at {mnt:?}");
-        assert_eq!(why(&o, 0).1, Some(Code::MountInside), "{o:?}");
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::MountInside), reason::MOUNT_INSIDE), "{o:?}");
+        assert!(d.exists());
+    }
+
+    #[test]
+    fn an_item_that_is_itself_a_mount_point_is_refused() {
+        let (home, apps, scratch) = (temp("mountpoint"), temp("mountpoint-apps"), temp("mountpoint-img"));
+        let d = home.join("Library/Caches/app");
+        fs::create_dir_all(&d).unwrap();
+        let Some(_volume) = Mounted::attach(&d, &scratch, &home) else { return };
+        let item = scanned(&d, Label::Safe);
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::MountInside), reason::MOUNT_POINT), "{o:?}");
+    }
+
+    #[test]
+    fn an_item_not_in_the_preview_is_refused_even_if_it_would_now_pass() {
+        let (home, apps) = (temp("preview-set"), temp("preview-set-apps"));
+        let items: Vec<Item> = ["a", "b"].iter().map(|n| scanned(&cache_dir(&home, n), Label::Safe)).collect();
+        let only_a = vec![items[0].id.clone()];
+        let p = Policy { previewed: Some(&only_a), ..pol(&home, &apps) };
+        let log = RefCell::new(vec![]);
+        let o = go(&items, &p, false, &recording(&log));
+        assert_eq!((o.items[0].status, o.items[1].status, o.items[1].code), (Status::Moved, Status::Refused, Some(Code::NotPreviewed)));
+        assert!(Path::new(&items[1].path).exists());
     }
 
     #[test]

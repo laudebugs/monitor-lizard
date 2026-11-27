@@ -20,6 +20,10 @@ Regression tests that cannot pass on the old code (they use the new API and the 
 
 The real Trash was exercised once with the ignored test `real_trash_takes_a_file_and_refuses_a_missing_one`: it passed, so the mover returned success and the throwaway file left its place. Whether Finder offers "Put Back" for it could not be checked: `~/.Trash` is unreadable from the shell without Full Disk Access.
 
+## Review follow-up
+
+Two reviews of the fix found more, fixed in the same PR: `confirm_yours` was not part of the token (now bound, with the previewed movable set; an item not previewed as movable is refused); SECURITY.md overstated which checks repeat before the move; unfinished `pending`/`moving` rows are marked `interrupted` at startup and the cap trims whole requests; one damaged legacy row no longer takes down `/api/history`; `urldecode` could panic on `%` before a multi-byte character; `/api/history` scrubs paths inside reason text using the trusted home; `HOME` must match the account database and is canonicalised; secrets are compared in constant time and a preview flood is refused rather than evicting confirmations; an item that is itself a mount point is refused.
+
 ## Left for later
 
 - A file overwritten with the same length passes the change check; the Trash is the backstop.

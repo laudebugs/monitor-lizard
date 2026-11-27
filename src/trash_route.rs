@@ -39,7 +39,7 @@ pub struct Request { pub ids: Vec<String>, pub confirm_yours: bool, pub mode: Mo
 /// The one value of `name`, `None` when absent. A repeated name is refused: with two values it would be
 /// a guess which one counts.
 fn one(query: &str, name: &str) -> Result<Option<String>, ApiError> {
-    let mut found = query.split('&').filter_map(|kv| kv.split_once('=').or(Some((kv, ""))).filter(|(k, _)| *k == name).map(|(_, v)| crate::server::urldecode(v)));
+    let mut found = query.split('&').filter_map(|kv| kv.split_once('=').or(Some((kv, ""))).filter(|(k, _)| *k == name).map(|(_, v)| crate::query::urldecode(v)));
     let first = found.next();
     if found.next().is_some() { return Err(fail(400, "repeated_parameter", format!("{name} was given more than once"))); }
     Ok(first)
@@ -81,38 +81,47 @@ impl TokenError {
     }
 }
 
-struct Issued { token: String, binding: String, expires: Instant }
+struct Issued { token: String, binding: String, movable: Vec<String>, expires: Instant }
 
 /// Confirmations handed out by previews. In memory only, so a restart forgets them.
 #[derive(Default)]
 pub struct ConfirmTokens(Mutex<Vec<Issued>>);
 
-/// What a confirmation is bound to: the scan, and each requested id with its label.
-pub fn binding(generation: u64, items: &[Item]) -> String {
+/// What a confirmation is bound to: the scan, each requested id with its label, and whether the
+/// second confirmation for yours items was given. A real move must match all of it.
+pub fn binding(generation: u64, items: &[Item], confirm_yours: bool) -> String {
     let mut parts: Vec<String> = items.iter().map(|i| format!("{}:{}", i.id, i.label.as_str())).collect();
     parts.sort();
-    format!("{generation}|{}", parts.join(","))
+    format!("{generation}|{}|{}", u8::from(confirm_yours), parts.join(","))
 }
+
+#[derive(Debug, PartialEq)]
+pub enum IssueError { TooMany, NoRandom(String) }
 
 impl ConfirmTokens {
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Issued>> { self.0.lock().unwrap_or_else(|e| e.into_inner()) }
 
-    pub fn issue(&self, binding: String, now: Instant) -> Result<String, String> {
-        let token = crate::server::random_token().map_err(|e| format!("no random source for a confirmation: {e}"))?;
+    /// Hands out a confirmation for `binding`, good for `movable`: the ids the preview showed as
+    /// movable. When `MAX_TOKENS` unexpired ones are outstanding no new one is issued, so a flood of
+    /// previews cannot push a real user's confirmation out.
+    pub fn issue(&self, binding: String, movable: Vec<String>, now: Instant) -> Result<String, IssueError> {
+        let token = crate::query::random_token().map_err(|e| IssueError::NoRandom(format!("no random source for a confirmation: {e}")))?;
         let mut v = self.lock();
         v.retain(|t| t.expires > now);
-        if v.len() >= MAX_TOKENS { v.remove(0); }
-        v.push(Issued { token: token.clone(), binding, expires: now + TOKEN_TTL });
+        if v.len() >= MAX_TOKENS { return Err(IssueError::TooMany); }
+        v.push(Issued { token: token.clone(), binding, movable, expires: now + TOKEN_TTL });
         Ok(token)
     }
 
-    /// Accepts a token once. It is used up by any attempt, matching or not.
-    pub fn redeem(&self, token: Option<&str>, binding: &str, now: Instant) -> Result<(), TokenError> {
+    /// Accepts a token once and returns the ids it was issued for. It is used up by any attempt,
+    /// matching or not. Every stored token is compared, so the time taken does not say how close a guess was.
+    pub fn redeem(&self, token: Option<&str>, binding: &str, now: Instant) -> Result<Vec<String>, TokenError> {
         let token = token.filter(|t| !t.is_empty()).ok_or(TokenError::Missing)?;
         let mut v = self.lock();
-        let at = v.iter().position(|t| t.token == token).ok_or(TokenError::Unknown)?;
-        let t = v.remove(at);
-        if t.expires <= now { Err(TokenError::Expired) } else if t.binding != binding { Err(TokenError::OtherSelection) } else { Ok(()) }
+        let mut at = None;
+        for (i, t) in v.iter().enumerate() { if crate::query::secrets_equal(&t.token, token) { at = Some(i); } }
+        let t = v.remove(at.ok_or(TokenError::Unknown)?);
+        if t.expires <= now { Err(TokenError::Expired) } else if t.binding != binding { Err(TokenError::OtherSelection) } else { Ok(t.movable) }
     }
 }
 
@@ -198,21 +207,27 @@ fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
     let req = parse(query)?;
     let home = ctx.home.clone().map_err(|why| fail(400, "home_untrusted", why))?;
     let (generation, items) = ctx.cache.find_in_generation(&req.ids).map_err(|e| fail(400, "unknown_id", e))?;
-    let pol = Policy { home: &home, apps: ctx.apps, uid: ctx.uid, confirm_yours: req.confirm_yours, deadline: ctx.now + ctx.budget };
-    let bound = binding(generation, &items);
+    let policy = |previewed| Policy { home: &home, apps: ctx.apps, uid: ctx.uid, confirm_yours: req.confirm_yours, previewed, deadline: ctx.now + ctx.budget };
+    let bound = binding(generation, &items, req.confirm_yours);
     match req.mode {
         Mode::Preview => {
-            let o = trash::run(&items, &pol, true, ctx.mover, &mut NoAudit);
-            let token = if o.counts().would_move > 0 { Some(ctx.tokens.issue(bound, ctx.now).map_err(|e| fail(500, "no_confirmation", e))?) } else { None };
+            let o = trash::run(&items, &policy(None), true, ctx.mover, &mut NoAudit);
+            let movable: Vec<String> = o.items.iter().filter(|i| i.status == trash::Status::WouldMove).map(|i| i.id.clone()).collect();
+            let token = if movable.is_empty() { None } else {
+                Some(ctx.tokens.issue(bound, movable, ctx.now).map_err(|e| match e {
+                    IssueError::TooMany => fail(429, "too_many_previews", "too many previews are waiting for confirmation; use or wait out one of them"),
+                    IssueError::NoRandom(m) => fail(500, "no_confirmation", m),
+                })?)
+            };
             Ok(render(&o, None, token))
         }
         Mode::Commit { token } => {
             // The audit comes first: if it cannot be opened or written, nothing has moved.
             let h = History::at(ctx.db).map_err(|e| fail(500, "audit_unavailable", format!("the audit log is unavailable, so nothing was moved: {}", history::unavailable(&e))))?;
-            ctx.tokens.redeem(token.as_deref(), &bound, ctx.now).map_err(TokenError::into_api)?;
+            let movable = ctx.tokens.redeem(token.as_deref(), &bound, ctx.now).map_err(TokenError::into_api)?;
             let rows: Vec<(&str, &str, &str)> = items.iter().map(|i| (i.id.as_str(), i.path.as_str(), i.label.as_str())).collect();
             let request = h.begin_trash(ctx.unix_now, &rows).map_err(|e| fail(500, "audit_unavailable", format!("the audit log could not be written, so nothing was moved: {}", history::unavailable(&e))))?;
-            let o = trash::run(&items, &pol, false, ctx.mover, &mut DbAudit { h: &h, request });
+            let o = trash::run(&items, &policy(Some(&movable)), false, ctx.mover, &mut DbAudit { h: &h, request });
             Ok(render(&o, Some(request), None))
         }
     }
@@ -339,12 +354,17 @@ mod tests {
         // Expiry, on the token store itself.
         let tokens = ConfirmTokens::default();
         let now = Instant::now();
-        let t = tokens.issue("b".into(), now).unwrap();
+        let t = tokens.issue("b".into(), vec![], now).unwrap();
         assert_eq!(tokens.redeem(Some(&t), "b", now + TOKEN_TTL), Err(TokenError::Expired));
-        let t = tokens.issue("b".into(), now).unwrap();
-        assert_eq!(tokens.redeem(Some(&t), "b", now + TOKEN_TTL - Duration::from_secs(1)), Ok(()));
-        for _ in 0..(MAX_TOKENS + 10) { tokens.issue("b".into(), now).unwrap(); }
-        assert!(tokens.lock().len() <= MAX_TOKENS, "outstanding confirmations are capped");
+        let t = tokens.issue("b".into(), vec!["x".into()], now).unwrap();
+        assert_eq!(tokens.redeem(Some(&t), "b", now + TOKEN_TTL - Duration::from_secs(1)), Ok(vec!["x".to_string()]));
+        // A flood of previews is refused, never allowed to push an earlier confirmation out.
+        let first = tokens.issue("keep".into(), vec![], now).unwrap();
+        for _ in 1..MAX_TOKENS { tokens.issue("b".into(), vec![], now).unwrap(); }
+        assert_eq!(tokens.issue("b".into(), vec![], now), Err(IssueError::TooMany));
+        assert_eq!(tokens.redeem(Some(&first), "keep", now), Ok(vec![]), "the first confirmation survived the flood");
+        assert!(tokens.issue("b".into(), vec![], now).is_ok(), "using one frees a place");
+        assert!(tokens.issue("b".into(), vec![], now + TOKEN_TTL).is_ok(), "expired ones free places too");
     }
 
     #[test]
@@ -353,8 +373,10 @@ mod tests {
         let (_, v) = f.call(&format!("ids={}&dry=1", f.ids(1)), &never);
         assert!(v["confirm_token"].is_null(), "nothing would move, so no token");
         let t = f.preview_with(1, "&confirm_yours=1");
-        let (_, v) = f.call(&format!("ids={}&dry=0&confirm_token={t}", f.ids(1)), &never);
-        assert_eq!((v["ok"].clone(), v["items"][0]["code"].clone()), (false.into(), "needs_yours_confirmation".into()));
+        // The token was issued with confirm_yours=1, so a commit that leaves it out is a different request.
+        let (code, v) = f.call(&format!("ids={}&dry=0&confirm_token={t}", f.ids(1)), &never);
+        assert_eq!((code, v["code"].as_str()), (409, Some("confirmation_mismatch")));
+        assert!(f.exists(0));
         let t = f.preview_with(1, "&confirm_yours=1");
         let (_, v) = f.call(&format!("ids={}&dry=0&confirm_yours=1&confirm_token={t}", f.ids(1)), &remove);
         assert_eq!(v["counts"]["moved"], 1);
@@ -391,6 +413,7 @@ mod tests {
         let (code, v) = f.call(&format!("ids={}&dry=0&confirm_token={t}", f.ids(1)), &never);
         assert_eq!((code, v["code"].as_str(), v["ok"].clone()), (500, Some("audit_unavailable"), false.into()));
         assert!(f.exists(0));
+        let _ = fs::remove_file(format!("{}.lock", f.db.display()));
     }
 
     fn lock_table(db: &Path, event: &str) {
@@ -511,5 +534,43 @@ mod tests {
         assert_eq!(busy_reply().0, 409);
         drop(a);
         assert!(Busy::try_begin().is_some());
+    }
+
+    #[test]
+    fn a_confirmation_cannot_be_used_with_a_second_confirmation_the_preview_never_showed() {
+        // A safe item and a yours item; the preview is made without confirm_yours, so only the safe one is movable.
+        let f = fx("yours-late", &[Label::Safe, Label::Yours]);
+        let t = f.preview(2);
+        let (code, v) = f.call(&format!("ids={}&dry=0&confirm_yours=1&confirm_token={t}", f.ids(2)), &never);
+        assert_eq!((code, v["code"].as_str()), (409, Some("confirmation_mismatch")));
+        assert!(f.exists(0) && f.exists(1) && f.audit_rows().is_empty());
+        // Without the late flag the preview's own selection works, and the yours item is still refused.
+        let t = f.preview(2);
+        let (_, v) = f.call(&format!("ids={}&dry=0&confirm_token={t}", f.ids(2)), &remove);
+        assert_eq!((v["counts"]["moved"].clone(), v["counts"]["refused"].clone()), (1.into(), 1.into()));
+        assert!(!f.exists(0) && f.exists(1));
+    }
+
+    #[test]
+    fn an_item_refused_at_preview_that_passes_later_is_not_moved_by_that_confirmation() {
+        let f = fx("late-pass", &[Label::Safe, Label::Safe]);
+        // Make the second item look changed at preview time, then put the scan's own view back.
+        let blob = Path::new(&f.items[1].path).join("blob");
+        fs::write(&blob, vec![7u8; 300_000]).unwrap();
+        let t = f.preview(2);
+        fs::write(&blob, vec![1u8; 40_000]).unwrap();
+        let (_, v) = f.call(&format!("ids={}&dry=0&confirm_token={t}", f.ids(2)), &remove);
+        let second = v["items"][1]["code"].as_str();
+        // Either the folder time still differs (changed) or the previewed set excludes it (not_previewed); it never moves.
+        assert!(matches!(second, Some("changed") | Some("not_previewed")), "{v}");
+        assert!(f.exists(1) && !f.exists(0));
+    }
+
+    #[test]
+    fn a_percent_sign_before_multibyte_text_in_a_token_is_an_error_not_a_panic() {
+        let f = fx("utf8", &[Label::Safe]);
+        let (code, v) = f.call(&format!("ids={}&dry=0&confirm_token=%\u{20ac}", f.ids(1)), &never);
+        assert_eq!((code, v["code"].as_str()), (409, Some("confirmation_invalid")));
+        assert_eq!(parse("ids=0123456789abcdef&dry=0&confirm_token=%+1").unwrap().mode, Mode::Commit { token: Some("% 1".into()) });
     }
 }

@@ -249,6 +249,8 @@ const TRASH_TABLE: &str = "CREATE TABLE IF NOT EXISTS trash_moves(id INTEGER PRI
 /// Item rows kept (about 200 requests of 50); older ones are deleted, as with `BASELINE_CHANGE_KEEP`.
 /// Paths of removed folders are the most private thing here, so the log does not grow without bound.
 pub const TRASH_KEEP: i64 = 10_000;
+/// Shown for an item whose request was cut short before its result was written.
+pub const INTERRUPTED_REASON: &str = "the app stopped before this was finished: it may or may not have moved";
 
 /// One item of a request, as the audit shows it.
 #[derive(serde::Serialize, Debug, PartialEq, Clone)]
@@ -259,14 +261,40 @@ pub struct TrashItemRow { pub id: String, pub path: String, pub label: String, p
 pub struct TrashMoveRow { pub request: Option<u64>, pub ts: u64, pub bytes: u64, pub items: Vec<TrashItemRow> }
 
 impl TrashMoveRow {
-    /// The same row with the home folder written as `~`, for a reply that needs no token. The full
-    /// paths stay in the database.
+    /// The same row with the home folder written as `~`, in paths and in reason text (an OS error can
+    /// quote a path), for a reply that needs no token. The full paths stay in the database.
     pub fn with_home_as_tilde(mut self, home: &std::path::Path) -> Self {
+        let text = home.to_string_lossy().trim_end_matches('/').to_string();
         for i in &mut self.items {
-            if let Ok(rest) = std::path::Path::new(&i.path).strip_prefix(home) { i.path = if rest.as_os_str().is_empty() { "~".into() } else { format!("~/{}", rest.display()) }; }
+            i.path = scrub_home(&i.path, &text);
+            i.reason = i.reason.take().map(|r| scrub_home(&r, &text));
         }
         self
     }
+}
+
+/// `text` with each occurrence of the home folder `home` written as `~`. An occurrence counts only
+/// when the next character cannot continue a folder name, so `/Users/me2` is not inside `/Users/me`.
+fn scrub_home(text: &str, home: &str) -> String {
+    if home.is_empty() { return text.to_string(); }
+    let (mut out, mut rest) = (String::new(), text);
+    while let Some(at) = rest.find(home) {
+        let after = &rest[at + home.len()..];
+        let ends_name = after.chars().next().is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '-')));
+        out.push_str(&rest[..at]);
+        out.push_str(if ends_name { "~" } else { home });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+fn legacy_row(ids: &str, paths: &str, refused: &str) -> rusqlite::Result<Vec<TrashItemRow>> {
+    let (ids, paths): (Vec<String>, Vec<String>) = (json_column(ids)?, json_column(paths)?);
+    let moved = ids.into_iter().zip(paths).map(|(id, path)| TrashItemRow { id, path, label: "unknown".into(), state: "moved".into(), code: None, reason: None, bytes: None });
+    let refused: Vec<serde_json::Value> = json_column(refused)?;
+    let refused = refused.into_iter().map(|v| TrashItemRow { id: v["id"].as_str().unwrap_or("").into(), path: v["path"].as_str().unwrap_or("").into(), label: "unknown".into(), state: "refused".into(), code: None, reason: v["reason"].as_str().map(str::to_string), bytes: None });
+    Ok(moved.chain(refused).collect())
 }
 
 fn sql_int(v: u64) -> rusqlite::Result<i64> { i64::try_from(v).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e))) }
@@ -473,10 +501,19 @@ impl History {
         for (id, path, label) in items {
             tx.execute("INSERT INTO trash_items(request,ts,item_id,path,label,state) VALUES(?1,?2,?3,?4,?5,'pending')", params![request, ts, id, path, label])?;
         }
-        tx.execute("DELETE FROM trash_items WHERE id <= (SELECT MAX(id) FROM trash_items) - ?1", [TRASH_KEEP])?;
+        // Whole requests only: the request holding the row just past the cap goes entirely, so no
+        // request is ever left with some of its items missing.
+        tx.execute("DELETE FROM trash_items WHERE request <= COALESCE((SELECT request FROM trash_items ORDER BY id DESC LIMIT 1 OFFSET ?1), 0)", [TRASH_KEEP])?;
         tx.execute("DELETE FROM trash_moves WHERE id <= (SELECT MAX(id) FROM trash_moves) - ?1", [TRASH_KEEP])?;
         tx.commit()?;
         rust_int(request)
+    }
+
+    /// Marks rows a stopped app left as `pending` or `moving` as `interrupted`: whether those items
+    /// moved is unknown. Run once at startup, before any request, because a request in flight owns its
+    /// `pending` and `moving` rows. Returns how many rows were changed.
+    pub fn reconcile_interrupted_trash(&self) -> rusqlite::Result<usize> {
+        self.0.execute("UPDATE trash_items SET state='interrupted', reason=?1 WHERE state IN ('pending','moving')", [INTERRUPTED_REASON])
     }
 
     /// Sets one item's state (`moving`, `moved`, `refused`, `failed` or `not_attempted`). An item the
@@ -506,11 +543,15 @@ impl History {
             let mut st = self.0.prepare("SELECT ts,ids,paths,bytes,refused FROM trash_moves ORDER BY id DESC LIMIT ?1")?;
             for r in st.query_map([left], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?)))? {
                 let (ts, ids, paths, bytes, refused) = r?;
-                let (ids, paths): (Vec<String>, Vec<String>) = (json_column(&ids)?, json_column(&paths)?);
-                let moved = ids.into_iter().zip(paths).map(|(id, path)| TrashItemRow { id, path, label: "unknown".into(), state: "moved".into(), code: None, reason: None, bytes: None });
-                let refused: Vec<serde_json::Value> = json_column(&refused)?;
-                let refused = refused.iter().map(|v| TrashItemRow { id: v["id"].as_str().unwrap_or("").into(), path: v["path"].as_str().unwrap_or("").into(), label: "unknown".into(), state: "refused".into(), code: None, reason: v["reason"].as_str().map(str::to_string), bytes: None });
-                rows.push(TrashMoveRow { request: None, ts: rust_int(ts)?, bytes: rust_int(bytes)?, items: moved.chain(refused).collect() });
+                match legacy_row(&ids, &paths, &refused) {
+                    Ok(items) => rows.push(TrashMoveRow { request: None, ts: rust_int(ts)?, bytes: rust_int(bytes)?, items }),
+                    Err(e) => {
+                        // One damaged old row must not hide the rest of the history.
+                        eprintln!("monitor-lizard: a row of the first Trash audit table could not be read ({e}); it is listed as unreadable");
+                        let item = TrashItemRow { id: String::new(), path: String::new(), label: "unknown".into(), state: "unreadable".into(), code: None, reason: Some("this old record is damaged and could not be read".into()), bytes: None };
+                        rows.push(TrashMoveRow { request: None, ts: rust_int(ts).unwrap_or(0), bytes: 0, items: vec![item] });
+                    }
+                }
             }
         }
         Ok(rows)
@@ -1645,7 +1686,11 @@ mod tests {
         assert_eq!((rows[0].request, rows[0].bytes, rows[0].items.len()), (None, 9, 2));
         assert_eq!((rows[0].items[0].state.as_str(), rows[0].items[1].state.as_str()), ("moved", "refused"));
         h.0.execute("UPDATE trash_moves SET ids='not json'", []).unwrap();
-        assert!(h.recent_trash_moves(10).is_err(), "a damaged row is an error, not an empty list");
+        h.0.execute("INSERT INTO trash_moves(ts,ids,paths,bytes,refused) VALUES(4,'[]','[]',1,'[]')", []).unwrap();
+        let rows = h.recent_trash_moves(10).unwrap();
+        assert_eq!(rows.len(), 2, "one damaged row does not hide the others");
+        assert_eq!((rows[1].items[0].state.as_str(), rows[1].request), ("unreadable", None));
+        assert_eq!(rows[0].ts, 4, "the good row is still listed");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1656,5 +1701,38 @@ mod tests {
             .map(|p| TrashItemRow { id: "i".into(), path: p.to_string(), label: "safe".into(), state: "moved".into(), code: None, reason: None, bytes: None }).collect() }
             .with_home_as_tilde(std::path::Path::new("/Users/x"));
         assert_eq!(row.items.iter().map(|i| i.path.as_str()).collect::<Vec<_>>(), ["~/Library/a", "/Applications/B.app", "~", "/Users/xavier/c"]);
+    }
+
+    #[test]
+    fn the_cap_removes_whole_requests_never_part_of_one() {
+        let (dir, h) = trash_db("whole");
+        let big: Vec<(&str, &str, &str)> = (0..50).map(|_| ("i", "/p", "safe")).collect();
+        for n in 0..(TRASH_KEEP as u64 / 50 + 3) { h.begin_trash(n, &big).unwrap(); }
+        let rows = h.recent_trash_moves(100_000).unwrap();
+        assert!(rows.iter().all(|r| r.items.len() == 50), "every surviving request is whole");
+        assert!(rows.len() as i64 * 50 <= TRASH_KEEP && rows.len() as i64 * 50 > TRASH_KEEP - 50);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rows_left_pending_or_moving_become_interrupted_at_startup_and_finished_ones_do_not() {
+        let (dir, h) = trash_db("interrupted");
+        let r = h.begin_trash(1, &[("a", "/p/a", "safe"), ("b", "/p/b", "safe"), ("c", "/p/c", "safe")]).unwrap();
+        h.mark_trash(r, "a", "moved", None, None, Some(5)).unwrap();
+        h.mark_trash(r, "b", "moving", None, None, None).unwrap();
+        assert_eq!(h.reconcile_interrupted_trash().unwrap(), 2);
+        let items = &h.recent_trash_moves(5).unwrap()[0].items;
+        assert_eq!(items.iter().map(|i| i.state.as_str()).collect::<Vec<_>>(), ["moved", "interrupted", "interrupted"]);
+        assert!(items[1].reason.as_deref().unwrap().contains("may or may not have moved"));
+        assert_eq!(h.reconcile_interrupted_trash().unwrap(), 0, "a second pass changes nothing");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn home_is_scrubbed_from_paths_and_reason_text_but_only_as_a_whole_folder_name() {
+        let mk = |path: &str, reason: &str| TrashMoveRow { request: Some(1), ts: 1, bytes: 0, items: vec![TrashItemRow { id: "i".into(), path: path.into(), label: "safe".into(), state: "failed".into(), code: None, reason: Some(reason.into()), bytes: None }] };
+        let row = mk("/Users/me2/x", "cannot move /Users/me/Library/Caches/a: busy; also /Users/me2/b and /Users/me.").with_home_as_tilde(std::path::Path::new("/Users/me/"));
+        assert_eq!(row.items[0].path, "/Users/me2/x", "another user's folder is not this home");
+        assert_eq!(row.items[0].reason.as_deref(), Some("cannot move ~/Library/Caches/a: busy; also /Users/me2/b and ~."));
     }
 }

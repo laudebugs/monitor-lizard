@@ -1,4 +1,4 @@
-use crate::{actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, trash_route, watcher};
+use crate::{actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, trash_route, watcher, query::{self, urldecode}};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -37,14 +37,7 @@ fn refresh<T: serde::Serialize + 'static>(cache: &Cache, every: Duration, f: fn(
 }
 
 /// Per-run secret embedded in the page; required on every write so a stray request can't act.
-fn token() -> String { random_token().expect("random token") }
-
-/// 128 random bits as hex, for the per-run token and the removal confirmations.
-pub(crate) fn random_token() -> std::io::Result<String> {
-    let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut b))?;
-    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
-}
+fn token() -> String { query::random_token().expect("random token") }
 
 fn query_param(query: &str, name: &str) -> Option<String> {
     query.split('&').find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == name).map(|(_, v)| urldecode(v)))
@@ -93,7 +86,14 @@ pub fn serve_on(server: Arc<Server>) {
         thread::spawn(move || loop { persistence::refresh_cache(&pers); thread::sleep(Duration::from_secs(60)); });
     }
     // Say at startup if the history cannot be opened (for instance a database from a newer build), instead of showing empty pages.
-    drop(history::open_or_report());
+    // Rows an earlier run left half-written say so now, before any request can add rows of its own.
+    if let Some(h) = history::open_or_report() {
+        match h.reconcile_interrupted_trash() {
+            Ok(0) => {}
+            Ok(n) => eprintln!("monitor-lizard: {n} Trash audit row(s) were left unfinished by an earlier run and are marked interrupted"),
+            Err(e) => eprintln!("monitor-lizard: could not check the Trash audit for unfinished rows: {}", history::unavailable(&e)),
+        }
+    }
     let storage_cache: Arc<storage::Cache> = Default::default();
     let confirmations: Arc<trash_route::ConfirmTokens> = Default::default();
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
@@ -170,7 +170,7 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?, h.recent_trash_moves(TRASH_LIMIT)?))) {
                 Ok((seen, actions, baseline_changes, trash_moves)) => {
                     // This route needs no token, so removal paths are shown relative to home; the database keeps the full ones.
-                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                    let home = storage::home_or_reason().ok();
                     let trash_moves: Vec<_> = trash_moves.into_iter().map(|m| match &home { Some(h) => m.with_home_as_tilde(h), None => m }).collect();
                     match serde_json::to_string(&serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes, "trash_moves": trash_moves })) {
                         Ok(body) => json_resp(body),
@@ -268,7 +268,7 @@ fn storage_history_reply(db: &std::path::Path, now: u64) -> serde_json::Value {
 
 /// A write needs the same origin (when the browser sends one) and the page's per-run secret.
 fn write_allowed(origins: &[String], origin: Option<&str>, secret: &str, token: Option<&str>) -> bool {
-    origin.is_none_or(|o| origins.iter().any(|x| x == o)) && token.is_some_and(|t| t == secret)
+    origin.is_none_or(|o| origins.iter().any(|x| x == o)) && token.is_some_and(|t| query::secrets_equal(t, secret))
 }
 
 /// The DNS-rebinding guard: the Host header must be exactly one of the addresses this server listens on.
@@ -309,20 +309,6 @@ fn refresh_startup_cache(cache: &Cache, key: &str, expected: bool) {
         persistence::refresh_cache(&cache);
         RESCANNING.store(false, std::sync::atomic::Ordering::SeqCst);
     });
-}
-
-pub(crate) fn urldecode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'%' if i + 2 < b.len() => { out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(b'?')); i += 3; }
-            b'+' => { out.push(b' '); i += 1 }
-            c => { out.push(c); i += 1 }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]
