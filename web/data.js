@@ -48,7 +48,8 @@ async function loadMetrics() {
     // system clock being set backward too, which is the same "don't trust the old data" case.
     const reset = S.metrics.length && got[0].ts <= S.metrics[S.metrics.length - 1].ts;
     const merged = (reset ? [] : S.metrics).concat(got);
-    quiet({ metrics: merged.slice(-RING_CAPACITY), metricsSince: got[got.length - 1].ts });
+    const next = { metrics: merged.slice(-RING_CAPACITY), metricsSince: got[got.length - 1].ts };
+    if (S.view === 'overview') { Object.assign(S, next); refreshMachine(); } else quiet(next);
   } catch (e) {}
 }
 const RING_CAPACITY = 1800; // mirrors src/sampler.rs RING_CAPACITY (1h at 2s): the client never holds more than the server does

@@ -14,7 +14,7 @@ test('first visit covers the last 24 hours and says so', () => {
     assert.equal(l.first, true);
     assert.equal(l.since, NOW - DAY);
   }
-  assert.match(P.feedWindowText({ first: true }), /first visit.*24 hours/);
+  assert.match(P.feedWindowText({ first: true }), /No earlier visit.*24 hours/);
 });
 test('a stored visit is used, a future one is ignored, an old one is cut to 30 days', () => {
   assert.deepEqual(P.lookedSince(String(NOW - 100), NOW), { since: NOW - 100, first: false });
@@ -24,19 +24,20 @@ test('a stored visit is used, a future one is ignored, an old one is cut to 30 d
 });
 const input = {
   seen: [{ group_key: 'a', remote: '1.2.3.4', first_seen: NOW - 50 }, { group_key: 'a', remote: '5.6.7.8', first_seen: NOW - 10 }, { group_key: 'b', remote: '9.9.9.9', first_seen: NOW - 5000 }],
-  pers: [{ label: 'Agent', first_seen: NOW - 20 }, { label: 'Old', first_seen: NOW - 9000 }],
+  pers: [{ label: 'Agent', first_seen: NOW - 20, is_new: true }, { label: 'Old', first_seen: NOW - 9000, is_new: true }, { label: 'Baseline', first_seen: NOW - 15, is_new: false }],
   sudo: [{ ts: NOW - 30, args: 'sudo ls' }, { ts: NOW - 9000, args: 'sudo old' }],
 };
 test('the feed holds only changes after the last visit, newest first', () => {
   const rows = P.feedRows(input, NOW - 100, label);
-  assert.deepEqual(rows.map((r) => r.kind), ['host', 'startup', 'sudo', 'host', 'first']);
-  assert.deepEqual(rows.map((r) => r.ts), [NOW - 10, NOW - 20, NOW - 30, NOW - 50, NOW - 50]);
+  assert.deepEqual(rows.map((r) => r.kind), ['startup', 'sudo', 'first']);
+  assert.deepEqual(rows.map((r) => r.ts), [NOW - 20, NOW - 30, NOW - 50]);
   assert.ok(rows.every((r) => r.ts > NOW - 100));
 });
 test('a feed row names its app and links to the item', () => {
   const rows = P.feedRows(input, NOW - 100, label);
-  assert.equal(rows[0].text, 'A contacted a new host: 5.6.7.8');
-  assert.deepEqual(rows[0].go, { view: 'apps', sel: 'a' });
+  const host = P.feedRows({ seen: [{ group_key: 'a', remote: '5.6.7.8', first_seen: NOW - 10 }, { group_key: 'a', remote: 'old', first_seen: NOW - 9000 }] }, NOW - 100, label)[0];
+  assert.equal(host.text, 'A contacted a new host: 5.6.7.8');
+  assert.deepEqual(host.go, { view: 'apps', sel: 'a' });
   assert.deepEqual(rows.find((r) => r.kind === 'sudo').go, { view: 'priv' });
   assert.deepEqual(rows.find((r) => r.kind === 'startup').go, { view: 'persist', filter: 'new' });
 });
@@ -66,6 +67,24 @@ test('the forecast row appears only with a forecast, and every row links somewhe
   const rows = P.machineRows({ freeText: null, freeReason: 'not read yet', forecastText: 'Full in about 90 days', memoryText: 'Normal', cpuText: null });
   assert.deepEqual(rows.map((r) => r.id), ['free', 'forecast', 'memory', 'cpu']);
   assert.equal(rows[0].reason, 'not read yet');
-  assert.equal(rows[3].reason, 'unavailable');
+  assert.equal(rows[3].reason, 'no reason recorded');
   assert.ok(rows.every((r) => r.href && r.href.view));
+});
+test('a startup item that is not new since the baseline stays out of the feed', () => {
+  const r = P.feedRows({ pers: [{ label: 'Baseline', first_seen: NOW - 15, is_new: false }] }, NOW - 100, label);
+  assert.deepEqual(r, []);
+});
+test('an app that is new on the network gets one row, not one per host', () => {
+  const r = P.feedRows({ seen: [{ group_key: 'a', remote: 'x', first_seen: NOW - 50 }, { group_key: 'a', remote: 'y', first_seen: NOW - 40 }] }, NOW - 100, label);
+  assert.deepEqual(r.map((x) => x.kind), ['first']);
+});
+test('the forecast row shows its reason when there is no forecast yet', () => {
+  const rows = P.machineRows({ freeText: 'x', forecastText: null, forecastReason: 'Collecting history', memoryText: 'Normal', cpuText: '1%' });
+  const f = rows.find((r) => r.id === 'forecast');
+  assert.equal(f.value, null);
+  assert.equal(f.reason, 'Collecting history');
+});
+test('the memory row links to the Memory tab', () => {
+  const rows = P.machineRows({ freeText: 'x', memoryText: 'Normal', cpuText: '1%' });
+  assert.deepEqual(rows.find((r) => r.id === 'memory').href, { view: 'performance', ex: { perfTab: 'memory' } });
 });
