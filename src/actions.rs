@@ -33,28 +33,33 @@ fn out(cmd: &str, args: &[&str]) -> String {
     Command::new(cmd).args(args).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
-/// Shared with `classify::allowed_actions`, so there is exactly one place that decides whether a
-/// pid can be signalled: a live `ps` lookup, not a cached snapshot field, so it can never go stale.
-/// `expected_start` is the start time (unix seconds) the caller last saw this pid at; when `Some`
-/// and it no longer matches a fresh read, the pid is refused as changed rather than signalled --
-/// this is the recycled-pid defense. `classify::allowed_actions` passes `None`: it only asks
-/// whether a pid is signalable in principle, with no specific instance's start time to defend.
-pub(crate) fn check(pid: u32, my_uid: &str, expected_start: Option<u64>) -> Result<(), &'static str> {
+/// Whether `pid` belongs to `my_uid` at all, ignoring any specific instance's start time: a live
+/// `ps` lookup, not a cached snapshot field, so it can never go stale. The one shared base both
+/// `is_signalable` and `check` build on, so a pid refused here is refused everywhere.
+fn basic_check(pid: u32, my_uid: &str) -> Result<(), &'static str> {
     if pid <= 1 { return Err("refusing to signal launchd"); }
     if pid == std::process::id() { return Err("refusing to signal monitor-lizard itself"); }
     let uid = out("ps", &["-o", "uid=", "-p", &pid.to_string()]);
-    if uid.is_empty() { return Err("no such process"); }
-    if uid != my_uid { return Err("not your process"); }
-    if let Some(expected) = expected_start {
-        match crate::procusage::live_start_unix(pid) {
-            Some(actual) if actual == expected => {}
-            // Either genuinely a different process now (the old one exited and the pid was
-            // recycled), or its start time could not be read fresh right now -- both get the same
-            // answer, since only a confirmed match is ever safe to sign.
-            _ => return Err("process changed"),
-        }
+    if uid.is_empty() { Err("no such process") } else if uid != my_uid { Err("not your process") } else { Ok(()) }
+}
+
+/// Whether a pid could ever be signalled right now, ignoring any specific instance's start time:
+/// `classify::allowed_actions` uses this alone to decide which buttons to offer, and never signals
+/// anything itself, so it has no particular instance's start time to defend.
+pub(crate) fn is_signalable(pid: u32, my_uid: &str) -> bool { basic_check(pid, my_uid).is_ok() }
+
+/// The real signal-time check: `basic_check` plus a fresh re-read of `pid`'s start time, refused as
+/// changed if it no longer matches `expected_start` -- the recycled-pid defense. Used only where a
+/// signal is about to actually be sent (`execute`), never for a plain "can this be signalled" query.
+pub(crate) fn check(pid: u32, my_uid: &str, expected_start: u64) -> Result<(), &'static str> {
+    basic_check(pid, my_uid)?;
+    match crate::procusage::live_start_unix(pid) {
+        Some(actual) if actual == expected_start => Ok(()),
+        // Either genuinely a different process now (the old one exited and the pid was recycled),
+        // or its start time could not be read fresh right now -- both get the same answer, since
+        // only a confirmed match is ever safe to sign.
+        _ => Err("process changed"),
     }
-    Ok(())
 }
 
 pub(crate) fn my_uid() -> String { out("id", &["-u"]) }
@@ -64,7 +69,7 @@ pub fn execute(items: &[(u32, u64)], sig: Sig) -> Outcome {
     let me = my_uid();
     let mut o = Outcome::default();
     for &(pid, start) in items {
-        match check(pid, &me, Some(start)) {
+        match check(pid, &me, start) {
             Err(reason) => o.refused.push(Refused { pid, reason: reason.into() }),
             Ok(()) => match Command::new("kill").args([sig.flag(), &pid.to_string()]).status() {
                 Ok(s) if s.success() => o.sent.push(pid),
@@ -128,15 +133,16 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
         let real_start = crate::procusage::live_start_unix(pid).expect("read the child's own start time");
         let me = my_uid();
-        assert_eq!(check(pid, &me, Some(real_start)), Ok(()));
-        assert_eq!(check(pid, &me, Some(real_start + 1)), Err("process changed"), "a pid match with the wrong start time must never pass");
-        assert_eq!(check(pid, &me, None), Ok(()), "no expected start (classify's signalability query) skips the recheck entirely");
+        assert_eq!(check(pid, &me, real_start), Ok(()));
+        assert_eq!(check(pid, &me, real_start + 1), Err("process changed"), "a pid match with the wrong start time must never pass");
+        assert!(is_signalable(pid, &me), "classify's signalability query has no specific start time to defend and must still say yes");
         let _ = child.kill();
         let _ = child.wait();
     }
 
     #[test]
-    fn a_pid_nothing_is_using_is_refused_even_with_some_start_time() {
-        assert!(check(999_999, &my_uid(), Some(123)).is_err());
+    fn a_pid_nothing_is_using_is_refused_even_with_the_right_looking_start_time() {
+        assert!(check(999_999, &my_uid(), 123).is_err());
+        assert!(!is_signalable(999_999, &my_uid()));
     }
 }

@@ -280,6 +280,13 @@ function evidenceLine(label, cpuPct) {
   }
   return known.length ? ('Together using ' + Math.round(known.reduce((a, b) => a + b, 0)) + '% CPU right now, from a fresh sample.') : (cpuPct.length + ' processes confirmed running right now, from a fresh sample.');
 }
+// Which rows from a previous read are missing from a fresh one: just exited (by Stop or on its
+// own), shown once more marked `stopped` rather than vanishing with nothing to show that anything
+// happened. A row already marked stopped is never re-added, so it drops off for good one read later.
+function justStoppedRows(prevRows, freshRows) {
+  const seen = new Set(freshRows.map((r) => r.pid));
+  return prevRows.filter((r) => !r.stopped && !seen.has(r.pid)).map((r) => Object.assign({}, r, { stopped: true }));
+}
 /* actions:end */
 /* view-items:begin */
 // The one rule for "nothing to show". h() and render() both use it: Element.append and replaceChildren write a
@@ -1684,7 +1691,7 @@ async function loadProcesses() {
   if (document.hidden || S.view !== 'performance' || S.perfTab !== 'topconsumers') return;
   try {
     const rows = await (await api('/api/processes?sort=' + S.procSort + '&limit=50')).json();
-    quiet({ procRows: rows, procFailed: false });
+    quiet({ procRows: rows.concat(justStoppedRows(S.procRows || [], rows)), procFailed: false });
   } catch (e) { quiet({ procRows: null, procFailed: true }); }
 }
 const CAPACITY_STATUS_TEXT = { loading: 'Reading capacity...', failed: 'Could not read capacity. Retrying.' };
@@ -1765,6 +1772,14 @@ function perfTopConsumersTab_() {
   const cols = 'grid-template-columns:minmax(160px,2fr) 70px 90px 100px 100px 130px';
   const header = h('div', { class: 'tr h', style: cols }, ['Process', 'CPU', 'Memory', 'Disk read', 'Disk write', ''].map((l) => h('span', {}, l)));
   const row = (p) => {
+    // Shown once more after it drops out of a fresh read (see loadProcesses), so Stop -- or the
+    // process exiting on its own -- has something to point to rather than the row just vanishing.
+    if (p.stopped) {
+      return h('div', { class: 'tr ell', style: cols + ';cursor:default;opacity:.6' },
+        h('span', nameAttrs(p.command), p.command + ' (' + p.pid + ')'),
+        h('span', {}, '-'), h('span', {}, '-'), h('span', {}, '-'), h('span', {}, '-'),
+        h('span', {}, h('span', { class: 'tag' }, 'stopped')));
+    }
     const cpu = rv(p.cpu_pct), mem = rv(p.mem_bytes);
     const dr = p.disk_read_bytes_per_sec ? rv(p.disk_read_bytes_per_sec) : null, dw = p.disk_write_bytes_per_sec ? rv(p.disk_write_bytes_per_sec) : null;
     return h('div', { class: 'tr ell', style: cols + ';cursor:default' },

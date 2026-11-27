@@ -27,7 +27,7 @@ pub enum Action {
 /// policy, so the two can never drift apart.
 pub fn allowed_actions(label: Label, group: &Group) -> Vec<Action> {
     let my_uid = crate::actions::my_uid();
-    allowed_actions_for(label, group, |pid| crate::actions::check(pid, &my_uid, None).is_ok())
+    allowed_actions_for(label, group, |pid| crate::actions::is_signalable(pid, &my_uid))
 }
 
 fn allowed_actions_for(label: Label, group: &Group, is_signalable: impl Fn(u32) -> bool) -> Vec<Action> {

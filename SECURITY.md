@@ -18,7 +18,7 @@ system-monitor can stop processes on your Mac, so these matter most:
 
 Loopback only, Host and Origin checks on every request, a random per-run token on every write, own-user processes only, an audit log of every action, no telemetry. Tests need no credentials and make no network calls.
 
-`POST /api/kill` requires a `start=<unix-seconds>` for every pid in `pids=`, read moments earlier from `GET /api/processes`: before signalling, the server re-reads that pid's start time fresh and refuses if it no longer matches, so a pid recycled by a new, unrelated process between the read and the click is never signalled. A request missing `start`, or with a different count of `start` values than `pids`, is refused outright rather than falling back to the old pid-only check.
+`POST /api/kill` requires a `start=<unix-seconds>` for every pid in `pids=`, read moments earlier from `GET /api/processes`. Before signalling, the server re-reads that pid's start time fresh and refuses if it no longer matches, so a pid recycled by a new, unrelated process between the read and the click is never signalled. A request missing `start`, or with a different count of `start` values than `pids`, is refused outright rather than falling back to the old pid-only check.
 
 ## What `/api/storage` exposes
 
