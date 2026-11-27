@@ -79,6 +79,7 @@ const PAIRS = [
   ...SURFACES.map((s) => ['ok', s, 3, 'chart or tile in the OK colour']),
   ...SURFACES.map((s) => ['warn', s, 3, 'warning meter or segment']),
   ...SURFACES.map((s) => ['bad', s, 3, 'danger meter']),
+  ...['bg', 'panel'].map((s) => ['logo-accent', s, 3, 'the sidebar mark\'s accent end (it sits on the sidebar panel)']),
   ['chip-ok-fg', 'chip-ok-bg', 4.5, 'OK chip'],
   ['chip-warn-fg', 'chip-warn-bg', 4.5, 'warning chip'],
   ['chip-bad-fg', 'chip-bad-bg', 4.5, 'danger chip'],
@@ -153,8 +154,7 @@ test('no violet or old-theme colour is left in web/', () => {
     '5f5478', 'ede6fa', '2b2442', 'd3c9f0', 'e6dff4', '3d3160', '7ee2b8', '0f7a55', '14382b', '0b5a3e', 'd4f1e4', 'c0254f', '40150e'];
   const dir = new URL('../../web/', import.meta.url);
   for (const f of readdirSync(dir).filter((n) => /\.(css|js|html)$/.test(n))) {
-    // The favicon is the logo's own artwork, which has its own todo; every other line must be clean.
-    const text = readFileSync(new URL(f, dir), 'utf8').split('\n').filter((l) => !/rel="icon"/.test(l)).join('\n').toLowerCase();
+    const text = readFileSync(new URL(f, dir), 'utf8').toLowerCase();
     for (const hex of old) assert.ok(!text.includes(hex), f + ' still has #' + hex);
   }
 });

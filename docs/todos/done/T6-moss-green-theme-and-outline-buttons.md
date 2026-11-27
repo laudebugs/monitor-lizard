@@ -20,20 +20,20 @@ Replace the violet console palette with the Moss green palette the owner chose o
 
 - [T1a](../done/T1a-design-tokens-buttons-chips.md) made the tokens and the chamfered buttons; [T1c](../done/T1c-check-forced-colors-and-reduced-motion.md) checked forced colors on them. This todo changes the values and the button shape, not the token names.
 - The owner's decision: Moss palette, option B (outline) buttons, boards J, K, L and M of the canvas "Sys Monitor Redesign Directions".
-- The logo and favicon are not touched here: the pulse-and-tail logo is L2 (PR 88), which also adds a forced-colors `.logo` rule to `web/app.css`.
+- The logo and favicon are not touched here: the pulse-and-tail logo is L2 (PR 88, merged), which also added a forced-colors `.logo` rule to `web/app.css`.
 
 ## Scope
 
 **In scope:**
 
 - Both token blocks in `web/app.css` (dark and `:root[data-theme=light]`), with the Moss values.
-- New tokens the palette needs and the app lacked: `--edge`, `--edge2`, `--line2`, `--fg2`, `--acchov`, `--link`, `--input-bg`, `--input-bd`, and `--s2` and `--s3` (the second and third chart series). `--cut` goes: nothing clips any more.
+- New tokens the palette needs and the app lacked: `--edge`, `--edge2`, `--line2`, `--fg2`, `--acchov`, `--link`, `--input-bg`, `--input-bd`, `--s2` and `--s3` (the second and third chart series), and `--logo-accent` (the sidebar mark's accent end). `--cut` goes: nothing clips any more.
 - The `.btn` family, chips, filters, fields, links, focus rings, the second chart series and the capacity bar.
 - A Node test that reads `web/app.css` and holds the contrast ratios.
 
 **Out of scope:**
 
-- The logo, favicon and app icons (L2, PR 88).
+- The logo, favicon and app icons (L2, PR 88, merged).
 - Checking forced colors in a forced-colors browser ([T1d](../ready/T1d-live-app-forced-colors-reduced-motion-and-cpu-gpu-tab.md)).
 - The exported Storage report, a standalone print page with its own inline style.
 
@@ -67,7 +67,7 @@ Replace the violet console palette with the Moss green palette the owner chose o
 
 ## Acceptance criteria
 
-- No violet hex remains in `web/` except the favicon, which L2 replaces.
+- No violet hex remains in `web/`, favicon included.
 - Every pair in the contrast table (Implementation Record) meets its threshold, and a test holds it.
 - The pages named in Verification look right in both themes.
 
@@ -174,6 +174,8 @@ The test pairs, recomputed from the stylesheet:
 
 A disabled button (label and dashed border at 75% opacity) reads 5.57 on `--panel` in dark. In light it reads 3.66 on `--panel` and 3.33 on `--panel2`: below 4.5, above the 3.0 the test requires. Disabled controls are exempt from the 4.5 rule and the dashed border also marks the state, so `--mut` stays as the owner chose it.
 
+**Logo and favicon (after PR 88 merged).** The new favicon and sidebar mark use Moss greens (`#4fd18b` and `#b8f2d2` in dark, `#17803f` and `#0f5f2c` in light, on purpose), so the no-violet check passes with its skip removed. The sidebar mark reads `--acc` for its start and `var(--logo-accent,var(--acc))` for its end. I looked at it in Chrome in both themes with and without `--logo-accent`. At 18px the blend is subtle: in dark the tail's mint end is a small, visible lift that matches the icon; in light the darker end is barely visible but does no harm. I defined `--logo-accent` in both themes (dark `#b8f2d2`, light `#0f5f2c`) so the mark matches the icon, and a test holds it at 3:1 on bg and panel.
+
 **No second cue on the memory chart.** The stacked areas are 0.25-opacity fills in a fixed order (App at the bottom, then Wired, Compressed, Cached), and the legend gives each layer's value in text. A pattern fill would need an SVG pattern per layer. Lightness steps, order and text carry the meaning, so I recorded this as a choice, not a gap.
 
 **Verified in a real browser** (Chrome, scratch server on a free port, scratch `HOME`, no window resize), dark and light by setting `data-theme`.
@@ -193,6 +195,5 @@ A disabled button (label and dashed border at 75% opacity) reads 5.57 on `--pane
 - Forced colors: the rules were read, not drawn in a forced-colors browser ([T1d](../ready/T1d-live-app-forced-colors-reduced-motion-and-cpu-gpu-tab.md)). In forced colors the primary and plain buttons look alike, as before.
 - `prefers-color-scheme`: the stylesheet has no media query for it. The bootstrap script and `applyTheme` in `core.js` copy the setting into `data-theme`, which I set directly. I did not toggle the OS setting.
 - Real startup items, history rows and sudo captures: all faked.
-- The favicon is still the old violet. L2 (PR 88) replaces it; the no-violet test skips the `rel="icon"` line until then, and that skip must go when 88 lands.
 - The canvas boards were not re-read; the deviations compare with the values in the brief.
 - Pre-existing and untouched: `web/page-overview.js` uses an undefined token, `var(--mono,monospace)`.
