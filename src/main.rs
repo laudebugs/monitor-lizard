@@ -1,4 +1,4 @@
-use monitor_lizard::{baseline, classify, guide, history, llm, model, persistence, privilege, sampler, server, snapshot, storage, watcher};
+use monitor_lizard::{baseline, classify, guide, history, llm, model, model_store, persistence, privilege, sampler, server, snapshot, storage, watcher};
 use std::collections::BTreeMap;
 
 fn main() {
@@ -61,6 +61,11 @@ fn main() {
         Some("json") => println!("{}", serde_json::to_string_pretty(&snapshot::take()).unwrap()),
         None | Some("snapshot") => print_snapshot(),
         Some("help") => println!("{}", guide::render_help(&args.collect::<Vec<_>>().join(" "))),
+        Some("model") => match args.next().as_deref() {
+            Some("install") => model_install(args),
+            Some("status") => model_status(args),
+            _ => eprintln!("usage: monitor-lizard model install [--model qwen3-4b|qwen3-1.7b] [--yes] | model status [--model qwen3-4b|qwen3-1.7b]"),
+        },
         Some("approve") => for arg in args {
             let (kind, key) = baseline::parse_entry(&arg);
             match baseline::change(kind, key, true) {
@@ -70,6 +75,91 @@ fn main() {
             }
         },
         _ => eprintln!("{}", guide::usage()),
+    }
+}
+
+struct ModelArgs {
+    model: String,
+    yes: bool,
+}
+
+/// `--model <id>` and, only where `allow_yes`, `--yes`, in any order; any other flag is a usage
+/// error, so a typo (`--Model`, `--models`) is caught rather than silently ignored. One pass over
+/// `args`, so `--model`/`--yes` are each read once, not scanned for separately by two callers.
+fn parse_model_args(mut args: impl Iterator<Item = String>, allow_yes: bool) -> Option<ModelArgs> {
+    let mut model = model_store::DEFAULT_MODEL.to_string();
+    let mut yes = false;
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--model" => match args.next() {
+                Some(v) => model = v,
+                None => { eprintln!("--model needs a value"); return None; }
+            },
+            "--yes" if allow_yes => yes = true,
+            other => { eprintln!("unknown flag: {other}"); return None; }
+        }
+    }
+    Some(ModelArgs { model, yes })
+}
+
+/// Exits with a usage error (listing the known ids) rather than returning `None`, since every
+/// caller would otherwise repeat the same message and exit call.
+fn resolve_model(id: &str) -> &'static model_store::ModelEntry {
+    model_store::find(id).unwrap_or_else(|| {
+        eprintln!("unknown model: {id} (known: {})", model_store::MANIFEST.iter().map(|m| m.id).collect::<Vec<_>>().join(", "));
+        std::process::exit(1);
+    })
+}
+
+fn format_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut i = 0;
+    while v >= 1000.0 && i < UNITS.len() - 1 { v /= 1000.0; i += 1; }
+    if i == 0 { format!("{n} B") } else { format!("{v:.1} {}", UNITS[i]) }
+}
+
+fn describe_install_error(e: &model_store::InstallError) -> String {
+    match e {
+        model_store::InstallError::DiskSpace { free_bytes, min_bytes } => format!("only {} free, need at least {}", format_bytes(*free_bytes), format_bytes(*min_bytes)),
+        model_store::InstallError::Network(why) => format!("network error: {why}"),
+        model_store::InstallError::Status(code) => format!("the Hub replied with status {code}"),
+        model_store::InstallError::HashMismatch { expected, got } => format!("hash mismatch: expected {expected}, got {got} (the download was deleted)"),
+        model_store::InstallError::Io(why) => format!("I/O error: {why}"),
+    }
+}
+
+fn model_install(args: impl Iterator<Item = String>) {
+    let Some(ModelArgs { model: model_id, yes }) = parse_model_args(args, true) else { std::process::exit(1) };
+    let entry = resolve_model(&model_id);
+    // The licence leads, per the todo's own Goal: a legal gate the owner reads before committing
+    // to a multi-gigabyte download, not an afterthought at the bottom of the manifest.
+    println!("licence: {}", entry.licence);
+    println!("model:   {}", entry.id);
+    println!("repo:    {} @ {}", entry.repo, entry.commit);
+    println!("file:    {}", entry.file_name);
+    println!("size:    {}", format_bytes(entry.size_bytes));
+    if !yes {
+        println!("\nNothing downloaded. Pass --yes to download and verify this file.");
+        return;
+    }
+    match model_store::install(entry) {
+        Ok(model_store::InstallOutcome::AlreadyInstalled) => println!("\nalready installed and verified at {}", model_store::install_path(entry).display()),
+        Ok(model_store::InstallOutcome::Installed) => println!("\ninstalled and verified at {}", model_store::install_path(entry).display()),
+        Err(e) => { eprintln!("\ninstall failed: {}", describe_install_error(&e)); std::process::exit(1); }
+    }
+}
+
+fn model_status(args: impl Iterator<Item = String>) {
+    let Some(ModelArgs { model: model_id, .. }) = parse_model_args(args, false) else { std::process::exit(1) };
+    let entry = resolve_model(&model_id);
+    match model_store::status(entry) {
+        model_store::StatusReport::NotInstalled => println!("{}: not installed", entry.id),
+        model_store::StatusReport::Verified(hash) => println!("{}: installed and verified, sha256={hash}", entry.id),
+        model_store::StatusReport::HashMismatch { expected, got } => {
+            println!("{}: installed but the hash does not match (expected {expected}, got {got})", entry.id);
+            std::process::exit(1);
+        }
     }
 }
 

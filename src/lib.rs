@@ -11,6 +11,7 @@ pub mod history;
 pub mod iokit;
 pub mod llm;
 pub mod model;
+pub mod model_store;
 pub mod netif;
 pub mod notify;
 pub mod paths;
