@@ -9,7 +9,7 @@ const floor = html.match(/\/\* floor:begin \*\/([\s\S]*?)\/\* floor:end \*\//);
 const colresize = html.match(/\/\* colresize:begin \*\/([\s\S]*?)\/\* colresize:end \*\//);
 assert.ok(floor, 'floor block not found in the dashboard scripts (web/*.js)');
 assert.ok(colresize, 'colresize block not found in the dashboard scripts (web/*.js)');
-const { isFlexTrack, applyColumnWidths } = new Function(floor[1] + '\n' + colresize[1] + '\nreturn { isFlexTrack, applyColumnWidths };')();
+const { isFlexTrack, applyColumnWidths, clampDrag } = new Function(floor[1] + '\n' + colresize[1] + '\nreturn { isFlexTrack, applyColumnWidths, clampDrag };')();
 
 test('colresize: isFlexTrack is true only for a track with fr', () => {
   assert.equal(isFlexTrack('minmax(120px,1.6fr)'), true);
@@ -58,4 +58,19 @@ test('colresize: the grip is reachable by keyboard and resets on double-click', 
 test('colresize: widthsOf and setWidth use their own localStorage key, separate from the column chooser', () => {
   assert.match(html, /const COLW_STORE = 'table-colw:';/);
   assert.notEqual(html.match(/const COLW_STORE = '([^']+)'/)[1], html.match(/const COLS_STORE = '([^']+)'/)[1]);
+});
+
+test('colresize: clampDrag is the delta math a drag and an arrow-key step both use, and never goes below the minimum', () => {
+  assert.equal(clampDrag(120, 80, 60), 180); // dragged wider
+  assert.equal(clampDrag(120, 80, -200), 80); // dragged far narrower: clamped at the minimum, not negative
+  assert.equal(clampDrag(120, 80, -16), 104); // one ArrowLeft step
+});
+
+test('colresize: the drag and the keyboard step both call clampDrag, not their own inline Math.max', () => {
+  assert.match(html, /pending = clampDrag\(startW, minW, ev\.clientX - startX\)/);
+  assert.match(html, /setWidth\(key, id, clampDrag\(cur, minW, e\.key === 'ArrowLeft' \? -COL_STEP : COL_STEP\)\)/);
+});
+
+test('colresize: the column drag and the drawer handle drag share one listener-wiring helper', () => {
+  assert.equal((html.match(/^\s*beginDrag\(\s*$/gm) || []).length, 2, 'startColResize and startDrawerResize should both call beginDrag');
 });

@@ -420,6 +420,8 @@ function applyColumnWidths(tracks, ids, widths) {
     return Math.max(trackMin(t), Math.round(w)) + 'px';
   });
 }
+// A dragged or arrow-keyed width never goes below the column's own minimum.
+const clampDrag = (startW, minW, delta) => Math.max(minW, startW + delta);
 /* colresize:end */
 const warned = new Set();
 const TABLE_NAME = { sudo: 'sudo and su launches', auth: 'Authorization requests', apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', trash: 'Moves to the Trash', store: 'Storage folders' };
@@ -483,12 +485,24 @@ function colGrip(key, id, label, track) {
     onDblclick: (e) => { e.stopPropagation(); setWidth(key, id, null); render(); } });
 }
 const COL_STEP = 16;
-let endColDrag = null; // the in-progress column drag's cleanup, so a second mousedown or a missed mouseup can't leak listeners
+// Shared by every pointer drag on this page (a column grip, the drawer handle): wires the mousemove/mouseup/blur
+// listeners and guards against a second mousedown or a missed mouseup leaking the previous drag's listeners. Only
+// one drag can be in progress at a time, so one guard covers the drawer and every column.
+let activeDragEnd = null;
+function beginDrag(onMove, onUp) {
+  if (activeDragEnd) activeDragEnd();
+  const stop = () => {
+    document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', stop); window.removeEventListener('blur', stop);
+    activeDragEnd = null;
+    onUp();
+  };
+  activeDragEnd = stop;
+  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', stop); window.addEventListener('blur', stop);
+}
 // Drag a column's right edge; mirrors startDrawerResize (live DOM patch per frame, one render() on release). Every
 // row of the table is patched at once, from each row's own tracks (tracksOf caches per node, same as decorateTables).
 function startColResize(e, key, id) {
   e.preventDefault(); e.stopPropagation();
-  if (endColDrag) endColDrag();
   const handleEl = e.currentTarget, headEl = handleEl.closest('.tr.h'); if (!headEl) return;
   const sec = headEl.parentElement, ids = headEl.dataset.cols.split(','), i = ids.indexOf(id);
   if (i < 0) return;
@@ -499,22 +513,13 @@ function startColResize(e, key, id) {
   const paint = () => {
     raf = 0;
     const widths = Object.assign({}, widthsOf(key), { [id]: pending });
-    for (const r of rows) {
-      const joined = applyColumnWidths(tracksOf(r), ids, widths).filter((_, k) => shown.includes(ids[k])).join(' ');
-      r.style.gridTemplateColumns = joined;
-    }
+    for (const r of rows) r.style.gridTemplateColumns = applyColumnWidths(tracksOf(r), ids, widths).filter((_, k) => shown.includes(ids[k])).join(' ');
     handleEl.setAttribute('aria-valuenow', Math.round(pending));
   };
-  const onMove = (ev) => { pending = Math.max(minW, startW + (ev.clientX - startX)); if (!raf) raf = requestAnimationFrame(paint); };
-  const onUp = () => {
-    document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); window.removeEventListener('blur', onUp);
-    if (raf) cancelAnimationFrame(raf);
-    endColDrag = null;
-    setWidth(key, id, Math.round(pending));
-    render();
-  };
-  endColDrag = onUp;
-  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); window.addEventListener('blur', onUp);
+  beginDrag(
+    (ev) => { pending = clampDrag(startW, minW, ev.clientX - startX); if (!raf) raf = requestAnimationFrame(paint); },
+    () => { if (raf) cancelAnimationFrame(raf); setWidth(key, id, Math.round(pending)); render(); },
+  );
 }
 function colHandleKeys(e, key, id) {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -522,7 +527,7 @@ function colHandleKeys(e, key, id) {
   const headEl = e.currentTarget.closest('.tr.h'); if (!headEl) return;
   const ids = headEl.dataset.cols.split(','), i = ids.indexOf(id); if (i < 0) return;
   const cur = Math.round(headEl.children[i].getBoundingClientRect().width), minW = trackMin(tracksOf(headEl)[i]);
-  setWidth(key, id, Math.max(minW, cur + (e.key === 'ArrowLeft' ? -COL_STEP : COL_STEP)));
+  setWidth(key, id, clampDrag(cur, minW, e.key === 'ArrowLeft' ? -COL_STEP : COL_STEP));
   render();
 }
 const sigKind = (g) => (!g.signing ? 'unchecked' : g.signing.apple ? 'apple' : g.signing.signed ? 'signed' : 'unsigned');
@@ -536,10 +541,8 @@ function setDrawerWidth(w) { S.drawerW = clampDrawer(w); localStorage.setItem('d
 // and the panel's width is fixed while dragging. Keyboard: ArrowLeft/ArrowRight on the focused handle.
 // A full render() per mousemove would replace the handle's DOM node and drop its focus, and is wasteful at mouse
 // rate; instead the live elements are nudged directly while dragging, and one render() settles everything on release.
-let endDrag = null; // the in-progress drag's cleanup, so a second mousedown or a missed mouseup can't leak listeners
 function startDrawerResize(e) {
   e.preventDefault();
-  if (endDrag) endDrag(); // a previous drag never got its mouseup (e.g. released outside the window): clean it up first
   const startX = e.clientX, startW = S.drawerW || document.querySelector('.drawer')?.offsetWidth || 380;
   const handleEl = e.currentTarget, hadFocus = document.activeElement === handleEl;
   let raf = 0, pending = startW;
@@ -548,16 +551,14 @@ function startDrawerResize(e) {
     const el = document.querySelector('.drawer'); if (el) { el.classList.add('sized'); el.style.setProperty('--dw', pending + 'px'); }
     handleEl.setAttribute('aria-valuenow', pending);
   };
-  const onMove = (ev) => { pending = clampDrawer(startW + (startX - ev.clientX)); if (!raf) raf = requestAnimationFrame(paint); };
-  const onUp = () => {
-    document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); window.removeEventListener('blur', onUp);
-    if (raf) cancelAnimationFrame(raf);
-    endDrag = null;
-    S.drawerW = pending; localStorage.setItem('drawer-width', S.drawerW); render();
-    if (hadFocus) document.querySelector('.handle')?.focus();
-  };
-  endDrag = onUp;
-  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); window.addEventListener('blur', onUp);
+  beginDrag(
+    (ev) => { pending = clampDrawer(startW + (startX - ev.clientX)); if (!raf) raf = requestAnimationFrame(paint); },
+    () => {
+      if (raf) cancelAnimationFrame(raf);
+      S.drawerW = pending; localStorage.setItem('drawer-width', S.drawerW); render();
+      if (hadFocus) document.querySelector('.handle')?.focus();
+    },
+  );
 }
 function drawerHandleKeys(e) {
   if (e.key === 'ArrowLeft') { e.preventDefault(); setDrawerWidth((S.drawerW || 380) + DRAWER_STEP); }
