@@ -81,6 +81,7 @@ pub fn serve_on(server: Arc<Server>) {
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
+    history::start_capacity_writer();
     history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
     thread::spawn(|| {
         let h = history::open_or_report();
@@ -105,6 +106,7 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/api/privilege") => cached(&privs),
             (Method::Get, "/api/persistence") => cached(&pers),
             (Method::Get, "/api/storage") => json_resp(storage_cache.respond(query, &storage_scan)),
+            (Method::Get, "/api/storage/history") => json_resp(storage_history_reply().to_string()),
             (Method::Get, "/api/volume") => { let (code, body) = storage::boot_capacity_reply(); json_resp(body).with_status_code(code) }
             (Method::Get, "/api/metrics") => {
                 let since = query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -169,6 +171,14 @@ pub fn serve_on(server: Arc<Server>) {
         };
         let _ = req.respond(res);
     }
+}
+
+/// The capacity series and its forecast. Read-only; a database that cannot be opened gives `available: false`
+/// instead of an error, so the page still shows the current capacity.
+fn storage_history_reply() -> serde_json::Value {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let series = History::open().and_then(|h| h.capacity_series(now)).map_err(|e| history::unavailable(&e));
+    storage::forecast::reply(series, history::local_day(now, history::local_utc_offset(now)))
 }
 
 /// The outcome of a mark or unmark request that passed validation.

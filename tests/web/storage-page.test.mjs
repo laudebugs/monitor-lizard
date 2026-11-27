@@ -10,7 +10,7 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in web/index.html');
   return m[1];
 };
-const names = 'pathDisplay retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES'.split(' ');
+const names = 'pathDisplay retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES weekText capacityOutlook capacityChart capacityChartLabel'.split(' ');
 const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const GB = 1e9;
@@ -401,4 +401,83 @@ test('the table shows the display path but the title and the export keep the ful
   assert.equal(row.path, '/Users/me/Library/Caches/com.demo');
   assert.match(html, /store: \{ folder: \(r\) => r\.path,/, 'export keeps the full path');
   assert.match(html, /h\('span', nameAttrs\(r\.path\), h\('span', \{ style: 'display:flex;min-width:0' \}/, 'the title is the full path');
+});
+
+// ---- capacity history (todo S4)
+const hist = (forecast, extra = {}) => ({
+  available: true, reason: null, retention_days: 90, window_days: 14, today: 100, total: 1000 * GB, week_change_bytes: 14.2 * GB, forecast,
+  samples: Array.from({ length: 8 }, (_, i) => ({ day: 93 + i, ts: (93 + i) * 86400, used: (600 + 10 * i) * GB, purgeable: 0, free: (400 - 10 * i) * GB })), ...extra,
+});
+const growing = (extra = {}) => ({ status: 'growing', fit_days: 8, bytes_per_day: 10 * GB, days_until_full: 33, days_low: 29.4, days_high: 38.2, ...extra });
+
+test('week text: grew, shrank, none, and collecting', () => {
+  assert.equal(P.weekText(hist(growing())), 'Grew 14.2 GB this week');
+  assert.equal(P.weekText(hist(growing(), { week_change_bytes: -3 * GB })), 'Shrank 3.0 GB this week');
+  assert.equal(P.weekText(hist(growing(), { week_change_bytes: 0 })), 'No change in used space this week');
+  assert.equal(P.weekText(hist(growing(), { week_change_bytes: null })), 'Weekly change: collecting history');
+  assert.equal(P.weekText(null), null);
+  assert.equal(P.weekText({ available: false }), null);
+});
+
+test('outlook: a growing disk says about, gives a range, and says what the line rests on', () => {
+  const o = P.capacityOutlook(hist(growing()), false);
+  assert.equal(o.kind, 'growing');
+  assert.equal(o.headline, 'Full in about 33 days');
+  assert.equal(o.detail, 'Range 29 to 38 days');
+  assert.match(o.note, /straight line/);
+  assert.match(o.note, /last 8 days/);
+});
+
+test('outlook: no upper end, a one-figure range and a far-off date are worded honestly', () => {
+  assert.equal(P.capacityOutlook(hist(growing({ days_high: null })), false).detail, 'Range 29 days or more');
+  assert.equal(P.capacityOutlook(hist(growing({ days_low: 33, days_high: 33.2 })), false).detail, '');
+  const far = P.capacityOutlook(hist(growing({ days_until_full: 5000, days_low: 4000, days_high: null })), false);
+  assert.equal(far.headline, 'Full in more than 2 years');
+  assert.equal(far.detail, '');
+  assert.equal(P.capacityOutlook(hist(growing({ days_until_full: 0.2, days_low: 0, days_high: 0.3 })), false).headline, 'Full in less than a day');
+});
+
+test('outlook: collecting, not growing, unavailable, failed and loading', () => {
+  const c = P.capacityOutlook(hist({ status: 'collecting', days_have: 3, days_needed: 7 }), false);
+  assert.deepEqual([c.kind, c.headline, c.detail], ['collecting', 'Collecting history', '3 of 7 days so far; a forecast needs 7.']);
+  const f = P.capacityOutlook(hist({ status: 'not_growing', fit_days: 10 }), false);
+  assert.deepEqual([f.kind, f.headline], ['flat', 'Not growing']);
+  assert.ok(!/day/.test(f.headline), 'no days figure');
+  const u = P.capacityOutlook({ available: false, reason: 'x', forecast: { status: 'unavailable' }, samples: [] }, false);
+  assert.deepEqual([u.kind, u.headline], ['unavailable', 'History unavailable']);
+  assert.match(u.detail, /current capacity above is not affected/);
+  assert.equal(P.capacityOutlook(null, true).kind, 'failed');
+  assert.equal(P.capacityOutlook(null, false).kind, 'loading');
+  assert.equal(P.capacityOutlook(hist({ status: 'growing' }), false).kind, 'unavailable', 'a growing forecast without numbers is not shown as a number');
+});
+
+test('chart: needs two samples; draws a solid line, a dashed forecast that ends on the top rule, and a label that states the forecast', () => {
+  assert.equal(P.capacityChart(null), null);
+  assert.equal(P.capacityChart(hist(growing(), { samples: [] })), null);
+  assert.equal(P.capacityChart({ available: false, samples: [] }), null);
+  const c = P.capacityChart(hist(growing()));
+  assert.equal(c.count, 8);
+  assert.match(c.line, /^M[\d. ]+( L[\d. ]+){7}$/);
+  assert.ok(c.dash.startsWith('M') && c.dash.includes(' L'), 'the forecast is its own path, drawn dashed by the page');
+  const end = c.dash.split(' L')[1].split(' ').map(Number);
+  assert.ok(Math.abs(end[1] - c.topY) < 0.2, 'a disk that fills within the view reaches the top rule: ' + end[1] + ' vs ' + c.topY);
+  const label = P.capacityChartLabel(c, P.capacityOutlook(hist(growing()), false));
+  assert.match(label, /Forecast: Full in about 33 days/);
+  assert.match(label, /from 600 GB to 670 GB/);
+});
+
+test('chart: no forecast line without a growing forecast, and every coordinate is finite', () => {
+  for (const f of [{ status: 'not_growing', fit_days: 9 }, { status: 'collecting', days_have: 8, days_needed: 7 }]) {
+    const c = P.capacityChart(hist(f));
+    assert.equal(c.dash, '');
+    assert.ok(!/NaN|Infinity/.test(c.line + c.dash));
+  }
+  const flat = hist({ status: 'not_growing', fit_days: 8 }, { samples: hist().samples.map((d) => ({ ...d, used: 500 * GB })) });
+  assert.ok(!/NaN|Infinity/.test(P.capacityChart(flat).line), 'a flat series has no vertical range to divide by');
+});
+
+test('chart: bad samples are dropped instead of drawn', () => {
+  const h2 = hist(growing());
+  h2.samples[3] = { day: 96, ts: 1, used: 'x', purgeable: 0, free: 0 };
+  assert.equal(P.capacityChart(h2).count, 7);
 });

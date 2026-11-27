@@ -44,9 +44,9 @@ Store one capacity sample a day and show "grew 14.2 GB this week" and "full in a
 
 ## Steps
 
-- [ ] Tests for the forecast first.
-- [ ] Write the daily sample at first scan after local midnight; skip if one exists for the day.
-- [ ] Chart as inline SVG with `role="img"` and an `aria-label` that states the forecast.
+- [x] Tests for the forecast first.
+- [x] Write the daily sample at first scan after local midnight; skip if one exists for the day.
+- [x] Chart as inline SVG with `role="img"` and an `aria-label` that states the forecast.
 
 ## Edge cases (must be covered)
 
@@ -84,9 +84,43 @@ Plan status.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
+- [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+### What was built
+
+- `src/storage/forecast.rs` (new): `Day`, `forecast()`, `week_change()`, `reply()`, 14 tests.
+- `src/history.rs`: `capacity_daily(day, ts, used, purgeable, free)`, `record_capacity`, `capacity_series`, `local_day`, `capacity_tick`, `start_capacity_writer`, 7 tests.
+- `GET /api/storage/history` in `src/server.rs`: read-only, behind the Host check, no token.
+- `web/index.html`: a Growth block in the Storage page's startup-disk card (this week, disk full, the basis of the line) with an inline SVG chart, and 7 Node tests in `tests/web/storage-page.test.mjs`.
+
+### Deviations
+
+- The forecast is in `src/storage/forecast.rs`, not `src/storage.rs`: `storage` is a folder.
+- The daily write is not tied to a scan. A thread checks every 10 minutes and stores the first reading after local midnight, using the same capacity reading the scan uses. A history that only grew when someone opened the Storage page would have gaps.
+- The table is created on first use with `IF NOT EXISTS` and no migration step, as the todo says, so `user_version` is unchanged.
+- A "large one-day drop" is a fall of more than 5% of the disk in used space (purgeable included) between two consecutive samples. The todo gives no figure; this is a judgement call.
+- A purgeable share that cannot be read is stored as 0, because `used` then already includes it. A sample is skipped when used or free cannot be read.
+- An unopenable database gives a 200 with `available: false`, not a 500, so the page can keep the capacity bar and say why there is no forecast.
+- The forecast counts days from the last sample, not from now, and fits the fitted value at the last sample, not the last raw one.
+
+### Checked
+
+- `make check`, `make test` (322 Rust tests, 198 Node tests), `make check-docs`.
+- A scratch `HOME` with 8 synthetic earlier days plus the live capacity sample: the page showed "Grew 1.1 GB this week", "Full in about 12 days. Range 11 to 12 days", a solid line, a dashed forecast reaching the top rule, and an `aria-label` that states the forecast. Dark and light themes both looked right in Chrome. The real `~/.monitor-lizard` was not touched.
+
+### Not verified
+
+- The "Collecting history", "Not growing", "History unavailable" and failed-read states were checked only in Node tests, not in a browser.
+- A database that is not writable was tested by a path that cannot be created, not by a read-only file on a real disk.
+- The write after local midnight, a real clock moving backwards and a daylight-saving change were tested with injected times, not by waiting or changing the system clock.
+- Narrow window widths, forced colors and reduced motion were not checked; the window was not resized.
+- Screen reader output was not heard; only the label text was read.
+- `/code-review` and `/writing-review` have not been run on this PR. CI is pending.
+- The Tauri shell was not run.

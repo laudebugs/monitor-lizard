@@ -1,4 +1,5 @@
 use crate::model::*;
+use crate::storage::forecast::{self, Day};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -231,6 +232,42 @@ pub fn open_or_report() -> Option<History> {
 
 pub struct History(Connection);
 
+const RETENTION_SECS: u64 = forecast::RETENTION_DAYS as u64 * 86400;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum CapacityWrite { Written, AlreadyToday, ClockBehind }
+
+/// Local calendar days since 1970-01-01 for a unix time, given the zone's offset from UTC.
+pub fn local_day(ts: u64, utc_offset: i64) -> i64 { (ts as i64 + utc_offset).div_euclid(86400) }
+
+/// The local zone's offset from UTC at `ts`, in seconds (daylight saving included).
+pub fn local_utc_offset(ts: u64) -> i64 {
+    let t = ts as libc::time_t;
+    // SAFETY: `localtime_r` writes into the zeroed struct we own and reads `t`; a null result is checked.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() { 0 } else { tm.tm_gmtoff as i64 }
+    }
+}
+
+/// One capacity tick: read the capacity (only when asked) and store it. Pulled out of the thread loop
+/// so a test can drive it without a real clock or disk.
+pub fn capacity_tick(h: &History, now: u64, offset: i64, capacity: impl FnOnce() -> Option<(u64, u64, u64)>) -> rusqlite::Result<Option<CapacityWrite>> {
+    match capacity() { Some(c) => h.record_capacity(now, offset, c).map(Some), None => Ok(None) }
+}
+
+/// Writes one capacity sample per local day, from the same reading the Storage page shows, with no
+/// scan. Checked every 10 minutes, so the first check after local midnight stores the new day.
+pub fn start_capacity_writer() {
+    std::thread::spawn(|| loop {
+        if let Some(h) = open_or_report() {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            if let Err(e) = capacity_tick(&h, now, local_utc_offset(now), crate::storage::capacity_triple) { eprintln!("monitor-lizard: could not store the capacity sample: {e}"); }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(600));
+    });
+}
+
 fn path() -> PathBuf { crate::paths::data_dir().join("history.db") }
 
 impl History {
@@ -420,6 +457,34 @@ impl History {
             self.insert_rollup("15m", metric, &rollup_buckets(&points, FIFTEEN_MIN_BUCKET_SECS, already, now))?;
         }
         Ok(())
+    }
+
+    /// `capacity_daily` is made here rather than by a migration step: nothing alters it later, so
+    /// `IF NOT EXISTS` is enough, and `user_version` stays what the other tables expect. It holds
+    /// three byte counts and the day, nothing about apps or folders.
+    fn ensure_capacity_table(&self) -> rusqlite::Result<()> {
+        self.0.execute_batch("CREATE TABLE IF NOT EXISTS capacity_daily(day INTEGER PRIMARY KEY, ts INTEGER NOT NULL, used INTEGER NOT NULL, purgeable INTEGER NOT NULL, free INTEGER NOT NULL);")
+    }
+
+    /// Stores today's capacity sample unless one exists for the local day. A clock that has moved
+    /// backwards (now is before the newest stored sample) is ignored, so the series never goes out of
+    /// order. Rows past the retention window are deleted on every call.
+    pub fn record_capacity(&self, now: u64, utc_offset: i64, (used, purgeable, free): (u64, u64, u64)) -> rusqlite::Result<CapacityWrite> {
+        self.ensure_capacity_table()?;
+        let newest: Option<i64> = self.0.query_row("SELECT MAX(ts) FROM capacity_daily", [], |r| r.get(0))?;
+        if newest.is_some_and(|t| (now as i64) < t) { return Ok(CapacityWrite::ClockBehind); }
+        self.0.execute("DELETE FROM capacity_daily WHERE ts < ?1", params![now.saturating_sub(RETENTION_SECS) as i64])?;
+        let day = local_day(now, utc_offset);
+        let n = self.0.execute("INSERT OR IGNORE INTO capacity_daily(day, ts, used, purgeable, free) VALUES(?1, ?2, ?3, ?4, ?5)", params![day, now as i64, used as i64, purgeable as i64, free as i64])?;
+        Ok(if n == 1 { CapacityWrite::Written } else { CapacityWrite::AlreadyToday })
+    }
+
+    /// The samples of the last 90 days, oldest first.
+    pub fn capacity_series(&self, now: u64) -> rusqlite::Result<Vec<Day>> {
+        self.ensure_capacity_table()?;
+        let mut st = self.0.prepare("SELECT day, ts, used, purgeable, free FROM capacity_daily WHERE ts >= ?1 ORDER BY day")?;
+        let rows = st.query_map(params![now.saturating_sub(RETENTION_SECS) as i64], |r| Ok(Day { day: r.get(0)?, ts: r.get::<_, i64>(1)? as u64, used: r.get::<_, i64>(2)? as u64, purgeable: r.get::<_, i64>(3)? as u64, free: r.get::<_, i64>(4)? as u64 }))?;
+        rows.collect()
     }
 
     /// Deletes rows older than each tier's own retention window; a resolution's own row is never
@@ -1187,5 +1252,105 @@ mod tests {
         }
         drop(h);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const GB: u64 = 1_000_000_000;
+    const DAY: u64 = 86_400;
+    fn cap_db(name: &str) -> (PathBuf, History) {
+        let dir = scratch(name);
+        let h = History::at(&dir.join("h.db")).unwrap();
+        (dir, h)
+    }
+    fn cap() -> (u64, u64, u64) { (400 * GB, 50 * GB, 550 * GB) }
+
+    #[test]
+    fn the_first_sample_of_a_local_day_is_stored_and_a_second_one_that_day_is_not() {
+        let (dir, h) = cap_db("cap-once");
+        let t0 = 100 * DAY + 3600;
+        assert_eq!(h.record_capacity(t0, 0, cap()).unwrap(), CapacityWrite::Written);
+        assert_eq!(h.record_capacity(t0 + 3600, 0, (1, 1, 1)).unwrap(), CapacityWrite::AlreadyToday);
+        assert_eq!(h.record_capacity(t0 + DAY, 0, cap()).unwrap(), CapacityWrite::Written);
+        let s = h.capacity_series(t0 + DAY).unwrap();
+        assert_eq!(s.len(), 2);
+        assert_eq!((s[0].used, s[0].purgeable, s[0].free), (400 * GB, 50 * GB, 550 * GB), "the first sample of the day kept its numbers");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_day_turns_over_at_local_midnight_not_at_utc_midnight() {
+        let offset = -8 * 3600; // 16:00 UTC on day 100 is 08:00 local on day 100; 07:59 UTC on day 101 is 23:59 local on day 100
+        assert_eq!(local_day(100 * DAY + 16 * 3600, offset), 100);
+        assert_eq!(local_day(101 * DAY + 7 * 3600 + 59 * 60, offset), 100);
+        assert_eq!(local_day(101 * DAY + 8 * 3600, offset), 101);
+        let (dir, h) = cap_db("cap-local");
+        assert_eq!(h.record_capacity(100 * DAY + 16 * 3600, offset, cap()).unwrap(), CapacityWrite::Written);
+        assert_eq!(h.record_capacity(101 * DAY + 7 * 3600, offset, cap()).unwrap(), CapacityWrite::AlreadyToday, "still the same local day");
+        assert_eq!(h.record_capacity(101 * DAY + 8 * 3600, offset, cap()).unwrap(), CapacityWrite::Written);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_clock_that_moves_backwards_writes_nothing() {
+        let (dir, h) = cap_db("cap-clock");
+        h.record_capacity(100 * DAY, 0, cap()).unwrap();
+        h.record_capacity(101 * DAY, 0, cap()).unwrap();
+        assert_eq!(h.record_capacity(95 * DAY, 0, (9, 9, 9)).unwrap(), CapacityWrite::ClockBehind);
+        assert_eq!(h.record_capacity(101 * DAY - 1, 0, (9, 9, 9)).unwrap(), CapacityWrite::ClockBehind);
+        let s = h.capacity_series(101 * DAY).unwrap();
+        assert_eq!(s.iter().map(|d| d.day).collect::<Vec<_>>(), [100, 101]);
+        assert!(s.iter().all(|d| d.used == 400 * GB));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn no_row_older_than_ninety_days_is_kept() {
+        let (dir, h) = cap_db("cap-prune");
+        for d in [1u64, 10, 50] { h.record_capacity(d * DAY, 0, cap()).unwrap(); }
+        let now = 100 * DAY;
+        h.record_capacity(now, 0, cap()).unwrap();
+        let days: Vec<i64> = h.capacity_series(now).unwrap().iter().map(|d| d.day).collect();
+        assert_eq!(days, [10, 50, 100], "day 1 is 99 days old and gone; day 10 is exactly 90 days old and kept");
+        let stored: i64 = h.0.query_row("SELECT COUNT(*) FROM capacity_daily", [], |r| r.get(0)).unwrap();
+        assert_eq!(stored, 3, "deleted from the table, not only hidden");
+        // Reading also hides anything past the window, even before the next write prunes it.
+        assert_eq!(h.capacity_series(now + 41 * DAY).unwrap().iter().map(|d| d.day).collect::<Vec<_>>(), [100]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_table_is_created_without_a_migration_and_holds_only_capacity_numbers() {
+        let (dir, h) = cap_db("cap-schema");
+        assert_eq!(h.capacity_series(100 * DAY).unwrap(), vec![], "an empty table, made on first use");
+        assert_eq!(version_of(&dir.join("h.db")), MIGRATIONS.len(), "no migration step was added");
+        let cols: Vec<String> = h.0.prepare("PRAGMA table_info(capacity_daily)").unwrap().query_map([], |r| r.get::<_, String>(1)).unwrap().map(|c| c.unwrap()).collect();
+        assert_eq!(cols, ["day", "ts", "used", "purgeable", "free"]);
+        h.ensure_capacity_table().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_unreadable_capacity_stores_nothing_and_a_failed_open_becomes_an_unavailable_reply() {
+        let (dir, h) = cap_db("cap-none");
+        assert_eq!(capacity_tick(&h, 100 * DAY, 0, || None).unwrap(), None);
+        assert!(h.capacity_series(100 * DAY).unwrap().is_empty());
+        assert_eq!(capacity_tick(&h, 100 * DAY, 0, || Some(cap())).unwrap(), Some(CapacityWrite::Written));
+        // A database that cannot be opened (its folder is a file) is reported, not hidden.
+        let blocker = dir.join("not-a-folder");
+        std::fs::write(&blocker, b"x").unwrap();
+        let err = History::at(&blocker.join("h.db")).map(|_| ()).map_err(|e| unavailable(&e)).unwrap_err();
+        let v = forecast::reply(Err(err), 100);
+        assert_eq!((v["available"].clone(), v["forecast"]["status"].clone()), (false.into(), "unavailable".into()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn eight_days_of_samples_give_a_forecast_with_a_range_through_the_reply() {
+        let (dir, h) = cap_db("cap-eight");
+        for i in 0..8u64 { h.record_capacity((92 + i) * DAY + 100, 0, ((600 + 10 * i) * GB, 0, (400 - 10 * i) * GB)).unwrap(); }
+        let v = forecast::reply(h.capacity_series(99 * DAY + 100).map_err(|e| unavailable(&e)), 99);
+        assert_eq!(v["forecast"]["status"], "growing");
+        assert!((v["forecast"]["days_until_full"].as_f64().unwrap() - 33.0).abs() < 1e-6);
+        assert!(v["forecast"]["days_low"].is_number());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
