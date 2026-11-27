@@ -306,14 +306,20 @@ test('Move with a preview token is a live button, and one click sends one reques
   assert.equal(w.S.trash.phase, 'moving');
 });
 
-test('a folder only partly measured makes the dialog say "at least", never a plain total', () => {
-  const w = world();
-  const body = { dry_run: true, items: [{ id: hex(1), status: 'would_move', bytes: 5e9, path: '/Users/me/Library/Caches/c1' }] };
-  const known = { [hex(1)]: { id: hex(1), name: 'c1', path: '/Users/me/Library/Caches/c1', label: 'safe', bytes: 5e9, lowerBound: true } };
-  const sum = w.P.trashSummary(body, known);
-  w.S.trash = previewed({ token: 'T', known, summary: sum });
-  assert.match(draw(w).dlg.allText(), /would move to the Trash \(at least 5\.0 GB\)/);
-  const exact = w.P.trashSummary(body, { [hex(1)]: { ...known[hex(1)], lowerBound: false } });
-  w.S.trash = previewed({ token: 'T', summary: exact });
-  assert.match(draw(w).dlg.allText(), /would move to the Trash \(5\.0 GB\)/);
+// The figure is the server's exact size for the chosen folders, so it is qualified rather than withheld: "at least"
+// whenever the scan is not complete, and for any folder the scan only partly measured.
+async function previewText(rows, partial) {
+  const body = { dry_run: true, items: rows.map((r) => ({ id: r.id, status: 'would_move', bytes: 5e9, path: r.path })), confirm_token: 'T' };
+  const w = world({ api: async () => ({ status: 200, json: async () => body }) });
+  const sel = w.P.trashSelection(rows, rows.map((r) => r.id), partial);
+  w.P.openTrash(sel);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(w.S.trash.phase, 'previewed');
+  return draw(w).dlg.allText();
+}
+
+test('the dialog says "at least" on a partial scan even for exact folders, and a plain size on a complete scan', async () => {
+  assert.match(await previewText([row(1)], true), /would move to the Trash \(at least 5\.0 GB\)/);
+  assert.match(await previewText([row(1)], false), /would move to the Trash \(5\.0 GB\)/);
+  assert.match(await previewText([row(1, { lowerBound: true })], false), /\(at least 5\.0 GB\)/, 'a partly measured folder on a complete scan');
 });

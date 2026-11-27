@@ -9,7 +9,7 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)');
   return m[1];
 };
-const names = 'stCleanups cleanupView safeIds sumSizes sumText pickedRows cleanupSummary safeCleanupLine systemData systemText stSectionReading escHtml reportHtml storageRows ST_RULE_TEXT ST_CLEANUP_TOP safeSubtotalText safeSubtotalFor visibleText homeRelative'.split(' ');
+const names = 'stCleanups cleanupView safeIds sumSizes sumText pickedRows cleanupSummary safeCleanupLine systemData systemText stSectionReading escHtml reportHtml storageRows ST_RULE_TEXT ST_CLEANUP_TOP safeSubtotalText safeSumFor safeSummaryTail safeSelectedLine SAFE_WITHHELD safeTotalText visibleText homeRelative'.split(' ');
 const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + block('storage-cleanups') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const GB = 1e9;
@@ -204,11 +204,19 @@ test('report: paths are home-relative, so the user name is not in the file', () 
   assert.ok(out.includes('~/Library/Caches/com.x'));
 });
 
-test('safeSubtotalFor: a partial scan gives the withheld line whatever the sizes, a complete scan the subtotal', () => {
-  const partial = scan({ complete: false }), list = clean(partial);
-  assert.equal(P.safeSubtotalFor(partial, list), 'Not shown until the scan is complete.');
-  assert.equal(P.safeSubtotalFor(scan(), clean(scan())), '40.0 GB');
-  assert.equal(P.safeSubtotalFor(null, []), 'Not shown until the scan is complete.', 'no scan, no total');
+test('the partial-scan rule: every place that states a safe total gives the one withheld line, a complete scan states it', () => {
+  const partial = scan({ complete: false }), whole = scan(), lp = clean(partial), lw = clean(whole);
+  assert.equal(P.SAFE_WITHHELD, 'Safe total: not shown until the scan is complete');
+  assert.equal(P.safeTotalText(partial, P.storageRows(partial)), P.SAFE_WITHHELD);
+  assert.equal(P.safeSumFor(partial, lp), P.SAFE_WITHHELD);
+  assert.equal(P.safeSumFor(null, []), P.SAFE_WITHHELD, 'no scan, no total');
+  assert.equal(P.safeSummaryTail(partial, lp), '. Safe total: not shown until the scan is complete.');
+  assert.equal(P.safeSelectedLine(partial, lp), '1 safe folder selected. Total not shown until the scan is complete. Details are in the inspector.');
+  assert.equal(P.safeSumFor(whole, lw.filter((r) => r.label === 'safe')), '40.0 GB');
+  assert.equal(P.safeSummaryTail(whole, lw), ', 40.0 GB.');
+  assert.equal(P.safeSelectedLine(whole, lw), '1 safe folder selected: 40.0 GB. Details are in the inspector.');
+  const none = clean(scan({ complete: false, items: [item('/Users/me/Library/Caches/a', 'caches', GB)] }));
+  assert.equal(P.safeSummaryTail(partial, none), '.', 'nothing safe, nothing to withhold');
 });
 
 test('the report states no safe total on a partial scan, and the section total is withheld too', () => {

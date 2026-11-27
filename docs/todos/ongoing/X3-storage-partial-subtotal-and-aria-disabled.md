@@ -1,4 +1,4 @@
-# X3: Hide the safe subtotal on a partial scan and keep disabled buttons focusable
+# X3: Withhold the safe total on partial scans and use aria-disabled on Storage buttons
 
 | Field | Value |
 |---|---|
@@ -9,7 +9,7 @@
 | ADRs | None |
 | Branch | `fix/x3-storage-partial-subtotal-and-aria-disabled` |
 | PR title | `fix(web): withhold the safe total on partial scans and use aria-disabled on Storage buttons` |
-| Size | S (under 200 changed lines) |
+| Size | S (under 200 changed lines; the PR came to about 230 inserted lines, mostly tests) |
 | PR | — |
 
 ## Goal
@@ -43,7 +43,7 @@ Fix two Storage page problems that the review of PR #72 found and that PR left a
 
 ## Steps
 
-- [x] Write the failing tests first: a partial scan with safe folders shows no unqualified total; each of the three buttons carries `aria-disabled` and no `disabled` while it cannot act, and a click does nothing but announce why.
+- [ ] Write the failing tests first (not followed: the code came first and the tests went in the same commit, so they were not seen failing. Two of them, the report and the one-click Move, pin behaviour that already held and are regression guards): a partial scan with safe folders shows no unqualified total; each of the three buttons carries `aria-disabled` and no `disabled` while it cannot act, and a click does nothing but announce why.
 - [x] Make the changes above.
 - [x] Check the dialog's focus trap: `trashKeys` selects `button:not([disabled])`, so a button that is only `aria-disabled` is now inside the trap. Confirm Tab order and Escape.
 
@@ -86,8 +86,8 @@ Move this file to `done/` with an Implementation Record; drop the follow-up line
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages (two independent reviews ran, one on standards and one on the spec; their fixes are in the commit after the first push)
+- [x] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
@@ -97,11 +97,14 @@ Move this file to `done/` with an Implementation Record; drop the follow-up line
 
 ### Built
 
-- A partial scan states no safe total anywhere the page computes one. The clean-ups summary says "Safe total: not shown until the scan is complete."; the Review all safe announcement and the multi-select inspector's Total say the same; the section inspector and the HTML report already withheld it, and tests now pin both. A complete scan reads as before.
-- The Trash dialog's figure is the server's size for the exact folders chosen, not a safe total, so it is qualified rather than withheld: a folder the scan only partly measured makes it read "at least".
-- Rescan, Review all safe and the dialog's Move button use `aria-disabled="true"` with the reason in `aria-describedby`, not `disabled`. A click, Enter or Space does nothing but announce why. Rescan also shows its reason inside the server's minute, and takes focus back after a click because `render()` rebuilds it. `trashKeys` already selected `button:not([disabled])`, so the Move button joins the Tab loop with no change there. The existing disabled styles (including forced colors) already named `[aria-disabled=true]`.
-- Tests: `tests/web/storage-page-view.test.mjs`, `storage-trash-view.test.mjs`, `storage-cleanups.test.mjs`.
+- One rule for the partial scan, in `web/page-storage-logic.js` (`safeKnown`, `SAFE_WITHHELD`, `safeTotalText`, `safeSumFor`, `safeSummaryTail`, `safeSelectedLine`). A partial scan states no safe total in the clean-ups summary, the Review all safe announcement, the multi-select Total or the section inspector row; each reads "Safe total: not shown until the scan is complete". The HTML report already withheld it. A complete scan reads as before.
+- `cleanupSummary` still prints "N folders, at least X" over every labelled folder on a partial scan. That figure covers safe, review and yours folders together and is qualified, so it is not a safe total.
+- The Trash dialog's figure is the server's exact size for the folders chosen, so it is qualified, not withheld: "at least" whenever the scan is not complete, and for any folder the scan measured only in part.
+- Rescan, Review all safe and the dialog's Move button use `aria-disabled="true"` with the reason in `aria-describedby`, not `disabled`. A click, Enter or Space announces why and sends nothing. `trashKeys` already selected `button:not([disabled])`, so the Move button joins the Tab loop unchanged. The disabled styles, forced colors included, already named `[aria-disabled=true]`.
+- Rescan keeps its name while a scan runs; the text beside it carries the progress or the wait, once. The page note no longer repeats it.
+- Focus survives a poll. `render()` restores focus only for elements with `data-req`, and every `quiet()` poll rebuilds the page, so a keyboard user who tabbed to Rescan lost their place within seconds. Rescan, Review all safe, Export HTML report and Move to Trash now carry `data-req`, so the existing path applies and `shell.js` is unchanged.
+- Tests: `tests/web/storage-page-view.test.mjs`, `storage-trash-view.test.mjs`, `storage-cleanups.test.mjs`, `storage-page.test.mjs`.
 
 ### Checked in Chrome
 
-A scratch server (scratch `HOME`, no window resize) with `window.fetch` replaced by scripted replies: partial scan, complete scan, failed load, a scan running, and a Rescan inside the minute. With real key presses: Shift+Tab reached Rescan, Enter and Space sent no request and kept focus; in the Trash dialog Tab reached "Nothing can be moved", Enter did nothing, Escape closed it. Dark and light were looked at; forced colors was not run in a browser.
+A scratch server (scratch `HOME`, no window resize) with `window.fetch` replaced by scripted replies: partial scan, complete scan, failed load, a scan running, and a Rescan inside the minute. With real key presses: Shift+Tab reached Rescan, Enter and Space sent no request and kept focus; in the Trash dialog Tab reached "Nothing can be moved", Enter did nothing, Escape closed it. A real 10 s poll was waited through with Rescan focused, in both themes. Forced colors was not run in a browser.

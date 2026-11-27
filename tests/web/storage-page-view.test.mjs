@@ -87,70 +87,68 @@ test('loadStorage asks for ?fresh=1 only when the argument is truthy', async () 
 });
 
 // ---- a partial scan states no safe total, and a button that cannot act is aria-disabled, not disabled
+const logicBlock = (name) => html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/'))[1];
+const L = new Function(['url-state', 'disk-net', 'page-shell', 'storage-page', 'storage-cleanups'].map(logicBlock).join('')
+  + '\nreturn { storageState, safeIds, safeSummaryTail, safeSelectedLine, safeSumFor, cleanupSummary, safeCleanupLine, plural };')();
 const node = (tag, attrs, ...kids) => ({ tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false) });
 const walk = (n) => (typeof n === 'string' ? [] : [n, ...n.kids.flatMap(walk)]);
 const click = (b) => { let prevented = false; b.attrs.onClick({ preventDefault: () => { prevented = true; } }); return prevented; };
-const sub = { safeSubtotalText: () => '40.0 GB', safeSubtotalFor: (d) => (d.complete ? '40.0 GB' : 'Not shown until the scan is complete.') };
+const safeRow = (n) => ({ id: 'id' + n, label: 'safe', bytes: 1e9, lowerBound: false });
 
-function cleanups(complete, safeCount, extra = {}) {
+function cleanups(complete, safeCount) {
   const said = [], recs = [];
-  const S = { stData: { complete }, q: '', stTile: 'all', stfilter: 'all', stAll: false, stMultiSig: '' };
+  const S = { stData: { scanned_at: 1, complete }, q: '', stTile: 'all', stfilter: 'all', stAll: false, stMultiSig: '' };
   const env = {
-    h: node, S, $: () => ({ value: '' }), announce: (t) => said.push(t), rec: (m) => recs.push(m), plural: (n, a, b) => n + ' ' + (n === 1 ? a : b),
-    storageState: ({ data }) => (data.complete ? 'complete' : 'partial'), cleanupView: (l) => ({ shown: l, hidden: 0 }),
-    safeIds: () => Array.from({ length: safeCount }, (_, i) => 'id' + i), cleanupSummary: () => '3 folders, at least 65.0 GB',
-    safeCleanupLine: () => (safeCount ? safeCount + ' safe folders' : 'Nothing safe to remove'), ST_ALL: 'all', ST_CLEANUP_TOP: 10,
-    stPickSig: () => 'sig', scrollBox: node, rowFloor: () => 0, CLEAN_TRACKS: [], CLEAN_COLS: '', listReset: '', cleanupRow: () => null, ...sub, ...extra,
+    h: node, S, $: () => ({ value: '' }), announce: (t) => said.push(t), rec: (m) => recs.push(m), ...L,
+    cleanupView: (l) => ({ shown: l, hidden: 0 }), ST_ALL: 'all', ST_CLEANUP_TOP: 10,
+    stPickSig: () => 'sig', scrollBox: node, rowFloor: () => 0, CLEAN_TRACKS: [], CLEAN_COLS: '', listReset: '', cleanupRow: () => null,
   };
   const src = fn(storageJs, 'storageCleanups');
   const run = new Function(...Object.keys(env), src + '\nreturn storageCleanups;')(...Object.values(env));
-  const tree = run(safeCount ? [{ id: 'a' }] : [], null, []);
+  const list = Array.from({ length: safeCount }, (_, i) => safeRow(i));
+  const tree = run(list, null, []);
   return { tree, said, recs, S, all: walk(tree) };
 }
+const reviewAll = (c) => c.all.find((n) => n.tag === 'button' && text(n) === 'Review all safe');
 
 test('clean-ups summary: a partial scan states no safe total, a complete scan keeps it', () => {
   const sum = (c) => text(c.all.find((n) => n.attrs.id === 'st-cleanups-sum'));
-  const partial = sum(cleanups(false, 2));
-  assert.ok(partial.includes('Safe total: not shown until the scan is complete.'), partial);
-  assert.ok(!/\d GB, \d/.test(partial) && !partial.includes('40.0 GB'), partial);
-  assert.ok(sum(cleanups(true, 2)).includes('2 safe folders, 40.0 GB.'));
+  assert.equal(sum(cleanups(false, 2)), '2 folders, 2.0 GB. 2 safe folders. Safe total: not shown until the scan is complete.');
+  assert.ok(sum(cleanups(true, 2)).includes('2 safe folders, 2.0 GB.'));
   assert.ok(sum(cleanups(false, 0)).endsWith('Nothing safe to remove.'), 'no safe folder, nothing to withhold');
 });
 
 test('Review all safe: the announcement carries no total on a partial scan', () => {
-  const p = cleanups(false, 2), btn = p.all.find((n) => n.tag === 'button' && text(n) === 'Review all safe');
-  click(btn);
-  assert.equal(p.said.length, 1);
-  assert.ok(!p.said[0].includes('GB') && /not shown until the scan is complete/.test(p.said[0]), p.said[0]);
-  const c = cleanups(true, 2); click(c.all.find((n) => n.tag === 'button' && text(n) === 'Review all safe'));
-  assert.ok(c.said[0].includes('40.0 GB'));
+  const p = cleanups(false, 2);
+  click(reviewAll(p));
+  assert.deepEqual(p.said, ['2 safe folders selected. Total not shown until the scan is complete. Details are in the inspector.']);
+  const c = cleanups(true, 2); click(reviewAll(c));
+  assert.deepEqual(c.said, ['2 safe folders selected: 2.0 GB. Details are in the inspector.']);
 });
 
 test('Review all safe with nothing safe: aria-disabled, no disabled attribute, a click only announces', () => {
-  const c = cleanups(true, 0), btn = c.all.find((n) => n.tag === 'button' && text(n) === 'Review all safe');
+  const c = cleanups(true, 0), btn = reviewAll(c);
   assert.equal(btn.attrs['aria-disabled'], 'true');
-  assert.ok(!('disabled' in btn.attrs) || btn.attrs.disabled == null);
+  assert.ok(btn.attrs.disabled == null);
   assert.equal(btn.attrs['aria-describedby'], 'st-cleanups-sum');
   assert.equal(click(btn), true);
   assert.deepEqual(c.recs, [], 'the selection did not change');
   assert.deepEqual(c.said, ['Nothing safe to remove']);
-  const live = cleanups(true, 2).all.find((n) => n.tag === 'button' && text(n) === 'Review all safe');
-  assert.equal(live.attrs['aria-disabled'], null);
+  assert.equal(reviewAll(cleanups(true, 2)).attrs['aria-disabled'], null);
 });
 
 function actions(d, now = 1000) {
-  const calls = { rescan: 0, loads: 0 }, said = [];
+  const calls = { loads: 0 }, said = [];
   const S = { stData: d, stNote: null };
   const env = {
     h: node, S, scanningText: () => 'Scanning, 3 s so far', announce: (t) => said.push(t), rec: (m) => Object.assign(S, m),
     loadStorage: () => { calls.loads++; },
     rescanInfo: (x) => (x && x.scanning ? { ok: false, wait: 0, text: 'A scan is running.' } : x && x.next_scan_allowed_at > now
       ? { ok: false, wait: 5, text: 'A scan started less than a minute ago. The next one can start in 5 s.' } : { ok: true, wait: 0, text: '' }),
-    $: () => ({ focus: () => { calls.focus = (calls.focus || 0) + 1; } }),
   };
   const make = new Function(...Object.keys(env), fn(storageJs, 'rescanNow') + '\n' + fn(storageJs, 'stActions') + '\nreturn stActions;')(...Object.values(env));
-  const tree = make(d, now);
-  return { tree, calls, said, S, get focused() { return calls.focus; }, btn: walk({ tag: 'x', attrs: {}, kids: tree.filter(Boolean) }).find((n) => n.tag === 'button' && /Rescan|Scanning/.test(text(n))) };
+  const kids = make(d, now).filter(Boolean), all = walk({ tag: 'x', attrs: {}, kids });
+  return { calls, said, S, all, btn: all.find((n) => n.tag === 'button' && text(n) === 'Rescan'), exp: all.find((n) => n.attrs.id === 'st-export-btn') };
 }
 
 test('Rescan: reachable by Tab (aria-disabled, never disabled) while a scan runs or inside the minute; a click sends nothing', () => {
@@ -159,13 +157,13 @@ test('Rescan: reachable by Tab (aria-disabled, never disabled) while a scan runs
     assert.equal(a.btn.attrs['aria-disabled'], 'true');
     assert.ok(a.btn.attrs.disabled == null, 'no disabled attribute');
     assert.equal(a.btn.attrs['aria-describedby'], 'st-rescan-why');
-    const why = walk({ tag: 'x', attrs: {}, kids: a.tree.filter(Boolean) }).find((n) => n.attrs.id === 'st-rescan-why');
+    const why = a.all.find((n) => n.attrs.id === 'st-rescan-why');
     assert.ok(text(why).length > 5, 'the reason is on the page');
     a.btn.attrs.onClick({ preventDefault() {} });
     a.btn.attrs.onClick({ preventDefault() {} });
-    assert.equal(a.focused, 2, 'focus goes back to the rebuilt button after each click');
     assert.equal(a.calls.loads, 0, 'no request');
     assert.equal(a.said.length, 2);
+    assert.equal(a.S.stNote, null, 'the reason is already on the page, so no second note is kept that would go stale');
   }
   const ok = actions({ scanning: false, scanned_at: 900 });
   assert.equal(ok.btn.attrs['aria-disabled'], null);
@@ -173,17 +171,41 @@ test('Rescan: reachable by Tab (aria-disabled, never disabled) while a scan runs
   assert.equal(ok.calls.loads, 1, 'one request per click');
 });
 
-test('the multi-select inspector shows the total it is given, so a partial scan can pass the withheld line', () => {
-  const env = { h: node, plural: (n, a, b) => n + ' ' + b, rec() {}, stKv: (...p) => p.filter(Boolean), stPart: (t, ...k) => node('div', {}, ...k), sizeText: () => '1 GB', stTrashButton: () => null };
-  const make = new Function(...Object.keys(env), fn(storageJs, 'stMultiInspector') + '\nreturn stMultiInspector;')(...Object.values(env));
-  const t = JSON.stringify(make([{ name: 'a' }], 'Not shown until the scan is complete.'));
-  assert.ok(t.includes('Not shown until the scan is complete.'));
-  const call = storageJs.match(/stMultiInspector\(picked, ([^\n]*)\) : stSectionInspector/)[1];
-  assert.match(call, /state === 'complete'/);
-  assert.match(call, /SAFE_WITHHELD/);
+test('a running scan says so once: the button keeps its name and the text beside it carries the progress', () => {
+  const a = actions({ scanning: true, scanned_at: 900 });
+  assert.equal(text(a.btn), 'Rescan');
+  assert.equal(a.all.filter((n) => n.tag === 'span' && /Scanning/.test(text(n))).length, 1);
+  assert.ok(!text({ tag: 'x', kids: [a.btn] }).includes('Scanning'));
 });
 
-test('the HTML report withholds the safe total on a partial scan', () => {
-  const b = block('storage-cleanups');
-  assert.match(b, /state === 'complete' \? 'Safe to remove: '[^\n]*'No safe-to-remove total until a scan completes\. '/);
+test('the multi-select inspector shows the total it is given', () => {
+  const env = { h: node, plural: (n, a, b) => n + ' ' + b, rec() {}, stKv: (...p) => p.filter(Boolean), stPart: (t, ...k) => node('div', {}, ...k), sizeText: () => '1 GB', stTrashButton: () => null };
+  const make = new Function(...Object.keys(env), fn(storageJs, 'stMultiInspector') + '\nreturn stMultiInspector;')(...Object.values(env));
+  assert.ok(JSON.stringify(make([{ name: 'a' }], 'Safe total: not shown until the scan is complete')).includes('Safe total: not shown until the scan is complete'));
+});
+
+// ---- focus survives a poll: render() restores it only for elements carrying data-req
+test('Rescan, Review all safe, Export and Move to Trash carry data-req, so a quiet() poll gives focus back to them', () => {
+  const a = actions({ scanning: false, scanned_at: 900 });
+  assert.equal(a.btn.attrs['data-req'], 'st-rescan-btn');
+  assert.equal(a.exp.attrs['data-req'], 'st-export-btn');
+  assert.equal(reviewAll(cleanups(true, 2)).attrs['data-req'], 'st-review-all');
+  assert.equal(reviewAll(cleanups(true, 0)).attrs['data-req'], 'st-review-all', 'the disabled one too');
+  const trash = new Function('h', 'trashSelection', 'safeKnown', 'S', 'announce', 'openTrash', fn(storageJs, 'stTrashButton') + '\nreturn stTrashButton;')(node, () => ({ ok: true, yours: [] }), () => true, {}, () => {}, () => {});
+  assert.equal(walk(trash([])).find((n) => n.attrs.id === 'st-trash-btn').attrs['data-req'], 'st-trash-btn');
+  // The restore path, lifted from render(): the element active before a poll redraws the page is found again by data-req.
+  const render = fn(shellJs, 'render');
+  const grab = new Function('document', render.match(/const hadReq = [^\n]*;/)[0] + '\nreturn hadReq;');
+  const restore = render.match(/else if \(hadReq\) \{.*?\}(?= \/\/)/)[0];
+  const redo = new Function('document', 'hadReq', 'const af = null; if (af) af.focus();\n' + restore);
+  const dom = (list) => { const doc = { activeElement: null }; doc.els = list.map((n) => ({ dataset: { req: n.attrs['data-req'] }, focus() { doc.activeElement = this; } }));
+    doc.querySelectorAll = () => doc.els; return doc; };
+  const buttons = () => [actions({ scanning: false, scanned_at: 900 }).btn, actions({ scanning: false, scanned_at: 900 }).exp, reviewAll(cleanups(true, 2))];
+  for (const i of [0, 1, 2]) {
+    const before = dom(buttons()); before.els[i].focus();
+    const req = grab(before);
+    const after = dom(buttons());                       // the poll rebuilt every element; focus is on the body
+    redo(after, req);
+    assert.equal(after.activeElement, after.els[i], 'button ' + i + ' has focus again after the redraw');
+  }
 });
