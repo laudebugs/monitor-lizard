@@ -274,7 +274,7 @@ function stActions(d, now) {
 }
 // Clean-ups list: the folders the scan labelled, largest first, top ST_CLEANUP_TOP unless "Show all" is on.
 // Each grid row has 12 px gaps and 16 px of padding on both sides (the `.tr` rule), so a list needs
-// its track minimums + gaps + 32 px. A card narrower than that scrolls inside itself instead of widening the page.
+// its track minimums + gaps + 32 px. Keep each track list in step with the column string beside it. A card narrower than that scrolls inside itself instead of widening the page.
 const CLEAN_TRACKS = [120, 120, 74, 90, 84];
 const CLEAN_COLS = 'grid-template-columns:minmax(120px,2fr) minmax(120px,2fr) 74px minmax(90px,.7fr) 84px';
 const SYSTEM_TRACKS = [110, 80, 150];

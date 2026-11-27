@@ -4,9 +4,9 @@ Detail: [detail.md](detail.md)
 
 ## The fix
 
-Each of the two lists sits in one scroll box (`.sbox`, `overflow-x: auto`). The box's inner element has a minimum width worked out from the list's own tracks: the sum of the track minimums, plus 12 px per gap, plus 32 px of row padding. That is 568 px for the clean-ups and 396 px for System Data. The numbers are computed in `web/page-storage.js` (`rowFloor`) from the same track lists that sit beside each grid definition, so the floor changes when a track does.
+Each of the two lists sits in one scroll box (`.sbox`, `overflow-x: auto`). The box's inner element has a minimum width worked out from the list's own tracks: the sum of the track minimums, plus 12 px per gap, plus 32 px of row padding. The floors are 568 px for the clean-ups and 396 px for System Data. `rowFloor` in `web/page-storage.js` computes them from a track list written next to each grid definition, so changing a track means editing both lines.
 
-The box is a keyboard stop with `role="region"` and the name "<list>, scrollable", the way `web/table.js` names its scrolling tables, and it gets the same focus outline as `.tbl`. The clean-ups header now has the same 16 px side padding as its rows, so header cells and columns line up.
+The box is a keyboard stop with `role="region"` and the name `<list name>, scrollable`, the way `web/table.js` names its scrolling tables, and it gets the same focus outline as `.tbl`. The clean-ups header now has the same 16 px side padding as its rows, so header cells and columns line up.
 
 ## How it was checked
 
@@ -30,7 +30,7 @@ The second table is each scroll box's visible width and content width, which sho
 | 1000 | 690 / 690 | 690 / 690 |
 | 1352 | 641 / 641 | 641 / 641 |
 
-There is no regression test: the page has no browser test harness, so this stays a recorded manual check.
+No regression test covers this. The page has no browser test harness, so the check stays manual and is recorded here.
 
 ## Left for later
 

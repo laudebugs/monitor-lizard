@@ -14,9 +14,9 @@ In a 454 px window, the narrowest this Chrome allows, the whole Storage page scr
 
 ## Measurements
 
-In a 400 px frame the page was 597 px wide and the last Review button ended at 597 px. The clean-ups list was 310 px wide, but each row needs 568 px: five tracks with minimums of 120, 120, 74, 90 and 84 px, four 12 px gaps, and 16 px of padding on each side.
+In a 400 px frame the page was 597 px wide and the last Review button ended at 597 px. The clean-ups list was 310 px wide, but each row needs 568 px. That is five tracks with minimums of 120, 120, 74, 90 and 84 px, four 12 px gaps, and 16 px of padding on each side.
 
-After the clean-ups list was boxed with a 540 px minimum, the page was still 425 px wide. The "Inside System Data" rows needed 396 px (tracks 110, 80 and 150, two gaps, 32 px of padding). A review then showed that 540 was also too small by the 28 px that the padding adds: the box's content measured 552 px.
+After the clean-ups list was boxed with a 540 px minimum, the page was still 425 px wide. The "Inside System Data" rows needed 396 px (tracks 110, 80 and 150, two gaps, 32 px of padding). The code review then found that 540 px left out the 32 px of row padding. The tracks and gaps need 536 px, so the box was 28 px short.
 
 ## Cause
 
