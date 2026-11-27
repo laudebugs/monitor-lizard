@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `S2b` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D4, D9 |
 | Depends on | S2a |
 | ADRs | None |
