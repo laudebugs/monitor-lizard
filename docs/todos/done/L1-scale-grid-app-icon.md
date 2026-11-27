@@ -10,7 +10,7 @@
 | Branch | `feat/l1-scale-grid-app-icon` |
 | PR title | `feat(shell): add the scale-grid lizard as app icon, favicon and tray icon` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#62](https://github.com/laudebugs/monitor-lizard/pull/62) |
 
 ## Goal
 
