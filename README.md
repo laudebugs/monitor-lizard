@@ -20,7 +20,7 @@ Turning on the `metrics_history` setting adds downsampled CPU/memory history to 
 
 Marking an item as expected (the dashboard's "Mark expected" button, or `approve`) records it in `baseline.json` and in the history database, and stops it counting as new. A marked host or startup item keeps its row with an "expected" chip, and "Unmark" brings it back. The History page lists every mark and unmark.
 
-A Tauri menu-bar shell (`src-tauri/`) runs the same server and dashboard in a window with a tray item, instead of a terminal and a browser tab: `cd src-tauri && cargo tauri build --bundles app`. See [ADR 0004](docs/decisions/0004-tauri-menu-bar-shell.md).
+A Tauri menu-bar shell (`src-tauri/`) runs the same server and dashboard in a window with a tray item, instead of a terminal and a browser tab. See [ADR 0004](docs/decisions/0004-tauri-menu-bar-shell.md) and "Building, signing and running the app locally" below.
 
 ## Commands
 
@@ -31,6 +31,31 @@ A Tauri menu-bar shell (`src-tauri/`) runs the same server and dashboard in a wi
 Every table in the dashboard can export what is on screen as CSV or JSON (all filtered and sorted rows, shown columns only), choose its columns, and copy one row as JSON. Exports are built in the page and saved by your browser; nothing is sent anywhere. A file lists app names, hosts and paths, so share it with care.
 
 The dashboard's Guide page shows the same table with search, topic filters and a glossary. It copies a command and never runs one.
+
+## Building, signing and running the app locally
+
+The CLI above (`cargo run --release -- serve`) needs no build step or signing. The Tauri menu-bar shell (`src-tauri/`) needs to be bundled, and -- to keep the Storage scanner's Full Disk Access grant across rebuilds -- signed with a stable Developer ID identity, not the default ad-hoc one. See [ADR 0004](docs/decisions/0004-tauri-menu-bar-shell.md) for why that gate exists.
+
+Build and run, ad-hoc signed (the default: fine for trying it, but Gatekeeper still warns once per rebuild and any Full Disk Access grant does not survive the next one):
+
+```sh
+cargo install tauri-cli --locked          # once: installs the `cargo tauri` subcommand
+cd src-tauri && cargo tauri build --bundles app
+open "target/release/bundle/macos/Monitor Lizard.app"
+```
+
+Sign with your own Developer ID instead, so a Full Disk Access grant keeps working after you rebuild:
+
+```sh
+security find-identity -v -p codesigning            # lists the exact identity strings on this Mac
+codesign --force --options runtime \
+  --sign "Developer ID Application: <your name> (<team id>)" \
+  "target/release/bundle/macos/Monitor Lizard.app"
+codesign --verify --deep --strict "target/release/bundle/macos/Monitor Lizard.app"   # confirms the signature took
+open "target/release/bundle/macos/Monitor Lizard.app"
+```
+
+Re-sign with the *same* identity string every time you rebuild -- a new identity, or no identity, loses any Full Disk Access grant you already added in System Settings. This needs an Apple Developer Program membership (99 USD/year) for the Developer ID Application certificate; notarization, for distributing the app outside your own Mac, is a separate step this repo does not yet automate (see [docs/agents/ci-and-release.md](docs/agents/ci-and-release.md)). Background and the owner's own Full Disk Access test are in the [Tauri shell spike report](docs/research/tauri-shell-spike/README.md).
 
 ## Working on this repo
 

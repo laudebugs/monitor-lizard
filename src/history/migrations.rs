@@ -238,46 +238,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    // Each opener opens the lock file itself, and a flock belongs to the open file, so threads here
+    // exclude each other as separate processes would. The test therefore needs no child process,
+    // and it waits at most 30 s for all the threads, so a stuck opener fails instead of hanging.
     #[test]
-    fn four_threads_opening_at_once_all_succeed_and_the_schema_is_applied_once() {
+    fn four_threads_opening_at_once_all_succeed_apply_the_schema_once_and_make_one_backup_of_the_old_database() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = scratch("race");
         let db = dir.join("h.db");
         write_unversioned_database(&db);
-        let threads: Vec<_> = (0..4).map(|_| { let db = db.clone(); std::thread::spawn(move || History::at(&db).map(drop)) }).collect();
-        for t in threads { t.join().unwrap().expect("every opener succeeds"); }
-        assert_eq!(version_of(&db), MIGRATIONS.len());
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    /// Child half of the two-process test: waits for the start file, then opens the database.
-    #[test]
-    fn child_open_for_the_two_process_test() {
-        let (Ok(db), Ok(go)) = (std::env::var("ML_TEST_DB"), std::env::var("ML_TEST_GO")) else { return };
-        while !std::path::Path::new(&go).exists() { std::thread::sleep(std::time::Duration::from_millis(1)); }
-        History::at(std::path::Path::new(&db)).expect("child opens the database");
-    }
-
-    #[test]
-    fn two_real_processes_opening_at_once_make_one_backup_of_the_old_database() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = scratch("two-procs");
-        let db = dir.join("h.db");
-        write_unversioned_database(&db);
-        let go = dir.join("go");
-        let exe = std::env::current_exe().unwrap();
-        let children: Vec<_> = (0..2).map(|_| std::process::Command::new(&exe)
-            .args(["--exact", "history::migrations::tests::child_open_for_the_two_process_test", "--test-threads=1"])
-            .env("ML_TEST_DB", &db).env("ML_TEST_GO", &go).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap()).collect();
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        std::fs::write(&go, "").unwrap();
-        for mut c in children { assert!(c.wait().unwrap().success(), "both processes open the database"); }
+        let (done, finished) = std::sync::mpsc::channel();
+        for _ in 0..4 { let (db, done) = (db.clone(), done.clone()); std::thread::spawn(move || { let _ = done.send(History::at(&db).map(drop)); }); }
+        drop(done);
+        // Without the open lock an opener fails here: threads share a pid, so two of them collide on
+        // the temporary backup name, and a backup of an already-migrated file fails its version check.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        for _ in 0..4 {
+            let opened = finished.recv_timeout(until.saturating_duration_since(std::time::Instant::now())).expect("the openers did not all finish within 30 s, or a thread panicked");
+            opened.expect("every opener succeeds");
+        }
         assert_eq!(version_of(&db), MIGRATIONS.len());
         let bak = Connection::open(backup_path(&db)).unwrap();
         assert_eq!(user_version(&bak).unwrap(), 0, "the backup is the pre-migration file");
         assert_eq!(bak.query_row("SELECT hits FROM seen", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
+        drop(bak);
         assert_eq!(std::fs::metadata(backup_path(&db)).unwrap().permissions().mode() & 0o777, 0o600);
-        let leftovers: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
-        assert!(leftovers.is_empty(), "no temporary backup remains");
+        let backups: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains(".bak")).collect();
+        assert_eq!(backups, vec!["h.db.bak".to_string()], "one backup and no temporary backup remains");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -289,7 +276,7 @@ mod tests {
         let second = std::fs::OpenOptions::new().write(true).open(dir.join("h.db.lock")).unwrap();
         assert!(matches!(second.try_lock(), Err(std::fs::TryLockError::WouldBlock)), "a second open of the lock file must wait");
         drop(first);
-        assert!(second.try_lock().is_ok());
+        assert!(crate::paths::try_lock_within(&second, std::time::Duration::from_secs(5)), "the open lock was not released within 5 s of its holder being dropped");
         let _ = std::fs::remove_dir_all(dir);
     }
 

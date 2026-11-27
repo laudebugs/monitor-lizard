@@ -229,10 +229,13 @@ fn change_at(path: &Path, kind: Kind, key: &str, mark: bool, audit: impl Fn(Kind
     Ok(true)
 }
 
+/// The lock file that sits next to the baseline.
+fn lock_path(path: &Path) -> PathBuf { PathBuf::from(format!("{}.lock", path.display())) }
+
 /// An exclusive lock on a file next to the baseline, released when the returned file is dropped.
 fn lock_file(path: &Path) -> std::io::Result<fs::File> {
     if let Some(d) = path.parent() { crate::paths::create_private_dir(d)?; }
-    let f = crate::paths::create_private_file(Path::new(&format!("{}.lock", path.display())))?;
+    let f = crate::paths::create_private_file(&lock_path(path))?;
     f.lock()?;
     Ok(f)
 }
@@ -468,27 +471,64 @@ mod tests {
         cleanup(&p);
     }
 
-    /// Child half of the two-process test.
+    // Another process writing the baseline is kept out only by the lock file. A flock belongs to
+    // the open file, so a second handle in this process stands in for that other process. The
+    // tests below start no process and every wait has a limit, so a broken lock fails an
+    // assertion instead of hanging the test run.
+
+    /// A second handle on the lock file, as another process would open it.
+    fn other_handle(p: &Path) -> fs::File { fs::OpenOptions::new().write(true).open(lock_path(p)).unwrap() }
+
     #[test]
-    fn child_mark_for_the_two_process_test() {
-        let (Ok(file), Ok(go), Ok(prefix)) = (std::env::var("ML_TEST_BASELINE"), std::env::var("ML_TEST_GO"), std::env::var("ML_TEST_PREFIX")) else { return };
-        while !Path::new(&go).exists() { std::thread::sleep(std::time::Duration::from_millis(1)); }
-        for n in 0..10 { change_at(Path::new(&file), Kind::App, &format!("/{prefix}{n}.app"), true, ok_audit).unwrap(); }
+    fn a_held_baseline_lock_refuses_a_second_holder_until_it_is_dropped() {
+        let p = scratch("lock-excludes");
+        let first = lock_file(&p).unwrap();
+        let second = other_handle(&p);
+        assert!(matches!(second.try_lock(), Err(fs::TryLockError::WouldBlock)), "a second handle got the baseline lock while the first still held it");
+        drop(first);
+        assert!(crate::paths::try_lock_within(&second, std::time::Duration::from_secs(5)), "the baseline lock was not released within 5 s of its holder being dropped");
+        cleanup(&p);
     }
 
     #[test]
-    fn marks_from_two_real_processes_all_land() {
-        let p = scratch("procs");
-        let go = p.parent().unwrap().join("go");
-        let exe = std::env::current_exe().unwrap();
-        let kids: Vec<_> = ["a", "b"].iter().map(|prefix| std::process::Command::new(&exe)
-            .args(["--exact", "baseline::tests::child_mark_for_the_two_process_test", "--test-threads=1"])
-            .env("ML_TEST_BASELINE", &p).env("ML_TEST_GO", &go).env("ML_TEST_PREFIX", prefix)
-            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap()).collect();
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        fs::write(&go, "").unwrap();
-        for mut k in kids { assert!(k.wait().unwrap().success()); }
-        assert_eq!(read(&p).entries().len(), 20, "no write was lost");
+    fn a_change_waits_for_a_baseline_lock_held_elsewhere_and_reads_the_file_only_after_it_gets_the_lock() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let p = scratch("lock-waits");
+        let held = lock_file(&p).unwrap();
+        let (done, finished) = mpsc::channel();
+        let writer = { let p = p.clone(); std::thread::spawn(move || { let _ = done.send(change_at(&p, Kind::App, "/Waited.app", true, ok_audit)); }) };
+        // If the change ignored the lock it would finish well within this time.
+        match finished.recv_timeout(Duration::from_millis(300)) {
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(r) => panic!("the change finished ({r:?}) while another holder had the baseline lock"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the change thread panicked"),
+        }
+        // Another process writes a mark while it holds the lock. A change that read the file before
+        // taking the lock would write back the old list and lose this mark. In a run where another
+        // baseline test holds the in-process lock, the change may not have read anything yet, so
+        // that run can miss the bug; it can never fail or hang because of it.
+        save_to(&p, &Baseline::from_entries(vec![typed(Kind::App, "/Other.app")])).unwrap();
+        drop(held);
+        let result = finished.recv_timeout(Duration::from_secs(10)).expect("the change did not finish within 10 s of the lock being released, or its thread panicked");
+        writer.join().unwrap();
+        assert_eq!(result, Ok(true));
+        let after = read(&p);
+        assert!(after.has(Kind::App, "/Waited.app"), "the mark made after the wait is on disk");
+        assert!(after.has(Kind::App, "/Other.app"), "the change read the file before it had the lock, so it lost the mark written while it waited");
+        cleanup(&p);
+    }
+
+    #[test]
+    fn the_baseline_lock_is_still_held_between_the_read_and_the_write() {
+        let p = scratch("lock-held");
+        // The lock file must exist for the audit to open a second handle on it. It is made without
+        // locking it, so no earlier holder can be what refuses the audit.
+        crate::paths::create_private_file(&lock_path(&p)).unwrap();
+        let refused = RefCell::new(None);
+        let audit = |_: Kind, _: &str, _: bool, _: &str| { *refused.borrow_mut() = Some(matches!(other_handle(&p).try_lock(), Err(fs::TryLockError::WouldBlock))); Ok(()) };
+        assert_eq!(change_at(&p, Kind::App, "/A.app", true, audit), Ok(true));
+        assert_eq!(*refused.borrow(), Some(true), "another process could take the baseline lock between the read and the write");
         cleanup(&p);
     }
 
@@ -502,7 +542,7 @@ mod tests {
         save_to(&a, &Baseline::default()).unwrap();
         assert_eq!((m(a.parent().unwrap()), m(&a)), (0o700, 0o600));
         let _lock = lock_file(&b).unwrap();
-        assert_eq!((m(b.parent().unwrap()), m(Path::new(&format!("{}.lock", b.display())))), (0o700, 0o600));
+        assert_eq!((m(b.parent().unwrap()), m(&lock_path(&b))), (0o700, 0o600));
         let _ = fs::remove_dir_all(&root);
     }
 }
