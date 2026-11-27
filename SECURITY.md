@@ -18,6 +18,8 @@ system-monitor can stop processes on your Mac, so these matter most:
 
 Loopback only, Host and Origin checks on every request, a random per-run token on every write, own-user processes only, an audit log of every action, no telemetry. Tests need no credentials and make no network calls.
 
+`POST /api/kill` requires a `start=<unix-seconds>` for every pid in `pids=`, read moments earlier from `GET /api/processes`: before signalling, the server re-reads that pid's start time fresh and refuses if it no longer matches, so a pid recycled by a new, unrelated process between the read and the click is never signalled. A request missing `start`, or with a different count of `start` values than `pids`, is refused outright rather than falling back to the old pid-only check.
+
 ## What `/api/storage` exposes
 
 `POST /api/trash` is the one way the app removes files, and it only moves them to your Trash. It needs the Origin check and the per-run token, and it takes ids from the latest scan, never paths. The server checks each item again against the disk: not a symbolic link, no symbolic link above it, inside your home folder or `/Applications`, size, entry count and modification time unchanged since the scan, and fully measured. An item labelled yours also needs `confirm_yours=1`. Every request that is not a dry run writes one row to the `trash_moves` table in the history database, and if that database cannot be opened nothing moves. Two limits: a file overwritten with the same length passes the change check, and a folder swapped for a link between the check and the move is a small race the check cannot close. The Trash keeps the item either way.

@@ -20,6 +20,9 @@ pub struct ProcessUsage {
     pub mem_bytes: Reading<u64>,
     pub disk_read_bytes_per_sec: Option<Reading<f64>>,
     pub disk_write_bytes_per_sec: Option<Reading<f64>>,
+    /// Unix seconds the process started, for the Stop confirm dialog to echo back on `/api/kill` so
+    /// a pid recycled since this row was read is refused rather than signalled (`actions::check`).
+    pub start_unix: Reading<u64>,
 }
 
 /// What a real `proc_pid_rusage` read gives us, already converted to real units: mach
@@ -52,6 +55,41 @@ fn mach_timebase() -> (u32, u32) {
 fn abstime_to_ns(ticks: u64, (numer, denom): (u32, u32)) -> u64 {
     // u128 so a long-running process's large tick count can't overflow the multiply.
     (ticks as u128 * numer as u128 / denom as u128) as u64
+}
+
+/// `kern.boottime`'s `tv_sec`: unix seconds this Mac last booted. `ri_proc_start_abstime` is itself
+/// mach absolute time since boot, not since the epoch, so this is the other half needed to turn a
+/// process's start time into something comparable across samples taken at different wall-clock
+/// moments (a plain unix timestamp), rather than raw ticks whose meaning depends on this one read.
+fn boottime_unix() -> Option<u64> {
+    let name = std::ffi::CString::new("kern.boottime").ok()?;
+    let mut tv: libc::timeval = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::timeval>();
+    // SAFETY: `name` is a valid NUL-terminated sysctl name; `tv` is a plain value type (no
+    // invariants an all-zero or partially-written bit pattern could violate) and is only read
+    // after the call returns 0, the contract under which it has written a full `timeval`.
+    let rc = unsafe { libc::sysctlbyname(name.as_ptr(), &mut tv as *mut _ as *mut libc::c_void, &mut len, std::ptr::null_mut(), 0) };
+    (rc == 0 && tv.tv_sec >= 0).then_some(tv.tv_sec as u64)
+}
+
+fn start_unix(start_abstime: u64, timebase: (u32, u32), boottime: Option<u64>) -> Reading<u64> {
+    match boottime {
+        Some(boot) => Reading::Value(boot + abstime_to_ns(start_abstime, timebase) / 1_000_000_000),
+        None => Reading::Unavailable("sysctl kern.boottime failed"),
+    }
+}
+
+/// A genuinely fresh, uncached read of one pid's start time (unix seconds), for the moment of Stop:
+/// the 5 s background cache (`Rows`) is fresh enough for the confirm dialog's own display, but the
+/// decision to actually signal a process re-checks this directly, not whatever the cache last held.
+/// `None` means the pid could not be read right now (gone, or owned by another user) -- `actions::check`
+/// treats that the same as a pid that no longer matches: refused, never signalled.
+pub fn live_start_unix(pid: u32) -> Option<u64> {
+    let raw = read_rusage(pid as i32, mach_timebase()).ok()?;
+    match start_unix(raw.start_abstime, mach_timebase(), boottime_unix()) {
+        Reading::Value(v) => Some(v),
+        _ => None,
+    }
 }
 
 /// `proc_pid_rusage(pid, V4, ...)` first (has disk I/O); on failure that is not a permission error
@@ -94,11 +132,13 @@ struct Prev {
 pub struct Tracker {
     prev: HashMap<u32, Prev>,
     timebase: (u32, u32),
+    /// Read once: the boot time does not change while this process runs.
+    boottime: Option<u64>,
 }
 
 impl Default for Tracker {
     fn default() -> Self {
-        Self { prev: HashMap::new(), timebase: mach_timebase() }
+        Self { prev: HashMap::new(), timebase: mach_timebase(), boottime: boottime_unix() }
     }
 }
 
@@ -120,6 +160,9 @@ impl Tracker {
                     cpu_pct: Reading::Value(p.cpu), mem_bytes: Reading::Value(p.rss_kb * 1024),
                     disk_read_bytes_per_sec: Some(Reading::Unavailable("another user's process")),
                     disk_write_bytes_per_sec: Some(Reading::Unavailable("another user's process")),
+                    // Never signalled either way (not ours), so there is nothing to echo back on
+                    // `/api/kill` for it; restricted rows get no Stop button in the first place.
+                    start_unix: Reading::Unavailable("another user's process"),
                 });
                 continue;
             }
@@ -130,7 +173,7 @@ impl Tracker {
                 continue;
             };
             let prev = prev_for(&self.prev, p.pid, raw.start_abstime);
-            let usage = build_usage(p.pid, p.command.clone(), &raw, prev, now);
+            let usage = build_usage(p.pid, p.command.clone(), &raw, prev, now, self.timebase, self.boottime);
             self.prev.insert(p.pid, Prev {
                 start_abstime: raw.start_abstime, at: now, user_ns: raw.user_ns, system_ns: raw.system_ns,
                 disk_read: raw.disk_read, disk_write: raw.disk_write,
@@ -155,7 +198,8 @@ fn prev_for(cache: &HashMap<u32, Prev>, pid: u32, start_abstime: u64) -> Option<
 /// without a real process to read. `prev` being `None` (first sample, or `start_abstime` changed
 /// because the pid was recycled) reports no rate, never a zero rate -- `cpu_pct`/`mem_bytes` are
 /// never a rate, so they are always reported from `raw` directly.
-fn build_usage(pid: u32, command: String, raw: &RawUsage, prev: Option<&Prev>, now: Instant) -> ProcessUsage {
+fn build_usage(pid: u32, command: String, raw: &RawUsage, prev: Option<&Prev>, now: Instant, timebase: (u32, u32), boottime: Option<u64>) -> ProcessUsage {
+    let start = start_unix(raw.start_abstime, timebase, boottime);
     let no_disk = || Some(Reading::Unavailable("disk I/O not available for this process (rusage fell back to an older version)"));
     let no_rate = |reason: &'static str| ProcessUsage {
         pid, command: command.clone(), restricted: false,
@@ -163,6 +207,7 @@ fn build_usage(pid: u32, command: String, raw: &RawUsage, prev: Option<&Prev>, n
         mem_bytes: Reading::Value(raw.mem_bytes),
         disk_read_bytes_per_sec: if raw.disk_read.is_some() { None } else { no_disk() },
         disk_write_bytes_per_sec: if raw.disk_write.is_some() { None } else { no_disk() },
+        start_unix: start.clone(),
     };
     let Some(prev) = prev else { return no_rate("not sampled yet") };
     let elapsed = now.duration_since(prev.at).as_secs_f64();
@@ -179,6 +224,7 @@ fn build_usage(pid: u32, command: String, raw: &RawUsage, prev: Option<&Prev>, n
         pid, command, restricted: false, cpu_pct, mem_bytes: Reading::Value(raw.mem_bytes),
         disk_read_bytes_per_sec: disk_rate(raw.disk_read, prev.disk_read),
         disk_write_bytes_per_sec: disk_rate(raw.disk_write, prev.disk_write),
+        start_unix: start,
     }
 }
 
@@ -234,7 +280,7 @@ mod tests {
 
     #[test]
     fn first_sample_has_no_cpu_rate_but_reports_memory() {
-        let u = build_usage(100, "x".into(), &raw(1000, 50_000_000, 10_000_000, 2_000_000, Some((100, 50))), None, Instant::now());
+        let u = build_usage(100, "x".into(), &raw(1000, 50_000_000, 10_000_000, 2_000_000, Some((100, 50))), None, Instant::now(), (1, 1), Some(0));
         assert_eq!(u.cpu_pct, Reading::Unavailable("not sampled yet"));
         assert_eq!(u.mem_bytes, Reading::Value(2_000_000));
     }
@@ -244,7 +290,7 @@ mod tests {
         let t0 = Instant::now();
         let p = prev(1000, t0, 0, 0, Some((0, 0)));
         // 1 second of real time later, 0.3s of combined user+system time used => 30%.
-        let u = build_usage(100, "x".into(), &raw(1000, 200_000_000, 100_000_000, 1_000_000, Some((500, 200))), Some(&p), t0 + Duration::from_secs(1));
+        let u = build_usage(100, "x".into(), &raw(1000, 200_000_000, 100_000_000, 1_000_000, Some((500, 200))), Some(&p), t0 + Duration::from_secs(1), (1, 1), Some(0));
         assert_eq!(u.cpu_pct, Reading::Value(30.0));
         assert_eq!(u.disk_read_bytes_per_sec, Some(Reading::Value(500.0)));
         assert_eq!(u.disk_write_bytes_per_sec, Some(Reading::Value(200.0)));
@@ -264,7 +310,7 @@ mod tests {
 
     #[test]
     fn disk_unavailable_when_the_v0_fallback_has_no_disk_fields() {
-        let u = build_usage(100, "x".into(), &raw(1000, 0, 0, 1_000_000, None), None, Instant::now());
+        let u = build_usage(100, "x".into(), &raw(1000, 0, 0, 1_000_000, None), None, Instant::now(), (1, 1), Some(0));
         assert!(matches!(u.disk_read_bytes_per_sec, Some(Reading::Unavailable(_))));
         assert!(matches!(u.disk_write_bytes_per_sec, Some(Reading::Unavailable(_))));
     }
@@ -279,6 +325,38 @@ mod tests {
         assert_eq!(rows[0].cpu_pct, Reading::Value(1.5));
         assert_eq!(rows[0].mem_bytes, Reading::Value(4096 * 1024));
         assert!(matches!(rows[0].disk_read_bytes_per_sec, Some(Reading::Unavailable(_))));
+        assert!(matches!(rows[0].start_unix, Reading::Unavailable(_)), "never ours to echo back on /api/kill");
+    }
+
+    #[test]
+    fn start_unix_adds_boot_time_to_the_converted_abstime() {
+        // 2_000_000_000 ns = 2 s at a 1:1 timebase.
+        assert_eq!(start_unix(2_000_000_000, (1, 1), Some(1_700_000_000)), Reading::Value(1_700_000_002));
+    }
+
+    #[test]
+    fn start_unix_is_unavailable_without_a_boot_time_reading() {
+        assert!(matches!(start_unix(0, (1, 1), None), Reading::Unavailable(_)));
+    }
+
+    #[test]
+    fn live_start_unix_reads_a_plausible_unix_timestamp_for_a_real_running_process() {
+        // Not asserting "recent": this test binary's own reported start time depends on how the
+        // process running it was launched (a sandboxed harness can reuse or wrap a process in ways
+        // that make it older than the test itself), so the only thing genuinely true in every
+        // environment is that a real process's start lies between boot and now.
+        let pid = std::process::id();
+        let Some(start) = live_start_unix(pid) else { panic!("could not read this process's own start time") };
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let boot = boottime_unix().expect("boottime_unix should read on a real Mac");
+        assert!(start <= now, "a process cannot start in the future: start={start} now={now}");
+        assert!(start >= boot, "a process cannot start before the machine booted: start={start} boot={boot}");
+    }
+
+    #[test]
+    fn live_start_unix_is_none_for_a_pid_nothing_is_using() {
+        // pid 0 is never a real user process on macOS, so pidrusage must fail for it.
+        assert_eq!(live_start_unix(0), None);
     }
 
     /// Manual, real-machine timing check: not run by `cargo test` or CI (every process on the
@@ -301,8 +379,8 @@ mod tests {
     #[test]
     fn sort_and_limit_orders_by_the_requested_column_and_caps_the_count() {
         let rows = vec![
-            ProcessUsage { pid: 1, command: "a".into(), restricted: false, cpu_pct: Reading::Value(10.0), mem_bytes: Reading::Value(100), disk_read_bytes_per_sec: None, disk_write_bytes_per_sec: None },
-            ProcessUsage { pid: 2, command: "b".into(), restricted: false, cpu_pct: Reading::Value(90.0), mem_bytes: Reading::Value(50), disk_read_bytes_per_sec: None, disk_write_bytes_per_sec: None },
+            ProcessUsage { pid: 1, command: "a".into(), restricted: false, cpu_pct: Reading::Value(10.0), mem_bytes: Reading::Value(100), disk_read_bytes_per_sec: None, disk_write_bytes_per_sec: None, start_unix: Reading::Value(1000) },
+            ProcessUsage { pid: 2, command: "b".into(), restricted: false, cpu_pct: Reading::Value(90.0), mem_bytes: Reading::Value(50), disk_read_bytes_per_sec: None, disk_write_bytes_per_sec: None, start_unix: Reading::Value(1000) },
         ];
         let by_cpu = sort_and_limit(rows.clone(), "cpu", 1);
         assert_eq!(by_cpu.len(), 1);
