@@ -95,7 +95,8 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 /* An open menu lives inside the scrolling table, so a table with few rows must be tall enough to show it whole. */
 .tbl:has(.sel-menu){min-height:380px}
 .tbl:focus-visible{--focus-edge:var(--fg);outline:2px solid var(--focus-edge);outline-offset:-2px}
-@media(forced-colors:active){.tbl:focus-visible{--focus-edge:Highlight}}
+.sbox:focus-visible{--focus-edge:var(--fg);outline:2px solid var(--focus-edge);outline-offset:-2px}
+@media(forced-colors:active){.tbl:focus-visible{--focus-edge:Highlight}.sbox:focus-visible{--focus-edge:Highlight}}
 /* A table never squeezes a column below its own minimum: the row is as wide as its tracks, gaps and padding
    need (the script sets --tracks-min and --cols), and the table scrolls inside its card when the card is narrower. */
 .tbl.floor>.tr{min-width:calc(var(--tracks-min) + (var(--cols) - 1) * var(--gap) + var(--pl) + var(--pr))}
