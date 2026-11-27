@@ -1,10 +1,12 @@
 // ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
 // page can say how long it has taken and show the result the moment it lands. A failed read is retried with a growing pause.
-let stTimer = 0, stSeq = 0, stFails = 0, stHistAt = 0;
+let stTimer = 0, stSeq = 0, stFails = 0, stHistAt = 0, stWritesAt = 0;
 async function loadStorage(fresh) {
   if (S.view !== 'storage' || (document.hidden && !fresh)) return;
   clearTimeout(stTimer);
-  if (fresh || Date.now() - stHistAt > 60000) { loadStorageHistory(); loadStorageWrites(); }
+  // Each has its own clock: the Overview also reads the capacity history, which must not hold the writes back.
+  if (fresh || Date.now() - stHistAt > 60000) loadStorageHistory();
+  if (fresh || Date.now() - stWritesAt > 60000) loadStorageWrites();
   const mine = ++stSeq, before = { data: S.stData, failed: S.stFailed };
   let after, note = null;
   try {
@@ -95,6 +97,7 @@ function stHistory() {
 // The disk writes panel: an opt-in setting, so it explains itself, offers the switch and an erase, and shows the
 // busiest apps of the last 24 hours with an hourly trace each. Only your own processes can be read without root.
 async function loadStorageWrites() {
+  stWritesAt = Date.now();
   try {
     const data = await (await api('/api/storage/writes')).json();
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('empty reply');
@@ -135,7 +138,7 @@ function stWrites() {
     list ? h('ul', { style: 'list-style:none;margin:10px 0 0;padding:0' }, list.rows.map((r) => stWriteRow(r, d.hours))) : null,
     list && list.more ? h('p', { class: 'small mut', style: 'margin:6px 0 0' }, plural(list.more, 'more app', 'more apps') + ' wrote less.') : null,
     life ? h('p', { id: 'wr-life', class: 'small' + (life.shown ? '' : ' mut'), style: 'margin:10px 0 0' }, life.text) : null,
-    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Own processes only: another user\'s processes, and macOS\'s own, cannot be read without root. Stores app names and byte counts, never file names.'));
+    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Own processes only: the processes of other users, root included, cannot be read without root. Stores app names and byte counts, never file names.'));
 }
 function stStrip(d, state, now) {
   const snaps = d.snapshots || {}, n = rv(snaps.count);

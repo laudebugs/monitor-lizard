@@ -18,6 +18,8 @@ The history database carries a schema version. The first time a build versions a
 
 Turning on the `metrics_history` setting adds downsampled CPU/memory history to that same `history.db` (1 minute resolution for 48 hours, 15 minutes for 30 days; never per-process) -- off by default. Measured by filling both tiers to their full retention (23,048 rows: 2880 one-minute buckets plus 2880 fifteen-minute buckets, 4 metric columns each) and checking the resulting file size directly: about 753 KB after `VACUUM` (812 KB before it). The plan is [docs/plans/system-monitor.md](docs/plans/system-monitor.md).
 
+Disk writes by app are off by default as well. Turn them on in the Storage page's "Disk writes by app" panel, which also has "Erase history". While the setting is on, `history.db` gets one row per app per hour: the app's name and the bytes its processes wrote. A row never holds a pid, a path or a file name, and rows older than 7 days are deleted. Only your own processes are counted, because macOS does not let another user's process be read without root. App names with hourly counts reveal habits, so the rows stay on this Mac.
+
 Marking an item as expected (the dashboard's "Mark expected" button, or `approve`) records it in `baseline.json` and in the history database, and stops it counting as new. A marked host or startup item keeps its row with an "expected" chip, and "Unmark" brings it back. The History page lists every mark and unmark.
 
 A Tauri menu-bar shell (`src-tauri/`) runs the same server and dashboard in a window with a tray item, instead of a terminal and a browser tab. See [ADR 0004](docs/decisions/0004-tauri-menu-bar-shell.md) and "Building, signing and running the app locally" below.

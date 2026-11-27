@@ -51,6 +51,12 @@ Limits: a process swapped for another in the instant between the last check and 
 
 `GET /api/storage` lists the names of app caches, the paths of developer projects that have a `node_modules` folder, and how big each is. It needs no token, only the Host check. The Host check and the browser's cross-origin rules stop a web page you open from reading the reply. They do not stop that page from sending the request, so a page could ask for a new scan. To limit that, a request starts a scan at most once a minute. Any process on your Mac can read the reply, because it can reach `127.0.0.1`. Cloud folders such as `~/Dropbox` are not user-content folders, so an idle `node_modules` inside one can be labelled safe.
 
+## What the disk writes history holds
+
+The `disk_writes_history` setting is off by default. While it is on, the history database keeps one row per app and hour: the app group's name and the bytes its processes wrote, for 7 days. It never stores a pid, a path or a file name, and it counts only your own processes. `GET /api/storage/writes` needs no token, like `GET /api/storage`, so any process on your Mac can read those rows. Turning the setting on or off goes through `POST /api/settings`, and `POST /api/storage/writes/erase` deletes every row. Both need the Origin check and the per-run token.
+
+The same reply carries the internal SSD's lifetime bytes written. That figure comes from the drive's NVMe SMART data, read through Apple's SMART plug-in without root. Where the drive does not offer it, the reply says why and the page hides the figure.
+
 ## What the baseline means
 
 Marking an item as expected hides it from the Overview and the New filters. It does not make the item safe.

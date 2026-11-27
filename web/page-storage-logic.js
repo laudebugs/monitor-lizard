@@ -602,7 +602,7 @@ function writesNote(state, d) {
     loading: 'Reading the disk writes history...',
     failed: 'The disk writes history could not be read. It is read again when you open this page.',
     unavailable: 'The history database could not be opened' + (d && d.error ? ': ' + d.error : '') + '.',
-    off: 'Off. Turn it on to record, each hour, how much each of your apps writes to disk. Nothing is recorded until you do.',
+    off: 'Off. Turn it on to record, each hour, how much each of your apps writes to disk. Nothing new is recorded while it is off.',
     empty: 'On. Nothing recorded yet: the first figures appear within a few minutes of an app writing to disk.',
     data: 'Bytes your apps wrote in the last 24 hours. Kept ' + plural(days, 'day', 'days') + ', on this Mac only.',
   }[state];

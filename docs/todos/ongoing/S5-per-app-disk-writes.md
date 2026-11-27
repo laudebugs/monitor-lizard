@@ -47,10 +47,10 @@ Show which apps wrote the most to disk in the last 24 hours, with an hourly trac
 
 ## Steps
 
-- [ ] Tests for roll-up and counter resets first.
-- [ ] Change `settings::update` from four fixed parameters to a struct, so a new setting does not need another parameter.
-- [ ] Key per-process counters by pid and start time so a reused pid is not mixed in.
-- [ ] Add the erase route behind the same Origin and token checks as other writes.
+- [x] Tests for roll-up and counter resets first.
+- [x] Change `settings::update` from four fixed parameters to a struct, so a new setting does not need another parameter.
+- [x] Key per-process counters by pid and start time so a reused pid is not mixed in.
+- [x] Add the erase route behind the same Origin and token checks as other writes.
 
 ## Edge cases (must be covered)
 
@@ -89,8 +89,22 @@ Plan status; the privacy paragraph in `README.md` and `SECURITY.md`.
 ## Definition of done
 
 - [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
+- [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-27.
+
+- **Stays in `ongoing/`.** The work is built, but `make check-docs` refuses a done todo whose dependency is unfinished, and S2a is still in `ongoing/`. S3b waits on S2a the same way. Move this file to `done/` once S2a is done.
+- **Built:** `src/history/disk_writes.rs` holds the `disk_writes_hourly(hour, app, bytes)` table, made by `CREATE TABLE IF NOT EXISTS` in `History::at` as the plan's risk item 7 says new tables are. `WriteRollup` sums write-counter growth per app group and hour, keyed by (pid, start time). The hook that `procusage::start` now takes runs it after every 5 s pass, writes pending bytes once a minute and prunes rows older than 7 days. `Tracker::write_counters` (`src/procusage.rs`) gives each own process's lifetime `ri_diskio_byteswritten`, named by `group::group_of(exe).label`, never the path. `settings::Update` replaces the five fixed `update` parameters. `GET /api/storage/writes` and the token-guarded `POST /api/storage/writes/erase` are in `src/server.rs`. The Storage page panel is `stWrites` in `web/page-storage.js`, with its pure logic in the `storage-writes` block.
+- **Edge cases, as built:** setting off drops the in-memory state and writes nothing. A process that exits mid-hour keeps the bytes counted up to its last sample, and is forgotten. A counter lower than the last one drops the sample and keeps the higher baseline, so a glitch can undercount but never counts twice. A pid reused by a new process is a new key. A process first seen after watching began counts from zero; an older one counts from its first reading. Another user's process never reaches the roll-up, and a pid that moves to another user drops our stored counters. Erase and the hook share one lock, so bytes pending before an erase are not written back.
+- **Lifetime SSD writes: readable without root (verified 2026-11-27, macOS 27, MacBookPro18,3, APPLE SSD AP0512R).** The drive's registry entry says `"NVMe SMART Capable" = Yes` and names `NVMeSMARTLib.plugin`. A C probe built against the SDK's `NVMeSMARTLibExternal.h`, run as uid 501, read the SMART page with return code 0 and Data Units Written 406,048,281 (about 208 TB). `iokit::ssd_lifetime_bytes_written` reads the same page from Rust and the running server returned 207,918,157,824,000 bytes. A Mac whose drive does not offer the plug-in gets the figure hidden with the reason.
+- **Tests:** Rust: 12 in `history::disk_writes` (roll-up per app group, exit mid-hour, started-while-watching, counter backwards, reused pid, setting off, flush timing and a missing database, upsert adds, 7-day prune, erase including pending bytes, the reply's 24-hour layout, an unreadable database), 2 in `procusage` (only own processes, a pid moving to another user), 2 in `iokit` (SMART field parsing and saturation, a real read that is a value or a reason), 1 in `settings`. Node: 8 in `tests/web/storage-writes.test.mjs`.
+- **Real run:** the debug and release binaries with an isolated `HOME`. With the setting off no tick ran and the table held no rows. Turned on in Chrome with the panel's button, the first rows landed after one minute (43 rows, busiest app 103 MB). The panel showed the busiest eight apps with bars and traces, "35 more apps wrote less", the 208 TB lifetime line and the footnote. Erase history emptied the table and the panel went back to its empty state; Turn off showed the off state. `POST /api/storage/writes/erase` without the token returned 403.
+- **Found and fixed during the real run:** the panel first stayed on "Reading..." when opened from the Overview, because it shared the capacity history's one-minute clock, which the Overview had just reset. It now has its own clock.
+- **Pending:** the 24-hour acceptance check (non-zero writes for the busiest app after 24 hours on) needs a day of running. The narrow-width layout was not checked: resizing the browser window did not change the viewport. The panel's look was not compared against design D in the owner's canvas.
+
