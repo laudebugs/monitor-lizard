@@ -54,7 +54,7 @@ Store one capacity sample a day and show "grew 14.2 GB this week" and "full in a
 |---|---|
 | Fewer than 7 days of data | "Collecting history", no forecast |
 | Flat or shrinking usage | "Not growing", no days figure |
-| Large one-day drop (a big clean-up) | Fit uses days after the drop |
+| Large one-day drop (a big clean-up) | Fit uses days after the drop; "large" is a fall of more than 5% of the disk (decision recorded in the plan, D6) |
 | Database not writable | Page still shows current capacity; the forecast says history is unavailable |
 | Clock moves backwards | Sample ignored |
 
