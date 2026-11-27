@@ -45,7 +45,7 @@ Split `src/history.rs` (1,738 lines) into a `src/history/` folder where no file 
 
 ## Steps
 
-- [x] Claim: move this file into `ongoing/`.
+- [x] Claim: add this file to `ongoing/` (the branch was later rebuilt as one commit that adds it to `done/`; see the Implementation Record).
 - [x] Move code by line range into the submodules; widen only the visibility of items that now cross a module boundary, to `pub(super)`.
 - [x] Prove the move: public items and signatures, test names, item bodies.
 - [x] `make check`, `make test`, `make check-docs`.
@@ -88,7 +88,7 @@ The tests open databases, so run them with `HOME` and `TMPDIR` pointing at scrat
 
 ## Definition of done
 
-- [x] Claimed: first commit moved this file into `ongoing/`
+- [x] Claimed: the first commit added this file to `ongoing/` (the rebuilt branch carries it in `done/` only)
 - [x] Follows the applicable guidelines
 - [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages (an independent purity review found no behavioural change; see the commit message)
 - [x] `/writing-review` run on any prose
@@ -98,3 +98,10 @@ The tests open databases, so run them with `HOME` and `TMPDIR` pointing at scrat
 ## Implementation Record
 
 Built as designed: `src/history/` holds `mod.rs` and eight table modules plus `migrations.rs` and `test_util.rs`, none over 450 lines. Proof of purity (public items, test names, item bodies) is in PR #73. An independent review of the move found no behavioural change, and `/writing-review` was applied to this todo and the layout entry.
+
+### Review and rebuild
+
+- **Reviews.** Three independent reviews found no behavioural change: a purity review (tokenised diff of the old file against the new files, SQL and `MIGRATIONS` in order, test names equal, the re-exec test name checked by mutation, visibility audit), and then the `/code-review` skill on PR #73 with separate standards and spec reviewers. Their only points were two minor judgement calls on the standards side (a very long `layout.md` table cell, and four helpers widened to `pub(super)` so `History::at` can call them) and stale wording that this commit fixes.
+- **Rebuilt branch.** The first three commits were unsigned, and branch protection requires signatures, so GitHub blocked the merge. The branch was rebuilt as one signed commit on the newest main. This todo was renamed from T3 to T5 because another todo took T3 first; the branch name keeps `t3`. An empty signed commit re-triggered CI.
+- **CI hang.** On a base that included #75 and not yet #76 and #77, the `code` job's `make test` hung past 25 minutes on two runs. The same tree on main `76872d1` passed. The local suite passed at 1, 2 and default thread counts (485 Rust tests, 4 ignored). The cause of the hang is not established by this PR.
+- **Test count.** 489 test names, the same before and after the move (485 run, 4 ignored).
