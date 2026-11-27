@@ -94,14 +94,29 @@ fn free_port() -> Option<u16> {
     std::net::TcpListener::bind("127.0.0.1:0").ok()?.local_addr().ok().map(|a| a.port())
 }
 
+/// A private scratch directory created for this run, to use as the child's `HOME` instead of the
+/// real one. `llama-server` is always pointed at the model by its absolute path (see `tick()`), so
+/// it never needs the real `HOME` to find anything; handing over the real one anyway would let a
+/// third-party binary read SSH keys, cloud credentials and dotfiles it has no reason to see.
+fn scratch_home() -> std::io::Result<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("monitor-lizard-agent-home-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
 /// Spawns `program` with a cleared environment plus a narrow allowlist (never the inherited
-/// environment, which may carry credentials this subprocess has no business seeing), and no
-/// inherited stdio: `llama-server`'s own logging is not captured in this first cut (see the
-/// Implementation Record's Open note).
+/// environment, which may carry credentials this subprocess has no business seeing): `PATH` so the
+/// binary's own dynamic linking and any tools it shells out to still resolve, a scratch `HOME` (see
+/// `scratch_home`), and `TMPDIR`/`LANG` passed through unchanged since neither carries anything
+/// sensitive. No inherited stdio: `llama-server`'s own logging is not captured in this first cut
+/// (see the Implementation Record's Open note).
 fn spawn_with_clean_env(program: &Path, args: &[&str]) -> std::io::Result<Child> {
+    let home = scratch_home()?;
     let mut cmd = Command::new(program);
     cmd.env_clear();
-    for key in ["PATH", "HOME", "TMPDIR", "LANG"] {
+    if let Ok(v) = std::env::var("PATH") { cmd.env("PATH", v); }
+    cmd.env("HOME", home);
+    for key in ["TMPDIR", "LANG"] {
         if let Ok(v) = std::env::var(key) { cmd.env(key, v); }
     }
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -294,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cleared_environment_drops_an_arbitrary_variable_but_keeps_the_allowlisted_ones_working() {
+    fn the_cleared_environment_drops_an_arbitrary_variable_but_keeps_path_working() {
         // SAFETY (set_var): this test does not run concurrently with any other code reading env
         // vars in this process in a way that matters -- it only asserts on this one child's view.
         unsafe { std::env::set_var("MONITOR_LIZARD_TEST_SECRET", "should-not-be-inherited"); }
@@ -302,6 +317,15 @@ mod tests {
         let status = child.wait().expect("wait");
         unsafe { std::env::remove_var("MONITOR_LIZARD_TEST_SECRET"); }
         assert!(status.success(), "the child must see PATH (allowlisted) but not the arbitrary var (cleared)");
+    }
+
+    #[test]
+    fn the_real_home_is_never_handed_to_the_child() {
+        let real_home = std::env::var("HOME").unwrap_or_default();
+        let script = format!("[ \"$HOME\" != \"{real_home}\" ] && [ -n \"$HOME\" ]");
+        let mut child = spawn_with_clean_env(Path::new("/bin/sh"), &["-c", &script]).expect("spawn sh");
+        let status = child.wait().expect("wait");
+        assert!(status.success(), "the child's HOME must be some scratch directory, never the real one, and never empty");
     }
 
     /// A tiny fixture HTTP server standing in for `llama-server`'s `/health` endpoint, the same

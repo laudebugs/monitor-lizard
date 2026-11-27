@@ -173,7 +173,12 @@ pub fn classify(base_url: &str, evidence: &Evidence) -> Result<Verdict, LlmError
     classify_with_timeout(base_url, evidence, TIMEOUT)
 }
 
-fn classify_with_timeout(base_url: &str, evidence: &Evidence, timeout: Duration) -> Result<Verdict, LlmError> {
+/// `classify` with the wait bound shortened below `TIMEOUT`'s default 20 s. The HTTP server this
+/// repo ships handles one request at a time on a single thread (`src/server.rs`), so a slow-but-
+/// alive model server stalls every other open dashboard tab for as long as this call waits, not
+/// just the request that asked for a verdict -- `/api/classify` uses this to bound that stall,
+/// trading a slightly higher chance of a false Timeout for a shorter worst case.
+pub fn classify_with_timeout(base_url: &str, evidence: &Evidence, timeout: Duration) -> Result<Verdict, LlmError> {
     match call(base_url, evidence, true, timeout) {
         Ok(content) => parse_reply(&content),
         // A 4xx/5xx on the schema-constrained attempt may mean the server doesn't support

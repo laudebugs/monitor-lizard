@@ -49,9 +49,9 @@ pub struct Settings {
     /// in, same as every other disk-persisted feature in this app.
     #[serde(default)]
     pub metrics_history: bool,
-    /// The agent's kill switch (A13): off by default, same as every other opt-in feature here.
-    /// Set only via `monitor-lizard agent on`/`off`, not `/api/settings`, since there is no page
-    /// control to drive it yet (A15).
+    /// The local classifier agent's kill switch: off by default, same as every other opt-in
+    /// feature here. Set only via `monitor-lizard agent on`/`off`, not `/api/settings`, since there
+    /// is no page control to drive it yet.
     #[serde(default)]
     pub agent_enabled: bool,
 }

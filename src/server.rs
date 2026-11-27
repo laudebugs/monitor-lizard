@@ -17,6 +17,8 @@ const MONO_SEMIBOLD: &[u8] = include_bytes!("../web/fonts/IBMPlexMono-SemiBold.w
 const SEEN_LIMIT: usize = 2000;
 const ACTION_LIMIT: usize = 200;
 const BASELINE_CHANGE_LIMIT: usize = 200;
+/// Shorter than `llm::classify`'s own 20 s default: see the comment at its call site in `/api/classify`.
+const CLASSIFY_TIMEOUT: Duration = Duration::from_secs(6);
 
 type Cache = Arc<Mutex<Option<String>>>;
 
@@ -156,14 +158,20 @@ pub fn serve_on(server: Arc<Server>) {
                         // pattern (see `classify` in main.rs); the group disappearing between the
                         // two is rare and distinct from the agent not being ready, so it gets its
                         // own reason rather than borrowing the agent's.
+                        // Bounded below llm::classify's own 20 s default: this server handles one
+                        // request at a time, so a slow-but-alive model server would otherwise stall
+                        // every other open dashboard tab for as long as this one call waits.
                         let raw = match (&base_url, classify::evidence(&key)) {
-                            (Some(url), Some(ev)) => llm::classify(url, &ev),
+                            (Some(url), Some(ev)) => llm::classify_with_timeout(url, &ev, CLASSIFY_TIMEOUT),
                             (Some(_), None) => Err(llm::LlmError::Invalid("group vanished between snapshots".into())),
                             (None, _) => Err(llm::LlmError::Unavailable(agent.reason().as_str().to_string())),
                         };
                         let agent_reason = base_url.is_none().then(|| agent.reason().as_str());
                         let verdict = classify::validate_verdict(g.trust, &allowed, raw);
-                        json_resp(serde_json::json!({ "verdict": verdict, "agent_reason": agent_reason }).to_string())
+                        // `rule_label`/`allowed_actions` alongside the clamped verdict, per the todo's
+                        // own Scope line: a caller needs the rules' own answer, not just what the
+                        // agent did or didn't add to it.
+                        json_resp(serde_json::json!({ "rule_label": g.trust, "allowed_actions": allowed, "verdict": verdict, "agent_reason": agent_reason }).to_string())
                     }
                     None => Response::from_string("no such group").with_status_code(404).boxed(),
                 }
