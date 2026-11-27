@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `B7` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [resource-monitoring](../../plans/resource-monitoring.md) |
 | Depends on | B2, B4 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
@@ -118,3 +118,5 @@ make check-docs
 - **Browser:** Chrome with a scratch HOME, own tab. Seen in dark and light: the live tab with real capacity, purgeable unavailable, no connection (page state set, not a real outage) and a 400 px frame without overflow.
 - **Open:** the approved-design comparison, and the 1440 px and below-1100 px checks, because the window was not resized.
 - **Known gap:** the card helper is used only by the new tab; the older CPU and GPU cards still carry their own copy of the markup.
+
+**Moved to `done/` on 2026-11-27**, after PR #50 merged; the move was missed in that PR. Boxes still unchecked above are checks this record lists as not run or not verified; they were not ticked on the move.

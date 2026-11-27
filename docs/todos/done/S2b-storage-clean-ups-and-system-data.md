@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `S2b` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D4, D9 |
 | Depends on | S2a |
 | ADRs | None |
 | Branch | `feat/s2b-storage-clean-ups` |
 | PR title | `feat(web): add suggested clean-ups and Inside System Data to Storage` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#54](https://github.com/laudebugs/monitor-lizard/pull/54) |
 
 ## Goal
 
@@ -115,3 +115,5 @@ Pending:
 - [ ] A scan of a real developer home was not looked at.
 - [ ] `/code-review` (second round) and `/writing-review` not run.
 - [ ] Narrow-window layout of the new lists not checked.
+
+**Moved to `done/` on 2026-11-27**, after PR #54 merged; the move was missed in that PR. Boxes still unchecked above are checks this record lists as not run or not verified; they were not ticked on the move.
