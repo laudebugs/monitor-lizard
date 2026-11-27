@@ -43,9 +43,9 @@ A user hovering any chart on the Performance page (CPU/GPU, Memory, Disk and net
 
 ## Steps
 
-- [ ] Add one pure function that, given a chart's series data and an x position (pointer or keyboard index), returns the nearest sample's index and values -- no DOM, so it can be tested the way `confirmable`/`evidenceLine` are.
-- [ ] Wire pointer move/leave and keyboard handling on each chart helper, reusing that one function.
-- [ ] Draw the guide line, per-series dot, and a small tooltip (value, series label, relative time) without resizing the chart or shifting other page content.
+- [x] Add one pure function that, given a chart's series data and an x position (pointer or keyboard index), returns the nearest sample's index and values -- no DOM, so it can be tested the way `confirmable`/`evidenceLine` are.
+- [x] Wire pointer move/leave and keyboard handling on each chart helper, reusing that one function.
+- [x] Draw the guide line, per-series dot, and a small tooltip (value, series label, relative time) without resizing the chart or shifting other page content.
 
 ## Edge cases (must be covered)
 
@@ -84,8 +84,19 @@ make test
 ## Definition of done
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
+- [x] Follows the applicable guidelines
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/writing-review` run on any prose
+- [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-27.
+
+- **Built:** `web/chart-hover.js` (new, loads before `page-performance.js`, listed in `SOURCES` in `src/web.rs`). Its pure `chart-hover` block holds these functions: `chartIndexAt` (a pointer snaps to the nearer sample, and a tie takes the newer one), `chartStep` (Left, Right, Home, End, stopping at the ends), `chartIndexForTs`, `chartAgo` ("32s ago") and `chartSample`. `chartSample` returns the rows per series, the reason for an unavailable value and the dot height. `chartHost` wraps a chart svg with a guide line, a dot per series and a tooltip. All three are absolutely positioned, so nothing resizes or shifts. `spark`, `linesChart` and `stackedAreaN` take an optional spec and call it. The CPU, GPU, Disk throughput, Operations, Network and Memory charts are keyboard-reachable; the Overview tile sparklines answer the pointer only, because the tile is already a button. The highlight lives in `CH` by chart id, so each poll's rebuilt chart re-applies it; the focused chart gets focus back through `data-req`. Only a key press speaks, through the existing `#announcer`.
+- **Tests:** `tests/web/chart-hover.test.mjs` has 12 cases (the todo asked for 4), covering every edge case in the todo. `tests/web/theme-contrast.test.mjs` gained tooltip text, border and guide pairs plus a check that the tooltip reads only covered tokens and names Canvas, CanvasText and Highlight in forced-colors.
+- **Real run:** Chrome, scratch server and HOME under `/private/tmp/ml-b10`, window not resized (1309 px wide). Seen: hover shows the guide, dots and tooltip on CPU/GPU, Memory, and Disk and network, in dark and light, at 5 min and 1 hour. The highlight survives the 2 s redraw. Arrow keys step, and focus stays on the chart across polls. Each key press makes one announcement. Escape clears the highlight and it stays cleared after a redraw. Tooltips cause no change in page or tile height. A first run showed a resting pointer undoing a key press after a redraw; fixed by ignoring pointer events without movement.
+- **Deviation:** the todo stays in `ongoing/`. B7, a dependency, was left in `ongoing/` on purpose (four open boxes, PR #67 closed), and `make check-docs` refuses a done todo whose dependency is unfinished. Move B10 to `done/` once B7 is. B7's feature itself merged in #50.
+- **Open:** below-1100px layout, forced-colors, reduced-motion and a screen reader were not run (no window resize allowed, no such modes available): pending. The unavailable-value tooltip is covered by unit tests only; the scratch Mac had every reading.
+- **CI:** pending on the pull request.

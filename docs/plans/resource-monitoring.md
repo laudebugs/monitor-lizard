@@ -53,4 +53,4 @@ See the [research](../research/resource-monitoring/README.md): Stats and macmon 
 3. `tiny_http` cannot be assumed to stream; polling avoids the question.
 4. Sampling cost has not been measured; B1 records the monitor's own CPU use.
 5. The UI can only be smoke-tested in a simulated DOM unless a real browser is available.
-6. B10 has no approved design for its tooltip/marker look yet; see its own Risks section.
+6. B10 shipped a minimal tooltip and marker look picked from the existing card and legend language; the owner can redirect it once seen.
