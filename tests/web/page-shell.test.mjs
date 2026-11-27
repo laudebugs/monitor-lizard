@@ -272,5 +272,5 @@ test('performance puts its live toggle in the title actions', () => {
 });
 
 test('the Overview tile says what it counts and links to the failed filter', () => {
-  assert.match(html, /tile\('Failed sudo', failed, 'sudo only, last 2 hours', \(\) => rec\(\{ view: 'priv', fil: Object\.assign\(\{\}, S\.fil, \{ 'auth-result': 'failed' \}\)/);
+  assert.match(html, /tile\('Failed sudo', failed, 'sudo only, last 2 hours', \{ view: 'priv', dd: \{ 'auth-result': 'failed' \} \}/);
 });
