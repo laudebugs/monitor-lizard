@@ -45,7 +45,7 @@ function verdictTitle(view, f) {
     const when = f.stale ? 'Scan from ' + ago : (done ? 'Scan complete' : 'Scan partial') + (ago ? ', ' + ago : '');
     return when + ': ' + (done ? plural(n, 'location', 'locations') : n + (get('total') === null ? '' : ' of ' + get('total')) + ' locations') + ' measured';
   }
-  if (view === 'overview') return n ? plural(n, 'item needs', 'items need') + ' your attention' : 'Nothing needs your attention';
+  if (view === 'overview') return n ? plural(n, 'thing needs', 'things need') + ' a decision' : 'Nothing needs a decision';
   if (view === 'apps') return n ? plural(n, 'app needs', 'apps need') + ' review' : 'Nothing needs review';
   if (view === 'priv') return n ? plural(n, 'failed authorization request', 'failed authorization requests') : 'No failed authorization requests';
   if (view === 'listeners') return n ? plural(n, 'listening socket is', 'listening sockets are') + ' open to your network' : 'No listening socket is open to your network';

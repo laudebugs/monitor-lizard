@@ -206,12 +206,13 @@ function volumeBarArgs(vol) {
 }
 // A failed read keeps the card honest (it says so and retries on the next poll) instead of staying on "not read yet".
 async function loadVolume() {
-  if (document.hidden || S.view !== 'performance' || S.perfTab !== 'disknet') return;
+  if (document.hidden || !(S.view === 'overview' || (S.view === 'performance' && S.perfTab === 'disknet'))) return;
   try {
     const res = await api('/api/volume');
     if (!res.ok) throw new Error('volume read failed');
-    quiet({ volume: await res.json(), volumeFailed: false });
-  } catch (e) { quiet({ volume: null, volumeFailed: true }); }
+    const next = { volume: await res.json(), volumeFailed: false };
+    if (S.view === 'overview') { Object.assign(S, next); refreshMachine(); } else quiet(next);
+  } catch (e) { const next = { volume: null, volumeFailed: true }; if (S.view === 'overview') { Object.assign(S, next); refreshMachine(); } else quiet(next); }
 }
 async function loadProcesses() {
   if (document.hidden || S.view !== 'performance' || S.perfTab !== 'topconsumers') return;
