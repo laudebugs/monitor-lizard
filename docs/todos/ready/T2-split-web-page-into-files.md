@@ -9,27 +9,32 @@
 | ADRs | None |
 | Branch | `chore/t2-split-web-page` |
 | PR title | `chore(web): split the dashboard page into CSS and script files` |
-| Size | L (about 2,400 lines move and none change; not split because a half-moved page does not run. The review is the byte-equality test, not a line read) |
+| Size | L (a move; see Risks) |
 | PR | — |
 
 ## Goal
 
-Move `web/index.html` (about 2,400 lines: one `<style>` and one `<script>`) into a small HTML shell, one stylesheet and several script files, so no file passes the 800-line module budget and the redesign todos (R1, R2, R3b) each edit a small file instead of the same one.
+Split `web/index.html` (about 2,400 lines, one `<style>`, one `<script>`) into an HTML shell, one stylesheet and several scripts. No file then passes the 800-line budget, and R1, R2 and R3b each edit a small file.
 
 ## Context
 
 - The page is embedded with `include_str!("../web/index.html")` in `src/server.rs`; the binary is one offline file and must stay one.
-- Twelve marked blocks (`storage-cleanups`, `storage-page`, `url-state` and so on) are lifted by name into Node tests, and some tests read `web/index.html` as text (`table-floor`, `memory-tab`).
+- Twelve marked blocks (`storage-cleanups`, `storage-page`, `url-state` and so on) exist; tests lift them by name, and others (`table-floor`, `memory-tab`) read `web/index.html` as text.
+- `src/server.rs` replaces `__TOKEN__` in the page with the per-run write token (`PAGE.replace`), and `const TOKEN = "__TOKEN__"` sits in the script block. That line moves with the script, so the replacement must run on the file that holds it, or the token must stay in the shell. The token must never reach the URL hash.
 - The code shares globals (`S`, `h`, `rec`, `render`, `writeHash`); it is not written as modules.
-- [docs/guidelines/maintainability.md](../../guidelines/maintainability.md) suggests modules of at most 800 lines; the page is about three times that.
+- [docs/guidelines/maintainability.md](../../guidelines/maintainability.md) sets the 800-line budget.
 
 ## Scope
 
 **In scope:**
 
 - `web/app.css`: the stylesheet, unchanged.
-- Classic scripts that keep sharing globals, loaded in a fixed order from `index.html`. A proposed split (adjust to the real seams): `core.js` (state, `h`, `render`, router, `writeHash`, url-state), `table.js` (tables, export, widths), `shell.js` (page shell, sidebar, search), and one file per page (`page-overview.js`, `page-apps.js`, `page-network.js`, `page-storage.js`, `page-guide.js`, `page-persistence.js`, and so on). No file over 800 lines.
-- `src/server.rs` serves each file from an `include_str!`, from the same loopback origin, with the right content type. No remote asset, no new dependency, no build step.
+- Classic scripts that keep sharing globals, loaded in a fixed order from `index.html`. Proposed split; adjust to the real seams:
+  - `core.js`: state, `h`, `render`, router, `writeHash`, url-state
+  - `table.js`: tables, export, widths
+  - `shell.js`: page shell, sidebar, search
+  - one file per page: `page-overview.js`, `page-apps.js`, `page-network.js`, `page-storage.js`, `page-guide.js`, `page-persistence.js`, and so on
+- `src/server.rs` serves each file from an `include_str!`, from the same loopback origin, with the right content type, and injects the token as described in Context. No remote asset, no new dependency, no build step.
 - `index.html` keeps the theme bootstrap script, the markup, and the script tags.
 - Node tests read the new files; the marker blocks stay where they are in their new file.
 - `docs/agents/layout.md` describes the new layout and where a new page goes.
@@ -53,7 +58,7 @@ Move `web/index.html` (about 2,400 lines: one `<style>` and one `<script>`) into
 ## Steps
 
 - [ ] Check what the server sends for the page today: headers, any Content-Security-Policy, caching. Record it.
-- [ ] Write a test that fails if the concatenated scripts differ from the old script block, byte for byte, then move the code until it passes.
+- [ ] Save the old script block and stylesheet as a committed fixture from `main`, write a test that fails if the new files, concatenated in load order, differ from it byte for byte, then move the code until it passes. Delete the fixture in the last commit once reviewed, or keep it if the review wants it.
 - [ ] Add the routes; confirm every file loads with 200 and the right content type, and an unknown path still returns 404.
 - [ ] Update the Node tests to the new paths.
 - [ ] Open every page in a real browser on a scratch HOME, in both themes, with the console open.
@@ -63,20 +68,22 @@ Move `web/index.html` (about 2,400 lines: one `<style>` and one `<script>`) into
 | Input | Expected |
 |---|---|
 | Script load order wrong | A test fails: `core.js` loads before anything that uses its globals |
-| A script file is missing from the binary | The build fails or a test fails; the page never half loads |
-| Stale browser cache after an upgrade | Files are not served with a long cache lifetime, or are versioned |
+| A script file is missing from the binary | The build or a test fails |
+| Stale browser cache after an upgrade | Each file is served with the same cache headers as the page is today (recorded in step 1); a changed binary never serves an old script |
 | Request for a path not in the list | 404, no file read from disk |
+| Token line moved into a script | The served script carries the real token, the HTML does not leak it elsewhere, and the hash never contains it |
 | Offline | The page works with no network |
 
 ## Acceptance criteria
 
 - No behaviour change: every page looks and works as before, in both themes, with no console error.
 - No file in `web/` is over 800 lines.
+- Write actions still work (the token reaches the page).
 - The page makes no request outside `127.0.0.1`.
 
 ## Tests
 
-The byte-equality test for the move, a test for each route, and the existing 214+ Node tests unchanged in what they assert.
+The byte-equality test for the move, a test for each route, a test that the served script carries the token, and the existing Node tests.
 
 ## Verification
 
@@ -91,6 +98,7 @@ make test
 
 ## Risks and open questions
 
+- Size: about 2,400 lines move and none change. The template asks for L todos to be split first, but a half-moved page does not run, so this ships as one PR. The review is the byte-equality test, not a line read.
 - A global defined in one file and used before its file loads fails only in a browser. The load-order test and the page-by-page check are the guard.
 - This lands after S4 and before S3a, S5 and the redesigns; every open branch that edits `web/index.html` must rebase on it. Tell the other session before merging.
 
