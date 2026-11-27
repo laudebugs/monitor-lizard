@@ -1,0 +1,22 @@
+[
+  { "command": "node", "exe": "/opt/homebrew/bin/node", "label": "node" },
+  { "command": "node script.js", "exe": "/opt/homebrew/bin/node", "label": "node script.js" },
+  { "command": "node /Users/me/proj/bin/deploy.js --prod", "exe": "", "label": "node deploy.js" },
+  { "command": "node --require ./setup.js app/server.js", "exe": "", "label": "node server.js" },
+  { "command": "node --require=./setup.js app/server.js", "exe": "", "label": "node server.js" },
+  { "command": "node -e console.log(1)", "exe": "", "label": "node -e" },
+  { "command": "/bin/bash /Users/me/run.sh --flag", "exe": "/bin/bash", "label": "bash run.sh" },
+  { "command": "bash -c sudo shutdown -h 0", "exe": "/bin/bash", "label": "bash -c" },
+  { "command": "-zsh", "exe": "/bin/zsh", "label": "zsh" },
+  { "command": "/bin/zsh -l", "exe": "/bin/zsh", "label": "zsh" },
+  { "command": "python3 -m http.server 8000", "exe": "", "label": "python3 -m http.server" },
+  { "command": "/usr/bin/python3.11 tools/build.py", "exe": "", "label": "python3.11 build.py" },
+  { "command": "/usr/bin/env node a.js", "exe": "/usr/bin/env", "label": "node a.js" },
+  { "command": "/usr/bin/env FOO=1 -i ruby tasks/clean.rb", "exe": "", "label": "ruby clean.rb" },
+  { "command": "perl -w /usr/local/bin/tool.pl", "exe": "", "label": "perl tool.pl" },
+  { "command": "claude", "exe": "/Users/me/.local/bin/claude", "label": "claude" },
+  { "command": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron --type=x", "exe": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "label": "Electron" },
+  { "command": "", "exe": "/usr/bin/login", "label": "login" },
+  { "command": "", "exe": "", "label": "?" },
+  { "command": "sh", "exe": "/bin/sh", "label": "sh" }
+]

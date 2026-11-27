@@ -5,21 +5,29 @@ fn main() {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
         Some("serve") => server::serve(args.next().and_then(|p| p.parse().ok()).unwrap_or(4747)),
-        Some("privilege") => for e in privilege::recent(args.next().and_then(|m| m.parse().ok()).unwrap_or(60)) {
-            println!("{} {} {} right={} {} parent={}", e.time, if e.ok { "OK  " } else { "FAIL" }, e.client, e.right, e.error.unwrap_or_default(), e.parent.unwrap_or("(exited)".into()));
-        },
+        Some("privilege") => {
+            let live = history::open_or_report().and_then(|h| h.recent_sudo(500).ok()).unwrap_or_default();
+            for e in privilege::recent(args.next().and_then(|m| m.parse().ok()).unwrap_or(60), &live) {
+                let who = match e.source {
+                    privilege::Source::Captured => e.chain.iter().map(|h| watcher::hop_label(&h.command, &h.exe)).collect::<Vec<_>>().join(" < "),
+                    privilege::Source::Ps => e.parent.unwrap_or_default(),
+                    privilege::Source::None => privilege::UNKNOWN_REQUESTER.to_string(),
+                };
+                println!("{} {} {} right={} {} parent={}", e.time, if e.ok { "OK  " } else { "FAIL" }, e.client, e.right, e.error.unwrap_or_default(), who);
+            }
+        }
         Some("watch") => {
             let h = history::open_or_report();
             println!("watching for sudo/su (Ctrl-C to stop)...");
             watcher::watch(|e| {
                 println!("[{}] {} pid={} {}", e.ts, e.tool, e.pid, e.args);
-                for (i, hop) in e.chain.iter().enumerate() { println!("  {}{} {} {}", "  ".repeat(i), if i == 0 { "parent" } else { "└" }, hop.pid, if hop.command.is_empty() { &hop.exe } else { &hop.command }); }
+                for (i, hop) in e.chain.iter().enumerate() { println!("  {}{} {} {}", "  ".repeat(i), if i == 0 { "parent" } else { "└" }, hop.pid, if hop.command.is_empty() { &hop.exe } else { &hop.command }); if let Some(d) = &hop.cwd { println!("  {}  in {}", "  ".repeat(i), d); } }
                 if let Some(h) = &h { let _ = h.record_sudo(&e); }
             })
         }
         Some("sudo-log") => if let Some(h) = history::open_or_report() {
             for e in h.recent_sudo(args.next().and_then(|n| n.parse().ok()).unwrap_or(20)).unwrap_or_default() {
-                println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| h.command.split_whitespace().next().unwrap_or(&h.exe).to_string()).collect::<Vec<_>>().join(" <- "));
+                println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| watcher::hop_label(&h.command, &h.exe)).collect::<Vec<_>>().join(" <- "));
             }
         },
         Some("persistence") => for i in persistence::take().items {

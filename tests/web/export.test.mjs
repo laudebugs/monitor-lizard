@@ -144,7 +144,7 @@ test('every table column the page draws has an export value', () => {
   for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
     seen++;
     // Action columns hold buttons, not data, and are never exported.
-    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ sort: x[2], label: x[1] }));
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?(?:, id: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ id: x[3], sort: x[2], label: x[1] }));
     assert.deepEqual([...(have[mm[1]] || [])].sort(), ids.sort(), 'table ' + mm[1]);
   }
   assert.equal(seen, 9);
@@ -175,7 +175,7 @@ test('real refusals and ports keep the on-screen text', () => {
 test('a column id that equals another column time-twin name would collide in JSON', () => {
   for (const mm of html.matchAll(/sortHeader\('(\w+)', \[([^\]]*)\]/g)) {
     // Action columns hold buttons, not data, and are never exported.
-    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ sort: x[2], label: x[1] }));
+    const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?(?:, id: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ id: x[3], sort: x[2], label: x[1] }));
     for (const id of ids) assert.ok(!ids.includes(id + '_iso'), mm[1] + ': ' + id);
     assert.equal(new Set(ids).size, ids.length, mm[1] + ' has duplicate ids');
   }
@@ -209,4 +209,12 @@ test('pruneTables keeps only the tables of the page being drawn', () => {
 
 test('the page prunes tables on every render, using the page sort list', () => {
   assert.match(html, /function render\(\) \{\n\s+pruneTables\(TABLES, Object\.keys\(PAGE_SORTS\[S\.view\] \|\| \{\}\)\)/);
+});
+
+test('a column with structured JSON writes text to the CSV and data to the JSON and the copied row', () => {
+  const chain = [{ pid: 1, command: 'bash -c "a<b&c"' }];
+  const cols = [col('chain', () => '1. pid: 1\n2. pid: 2', { getJson: () => chain })];
+  assert.equal(csv(cols, [{}]), 'CHAIN\r\n"1. pid: 1\n2. pid: 2"\r\n');
+  assert.deepEqual(JSON.parse(X.toJson(cols, [{}]))[0].chain, chain);
+  assert.deepEqual(X.rowObject(cols, {}).chain, chain);
 });

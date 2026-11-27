@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `P1` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [system-monitor](../../plans/system-monitor.md), section 2 (`src/privilege.rs`, `src/watcher.rs`) and D3 (read-only) |
 | Depends on | None |
 | ADRs | None |
@@ -104,8 +104,19 @@ make check-docs
 ## Definition of done
 
 - [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-26.
+
+- **Built:** hops now store start time, terminal and working directory (`detail` marks rows written by this build); `watcher::hop_label` and the page's `hopLabel` add the script name for interpreters, checked against one shared fixture; `requesterApp` names the app from the chain; the Privilege page has an App column, an expandable detail under each launch and each matched failed authorization, and export-only "Full chain" columns (CSV text, JSON array, Copy row). `privilege::match_live` and `resolve` join authd rows to live rows; an unmatched one says it was launched before Monitor Lizard was running or exited before capture.
+- **Compatibility:** all new `Hop` fields default, so no migration; a database test loads an old-format row, an empty chain and a row with `<`, `&` and quotes.
+- **Tests:** 9 new Rust tests in `watcher`, 9 in `privilege`, 1 in `history`; 14 Node tests in `tests/web/requester.test.mjs` plus one in `export.test.mjs`. `make check`, `make test` and `make check-docs` pass.
+- **Browser (Chrome, scratch HOME, synthetic rows, light and dark):** detail rows, hostile text shown as text, toggle, row-copy buttons still one per row, export columns and the secrets note. Failed-authorization rows were injected into page memory, because the real authd log cannot be seeded.
+- **Not verified:** a real `sudo` capture end to end (the task forbade running it), so cwd, tty and start time for a live chain are covered by tests on this test process's own ancestors only; a narrow window; keyboard walk-through; forced colors.
+- **Open:** a command is cut at 300 characters; an interpreter label takes the first non-option word.
