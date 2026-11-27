@@ -129,10 +129,22 @@ pub fn serve_on(server: Arc<Server>) {
                 }
             }
             (Method::Get, "/api/processes") => {
-                let sort = query_param(query, "sort").unwrap_or_else(|| "cpu".into());
-                let limit = query_param(query, "limit").and_then(|s| s.parse().ok()).unwrap_or(50);
                 let rows = processes.read().map(|r| r.clone()).unwrap_or_default();
-                json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
+                // `pids=` picks out specific rows (the Stop dialog's "fetch one fresh row before
+                // opening", for one or every pid in a Quit-the-app group) and ignores sort/limit
+                // entirely, since there is no "top" ordering to apply to a caller's own exact list.
+                match query_param(query, "pids") {
+                    Some(raw) => {
+                        let wanted: std::collections::HashSet<u32> = raw.split(',').filter_map(|s| s.parse().ok()).collect();
+                        let picked: Vec<_> = rows.into_iter().filter(|r| wanted.contains(&r.pid)).collect();
+                        json_resp(serde_json::to_string(&picked).unwrap_or_default())
+                    }
+                    None => {
+                        let sort = query_param(query, "sort").unwrap_or_else(|| "cpu".into());
+                        let limit = query_param(query, "limit").and_then(|s| s.parse().ok()).unwrap_or(50);
+                        json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
+                    }
+                }
             }
             (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?, h.recent_trash_moves(ACTION_LIMIT)?))) {
                 Ok((seen, actions, baseline_changes, trash_moves)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes, "trash_moves": trash_moves }).to_string()),
@@ -189,9 +201,9 @@ pub fn serve_on(server: Arc<Server>) {
                 }
             }
             (Method::Post, "/api/kill") if write_ok => {
-                match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {
-                    Ok((pids, sig)) => {
-                        let o = actions::execute(&pids, sig);
+                match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "start").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {
+                    Ok((items, sig)) => {
+                        let o = actions::execute(&items, sig);
                         if let Ok(h) = History::open() {
                             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
                             let _ = h.record_action(now, sig.name(), &o.sent, &serde_json::to_string(&o.refused).unwrap_or_default());
