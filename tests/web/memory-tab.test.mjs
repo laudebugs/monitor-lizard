@@ -1,12 +1,11 @@
-// Pure logic for the Memory tab. The test lifts the `memory-tab` block out of web/index.html, so the
+// Pure logic for the Memory tab. The test lifts the `memory-tab` block out of the dashboard scripts (web/*.js), so the
 // block must stay free of DOM and storage access.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* memory-tab:begin \*\/([\s\S]*?)\/\* memory-tab:end \*\//);
-assert.ok(m, 'memory-tab block not found in web/index.html');
+assert.ok(m, 'memory-tab block not found in the dashboard scripts (web/*.js)');
 const { pressureTag, swapState } = new Function(m[1] + '\nreturn { pressureTag, swapState };')();
 
 test('pressure level 4 is a bad tag', () => {

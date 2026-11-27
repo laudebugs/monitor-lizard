@@ -1,13 +1,13 @@
 // Pure logic for the Storage page: scan state, "at least" wording, treemap tiles, table rows. The test lifts the
-// `storage-page` block out of web/index.html with the blocks it reads (url-state, disk-net, page-shell).
+// `storage-page` block out of the dashboard scripts (web/*.js) with the blocks it reads (url-state, disk-net, page-shell).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const block = (name) => {
   const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/'));
-  assert.ok(m, name + ' block not found in web/index.html');
+  assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)');
   return m[1];
 };
 const names = 'pathDisplay retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES weekText lastSampleText capacityOutlook capacityChart capacityChartLabel'.split(' ');

@@ -1,14 +1,13 @@
-// Logic tests for the URL-hash state in web/index.html. The page has no build step and no module
+// Logic tests for the URL-hash state in the dashboard scripts (web/*.js). The page has no build step and no module
 // exports, so the test lifts the block between the `url-state` markers out of the file and runs it
 // on its own: the block must stay free of DOM and global access (it takes `location` and `history`
 // as arguments) for that to work. Layout and real Back/Forward are not covered here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* url-state:begin \*\/([\s\S]*?)\/\* url-state:end \*\//);
-assert.ok(m, 'url-state block not found in web/index.html');
+assert.ok(m, 'url-state block not found in the dashboard scripts (web/*.js)');
 const L = new Function(m[1] + '\nreturn { parseHash, writeHash, historyMode, toHashState, patchFromHash, selPatch, syncHash, crumbParts, PAGE_SORTS };')();
 
 const base = { view: 'apps', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: {} };

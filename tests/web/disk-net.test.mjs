@@ -1,12 +1,11 @@
 // Pure logic for the Disk and network tab and the shared capacity bar. The test lifts the `disk-net` block out of
-// web/index.html, so the block must stay free of DOM and storage access.
+// the dashboard scripts (web/*.js), so the block must stay free of DOM and storage access.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* disk-net:begin \*\/([\s\S]*?)\/\* disk-net:end \*\//);
-assert.ok(m, 'disk-net block not found in web/index.html');
+assert.ok(m, 'disk-net block not found in the dashboard scripts (web/*.js)');
 const { capacitySegments, capacityStatus, formatBytes, formatRate, formatOps, networkState, rateChartMax } =
   new Function(m[1] + '\nreturn { capacitySegments, capacityStatus, formatBytes, formatRate, formatOps, networkState, rateChartMax };')();
 

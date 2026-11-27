@@ -1,14 +1,13 @@
 // A view returns an array of top-level sections, and some entries are `cond ? h(...) : null`. Element.append and
 // Element.replaceChildren write a null argument as the text "null", so h() and render() both go through nodesOf.
-// The test lifts the `view-items` block out of web/index.html and checks it against a stand-in element that
+// The test lifts the `view-items` block out of the dashboard scripts (web/*.js) and checks it against a stand-in element that
 // stringifies non-object arguments the way the DOM does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* view-items:begin \*\/([\s\S]*?)\/\* view-items:end \*\//);
-assert.ok(m, 'view-items block not found in web/index.html');
+assert.ok(m, 'view-items block not found in the dashboard scripts (web/*.js)');
 const { nodesOf } = new Function(m[1] + '\nreturn { nodesOf };')();
 
 const fakeEl = () => ({ out: [], replaceChildren(...n) { this.out = n.map((x) => (typeof x === 'object' && x !== null ? x : String(x))); } });

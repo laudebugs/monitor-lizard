@@ -1,0 +1,164 @@
+/* Bundled, not relying on the OS having it installed: Regular and SemiBold only (the two weights this
+   page uses), subsetted to basic Latin plus common punctuation. SIL Open Font License 1.1, web/fonts/OFL.txt.
+   A character outside that subset (an app name, a path) falls back to the next font in --font-sans, same as
+   if the font were entirely absent: a readable character, not a missing glyph. */
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/IBMPlexSans-Regular.woff2') format('woff2')}
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/IBMPlexSans-Medium.woff2') format('woff2')}
+@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url('/fonts/IBMPlexSans-SemiBold.woff2') format('woff2')}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/IBMPlexMono-Regular.woff2') format('woff2')}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/IBMPlexMono-Medium.woff2') format('woff2')}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('/fonts/IBMPlexMono-SemiBold.woff2') format('woff2')}
+/* Fonts: IBM Plex Sans for text, IBM Plex Mono for data, both only if installed; otherwise the system fonts. No remote font loading (local-first, ADR 0002). */
+:root{color-scheme:dark;--font-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;--bg:#120d1d;--panel:#170f26;--panel2:#1d1530;--line:#35294f;--fg:#ece4ff;--mut:#a99bc9;--acc:#b388ff;--accfg:#120d1d;--ok:#7ee2b8;--warn:#f6c565;--bad:#ff8f7e;--badfg:#2a0a05;--sel:#221a38;--hh:65px;--scrim:rgba(0,0,0,.6);--cut:8px;--chip-ok-bg:#14382b;--chip-ok-fg:#7ee2b8;--chip-warn-bg:#3f2e0b;--chip-warn-fg:#f6c565;--chip-bad-bg:#40150e;--chip-bad-fg:#ff8f7e;--chip-n-bg:#2b2442;--chip-n-fg:#d3c9f0}
+:root[data-theme=light]{color-scheme:light;--bg:#f7f5fb;--panel:#ffffff;--panel2:#efeaf8;--line:#d8cfe8;--fg:#1d1530;--mut:#5f5478;--acc:#6d3fd1;--accfg:#ffffff;--ok:#0f7a55;--warn:#8a5a00;--bad:#c0254f;--badfg:#ffffff;--sel:#ede6fa;--scrim:rgba(20,10,40,.35);--chip-ok-bg:#d4f1e4;--chip-ok-fg:#0b5a3e;--chip-warn-bg:#f9e7bd;--chip-warn-fg:#6b4500;--chip-bad-bg:#fbdcd5;--chip-bad-fg:#8f1d0e;--chip-n-bg:#e6dff4;--chip-n-fg:#3d3160}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-sans)}
+.num,.code,.mono,.search{font-family:var(--font-mono)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.main:focus{outline:none}
+.skip{position:absolute;left:8px;top:-60px;z-index:30;padding:8px 14px;background:var(--acc);color:var(--accfg);border:0;font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.skip:focus{top:8px}
+.shell{display:flex;flex-wrap:wrap;min-height:100vh}
+.side{flex:1 1 220px;max-width:236px;min-width:200px;background:var(--panel);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:18px}
+@media(min-width:861px){.side{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}} /* nav stays put while the page scrolls */
+.main{flex:999 1 560px;min-width:0;padding:20px 28px 60px;display:flex;flex-direction:column;gap:20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;padding:0 8px}
+.logo{width:18px;height:18px;color:var(--acc)}
+.logo svg{width:100%;height:100%;display:block}
+.nav{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border:0;background:transparent;color:var(--mut);text-align:left;font-size:14px}
+.nav:hover{background:var(--sel);color:var(--fg)}.nav.on{background:var(--sel);color:var(--fg);box-shadow:inset 2px 0 0 var(--acc)}
+.navgroup{padding:10px 10px 4px;font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.1em;color:var(--mut)}
+/* The count sits beside the nav button, not inside it: it is its own link to the filtered page it counts, and a link cannot live inside a button. */
+.navrow{position:relative}.navrow .nav.has-badge{padding-right:52px}
+.navrow a.badge{position:absolute;right:10px;top:50%;transform:translateY(-50%);text-decoration:none}
+.grow{flex:1 1 auto;min-width:0}
+.badge{min-width:22px;text-align:center;padding:2px 6px}
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--bg);margin:-20px -28px 0;padding:14px 28px;min-height:var(--hh);border-bottom:1px solid var(--line)}
+.crumb{font-size:12px;color:var(--mut);flex:1 1 200px;min-width:0;overflow-wrap:anywhere}.crumb a{color:inherit}.crumb span[aria-hidden]{margin:0 6px}
+/* The verdict sentence is the page title: it wraps, never clips. */
+.ptitle{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 16px;margin-bottom:16px}
+.ptitle h1{margin:0;font-size:22px;line-height:1.25;font-weight:600;overflow-wrap:anywhere}
+.psub{margin:4px 0 0;font-size:13px}
+.pactions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.split{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.search{height:36px;width:280px;max-width:100%;padding:0 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;font-size:13px}
+.search::placeholder{color:var(--mut)}
+.card{background:var(--panel);border:1px solid var(--line)}
+.tile{display:flex;flex-direction:column;gap:4px;text-align:left;padding:14px 16px;background:var(--panel);border:1px solid var(--line);min-height:150px}
+.tile:hover{border-color:var(--acc)}.tile .v{font-size:28px;font-weight:600;line-height:1.1}.tile .l{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;display:flex;justify-content:space-between;align-items:center;gap:8px}.tile .s{font-size:12px;color:var(--mut)}
+.tile.na{border-style:dashed}
+.tile.stale{opacity:.6}
+.spark{display:block;width:100%;height:46px;margin-top:auto}
+.spark.big{height:90px;margin-top:0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+/* Nothing on this page animates today, but this page polls and redraws every 2s indefinitely, so
+   any transition added here later is exactly the kind of persistent motion this media query exists
+   for; stated up front rather than left to be remembered when that first transition is added. */
+@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *,.btn,.btn::before,.chip,.tag,.sel-btn{transition:none!important;animation:none!important}}
+/* The chamfer is a clip-path, which also clips borders and outlines. So the edge is the button's own
+   background and ::before paints the fill inset by --bw. Variants change only the rest-state --edge-rest;
+   hover and focus set --edge from a rule no variant overrides, so every variant shows them. */
+.btn{--edge-rest:var(--line);--edge:var(--edge-rest);--hover-edge:var(--acc);--focus-edge:var(--fg);--fill:var(--panel2);--ink:var(--fg);--bw:1px;--inner-trim:calc(var(--bw)*.586);position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 18px;border:0;background:var(--edge);color:var(--ink);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;text-align:center;clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+.btn::before{content:"";position:absolute;inset:var(--bw);z-index:-1;background:var(--fill);clip-path:polygon(calc(var(--cut) - var(--inner-trim)) 0,100% 0,100% calc(100% - var(--cut) + var(--inner-trim)),calc(100% - var(--cut) + var(--inner-trim)) 100%,0 100%,0 calc(var(--cut) - var(--inner-trim)))}
+.btn.btn-acc{--fill:var(--acc);--edge-rest:var(--acc);--hover-edge:var(--fg);--ink:var(--accfg)}
+.btn.btn-danger{--fill:var(--bad);--edge-rest:var(--bad);--hover-edge:var(--fg);--ink:var(--badfg)}
+.btn.btn-danger.quiet{--fill:var(--panel);--edge-rest:var(--bad);--hover-edge:var(--bad);--ink:var(--bad)}
+.btn.btn-danger.quiet:hover{--fill:var(--bad);--ink:var(--badfg)}
+.btn:hover{--edge:var(--hover-edge)}
+.btn:focus-visible{outline:none;--edge:var(--focus-edge);--bw:3px}
+.btn.sm{min-height:28px;padding:4px 12px;font-size:11px}
+.btn[disabled],.btn[aria-disabled=true]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover,.btn[aria-disabled=true]:hover{--edge:var(--edge-rest)}
+@media(forced-colors:active){.btn[aria-disabled=true]{--edge-rest:GrayText;--ink:GrayText}}
+/* Windows High Contrast and other forced-colors modes recolor backgrounds, so name the edge and fill explicitly. */
+@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge-rest:ButtonText;--hover-edge:Highlight;--focus-edge:Highlight;--fill:ButtonFace;--ink:ButtonText}.btn.btn-danger.quiet:hover{--fill:ButtonFace;--ink:ButtonText}.btn[disabled],.btn.btn-acc[disabled],.btn.btn-danger[disabled],.btn.btn-danger.quiet[disabled]{--edge-rest:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
+.sec{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 8px;font-weight:500}
+.sev{width:9px;height:9px;flex:none;margin-top:5px}.sev.high{background:var(--bad)}.sev.medium{background:var(--warn)}.sev.low{background:var(--mut)}
+.item{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
+.item h3{margin:0 0 2px;font-size:14px;font-weight:600}.item p{margin:0;font-size:13px;color:var(--mut);line-height:1.45}
+/* Chips carry their meaning in the text as well as the color. One variant sets only --c-bg and --c-fg. */
+.tag,.badge{--c-bg:var(--chip-n-bg);--c-fg:var(--chip-n-fg);background:var(--c-bg);color:var(--c-fg);border:1px solid color-mix(in srgb,var(--c-fg) 35%,var(--c-bg));font:500 11px/1.2 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
+/* A chip never outgrows its cell: long text (a team ID) ends in an ellipsis and the full text is in the title. */
+.tag{display:inline-block;max-width:100%;min-height:22px;padding:2px 8px;line-height:16px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag.ok{--c-bg:var(--chip-ok-bg);--c-fg:var(--chip-ok-fg)}
+.tag.warn,.badge.warn{--c-bg:var(--chip-warn-bg);--c-fg:var(--chip-warn-fg)}
+.tag.bad,.badge.bad{--c-bg:var(--chip-bad-bg);--c-fg:var(--chip-bad-fg)}
+.disc{display:inline-flex;align-items:center;gap:6px;padding:2px 4px;margin:-2px -4px;background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}.disc:hover{color:var(--acc)}.disc:focus-visible{outline:2px solid var(--focus-edge,var(--fg));outline-offset:1px}.disc .caret{color:var(--mut)}
+.reqdetail{padding:12px 16px 14px 32px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;line-height:1.5;min-width:0}
+.reqdetail p{margin:0 0 8px}.reqdetail ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.reqdetail li{border-left:2px solid var(--line);padding-left:10px;min-width:0}
+.reqdetail .hophead{margin-bottom:2px}.reqdetail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 12px;margin:0}.reqdetail dt{color:var(--mut)}.reqdetail dd{margin:0;font-family:var(--font-mono);overflow-wrap:anywhere;min-width:0}
+.tbl{overflow-x:auto;position:relative}
+.xbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.xnote{flex:1 1 220px;min-width:0}
+.xinfo{flex:1 1 100%;margin:0;padding:8px 0 0;line-height:1.5}
+.colmenu{padding:6px 0;min-width:180px}
+.colopt{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 12px;font-size:12px;white-space:nowrap}.colopt:hover{background:var(--sel)}
+.has-copy>.tr{--pr:64px}
+/* An open menu lives inside the scrolling table, so a table with few rows must be tall enough to show it whole. */
+.tbl:has(.sel-menu){min-height:380px}
+.tbl:focus-visible{--focus-edge:var(--fg);outline:2px solid var(--focus-edge);outline-offset:-2px}
+@media(forced-colors:active){.tbl:focus-visible{--focus-edge:Highlight}}
+/* A table never squeezes a column below its own minimum: the row is as wide as its tracks, gaps and padding
+   need (the script sets --tracks-min and --cols), and the table scrolls inside its card when the card is narrower. */
+.tbl.floor>.tr{min-width:calc(var(--tracks-min) + (var(--cols) - 1) * var(--gap) + var(--pl) + var(--pr))}
+.rowcopy-layer{position:absolute;top:0;left:0;height:0;z-index:1}
+.rowcopy{position:absolute;right:10px;height:24px;padding:0 8px;border:1px solid var(--line);background:var(--panel2);color:var(--mut);font:500 11px/1 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.rowcopy:hover,.rowcopy:focus-visible{color:var(--fg);border-color:var(--acc);outline:none}
+.copybox{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:min(520px,calc(100% - 32px));display:flex;flex-direction:column;gap:8px;background:var(--panel2);border:1px solid var(--acc);padding:12px 16px;z-index:11}
+.copybox textarea{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);font:12px/1.4 var(--font-mono)}
+.pager{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--mut);flex-wrap:wrap}
+.sel{position:relative;display:inline-block}
+.sel-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:72px;min-height:28px;padding:3px 8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
+.sel-btn:hover,.sel-btn[aria-expanded=true]{border-color:var(--acc)}
+.sel-btn .caret{color:var(--mut);font-size:10px}
+.sel-menu{position:absolute;bottom:calc(100% + 4px);left:0;min-width:100%;z-index:20;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--acc);box-shadow:0 12px 30px rgba(0,0,0,.35)}
+.sel-opt{height:32px;padding:0 12px;border:0;background:transparent;color:var(--fg);font-size:12px;text-align:left;white-space:nowrap}
+.sel-opt:hover,.sel-opt:focus-visible{background:var(--sel);outline:none}
+.sel-opt.on{color:var(--acc);box-shadow:inset 2px 0 0 var(--acc)}
+.sel-menu.down{bottom:auto;top:calc(100% + 4px)}
+.th{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer}
+.th:hover,.th.on{color:var(--fg)}
+.th .arrow{display:inline-block;width:10px;font-size:9px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.theme-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+/* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
+/* Clipping keeps the sticky header working; a table wider than its card needs real scrolling and loses the sticky header. */
+@media(min-width:1101px){.tbl{overflow-x:clip}.tbl.xscroll{overflow-x:auto}.tr{min-width:0}.tr.h{position:sticky;top:var(--hh);z-index:2;background:var(--panel)}}
+.tr{display:grid;grid-template-columns:minmax(120px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px;--gap:12px;--pl:16px;--pr:16px;gap:var(--gap);align-items:center;min-height:46px;padding:0 var(--pr) 0 var(--pl);width:100%;min-width:760px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;font-size:13px}
+.tr.h{min-height:36px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;cursor:default}
+button.tr:hover{background:var(--sel)}.tr.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--acc)}
+.time{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.tr.ell{min-width:0}.tr.ell>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{min-height:30px;padding:4px 12px;border:1px solid var(--line);background:transparent;color:var(--mut);font:500 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em}.chip:hover{color:var(--fg);border-color:var(--mut)}.chip.on{background:var(--sel);color:var(--fg);border-color:var(--acc)}
+.drawer{flex:1 1 380px;max-width:460px;min-width:320px;position:relative;z-index:3}
+.drawer.sized{flex:0 0 var(--dw);max-width:none;width:var(--dw)}
+.handle{display:none;width:10px;margin:0 -4px;cursor:col-resize;position:relative;z-index:3;touch-action:none}
+.handle:after{content:"";position:absolute;left:4px;top:0;bottom:0;width:2px;background:var(--line)}
+.handle:hover:after,.handle:focus-visible:after{background:var(--acc)}
+.handle:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media(min-width:1101px){.drawer{position:sticky;top:calc(var(--hh) + 16px);align-self:flex-start;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}.handle{display:block}}
+/* The inspector's header and sections, shared by every page that has one. */
+.insp-head{display:flex;align-items:center;gap:10px;padding:16px 16px 12px}
+.insp-sec{border-top:1px solid var(--line);padding:12px 16px}
+.kv{display:grid;grid-template-columns:90px 1fr;gap:6px 12px;font-size:13px;padding:14px 16px;margin:0;border-top:1px solid var(--line)}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-all}
+.pr{display:grid;grid-template-columns:62px minmax(0,1fr) 54px 64px 64px;gap:8px;align-items:center;min-height:42px;padding:0 16px;border-top:1px solid var(--line);font-size:13px}
+.expander{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);cursor:pointer;color:var(--acc);font-weight:500}
+.expander:hover{background:var(--sel)}
+.capbar{display:flex;height:14px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}.capbar i{display:block;height:100%}.bar{height:6px;background:var(--panel2);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.overlay{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
+.modal{width:480px;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+.modal h2{margin:0;font-size:17px}
+.code{font-size:12px;background:var(--bg);border:1px solid var(--line);padding:8px 10px;word-break:break-all}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:var(--panel2);border:1px solid var(--acc);padding:10px 12px 10px 16px;font-size:13px;z-index:11;max-width:calc(100% - 32px)}
+.tm{display:flex;gap:6px;min-height:300px}
+.tm-col{display:flex;flex-direction:column;gap:6px;min-width:120px}
+.tm-rest{margin-top:6px}.tm-rest .tm-tile{width:100%;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:4px 14px;min-height:0}
+.tm-tile{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;min-height:76px;padding:10px 12px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);text-align:left;overflow:hidden}
+.tm-tile:hover{border-color:var(--acc)}
+.tm-tile.on{border-color:var(--acc);background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
+.tm-tile.na{border-style:dashed;background:repeating-linear-gradient(135deg,var(--panel2) 0 7px,color-mix(in srgb,var(--line) 60%,var(--panel2)) 7px 8px)}
+.tm-name{font-weight:600}.tm-size{font:500 13px/1.3 var(--font-mono);overflow-wrap:anywhere}
+.tm-bar{display:none;width:100%;margin-top:4px}
+/* Narrow: the treemap becomes a list of bars, one section per row, in the same order. */
+@media(max-width:700px){.tm{flex-direction:column;min-height:0}.tm-col{display:contents;min-width:0}.tm-tile{flex:none!important;min-height:0}.tm-bar{display:block}}
+.mut{color:var(--mut)}.small{font-size:12px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

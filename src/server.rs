@@ -3,7 +3,50 @@ use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
 
-const PAGE: &str = include_str!("../web/index.html");
+/// Every file of the dashboard, embedded so the binary stays one offline file. The order of the scripts
+/// is the load order the shell's `<script>` tags use (tests/web/split.test.mjs checks the two agree).
+/// Nothing is read from disk at request time: a path not listed here is a 404.
+const WEB_SOURCES: &[(&str, &str, &str)] = &[
+    ("/", HTML, include_str!("../web/index.html")),
+    ("/app.css", CSS, include_str!("../web/app.css")),
+    ("/js/core.js", JS, include_str!("../web/core.js")),
+    ("/js/table.js", JS, include_str!("../web/table.js")),
+    ("/js/data.js", JS, include_str!("../web/data.js")),
+    ("/js/page-overview.js", JS, include_str!("../web/page-overview.js")),
+    ("/js/page-apps.js", JS, include_str!("../web/page-apps.js")),
+    ("/js/page-privilege.js", JS, include_str!("../web/page-privilege.js")),
+    ("/js/page-listeners.js", JS, include_str!("../web/page-listeners.js")),
+    ("/js/page-persistence.js", JS, include_str!("../web/page-persistence.js")),
+    ("/js/page-network.js", JS, include_str!("../web/page-network.js")),
+    ("/js/page-history.js", JS, include_str!("../web/page-history.js")),
+    ("/js/page-performance.js", JS, include_str!("../web/page-performance.js")),
+    ("/js/page-storage.js", JS, include_str!("../web/page-storage.js")),
+    ("/js/page-guide.js", JS, include_str!("../web/page-guide.js")),
+    ("/js/helpers.js", JS, include_str!("../web/helpers.js")),
+    ("/js/shell.js", JS, include_str!("../web/shell.js")),
+];
+const HTML: &str = "text/html; charset=utf-8";
+const CSS: &str = "text/css; charset=utf-8";
+const JS: &str = "text/javascript; charset=utf-8";
+/// The one file that holds `const TOKEN = "__TOKEN__"`. The token goes in that script only, never in the
+/// shell, a URL or the hash.
+const TOKEN_FILE: &str = "/js/core.js";
+
+struct WebFile { path: &'static str, content_type: &'static str, body: String }
+
+/// The dashboard's files with this run's token put in the script that declares it. Like the page before
+/// the split, no `cache-control` is sent: the files live in the binary, so a new binary serves new ones.
+fn web_files(secret: &str) -> Vec<WebFile> {
+    WEB_SOURCES.iter().map(|&(path, content_type, body)| WebFile {
+        path,
+        content_type,
+        body: if path == TOKEN_FILE { body.replace("__TOKEN__", secret) } else { body.to_string() },
+    }).collect()
+}
+
+fn web_response(f: &WebFile) -> tiny_http::ResponseBox {
+    Response::from_string(f.body.clone()).with_header(Header::from_bytes("content-type", f.content_type).unwrap()).boxed()
+}
 // Bundled so the UI's type pairing works with nothing installed (ADR 0002: still no network request).
 // IBM Plex Sans, SIL Open Font License 1.1 (web/fonts/OFL.txt), subsetted to basic Latin plus common
 // punctuation; two static weights instantiated from the upstream variable font.
@@ -71,7 +114,7 @@ pub fn serve_on(server: Arc<Server>) {
     let addr = bound.map(|a| a.to_string()).unwrap_or_default();
     let port = bound.map(|a| a.port()).unwrap_or(0);
     let secret = token();
-    let page = PAGE.replace("__TOKEN__", &secret);
+    let web = web_files(&secret);
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || {
@@ -109,6 +152,7 @@ pub fn serve_on(server: Arc<Server>) {
         let host_ok = host_allowed(&hosts, hdr("Host").as_deref()); // DNS-rebinding guard
         // Writes need: same origin (if sent) and the page's secret token.
         let write_ok = hdr("Origin").is_none_or(|o| origins.contains(&o)) && hdr("X-MonitorLizard-Token").is_some_and(|t| t == secret);
+        let web_file = web.iter().find(|f| f.path == path);
         let json_resp = |body: String| Response::from_string(body).with_header(Header::from_bytes("content-type", "application/json").unwrap()).boxed();
         let cached = |c: &Cache| json_resp(c.lock().unwrap().clone().unwrap_or_else(|| "null".into()));
         let forbidden = || Response::from_string("forbidden").with_status_code(403).boxed();
@@ -224,7 +268,7 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/fonts/IBMPlexMono-Regular.woff2") => Response::from_data(MONO_REGULAR).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexMono-Medium.woff2") => Response::from_data(MONO_MEDIUM).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexMono-SemiBold.woff2") => Response::from_data(MONO_SEMIBOLD).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
-            (Method::Get, "/") => Response::from_string(page.clone()).with_header(Header::from_bytes("content-type", "text/html; charset=utf-8").unwrap()).boxed(),
+            (Method::Get, _) if web_file.is_some() => web_response(web_file.unwrap()),
             _ => Response::from_string("not found").with_status_code(404).boxed(),
         };
         let _ = req.respond(res);
@@ -340,13 +384,108 @@ mod tests {
     /// ends the attribute and the rest of the SVG is parsed as page markup, leaving stray text on screen.
     #[test]
     fn favicon_href_stays_inside_its_attribute() {
-        let at = PAGE.find("rel=\"icon\"").expect("icon link");
-        let after_href = PAGE[at..].split_once("href=\"").expect("href attribute").1;
+        let page = WEB_SOURCES[0].2;
+        let at = page.find("rel=\"icon\"").expect("icon link");
+        let after_href = page[at..].split_once("href=\"").expect("href attribute").1;
         let value = after_href.split('"').next().unwrap();
         assert!(value.starts_with("data:image/svg+xml,"), "value: {value}");
         assert!(!value.contains('<') && !value.contains('>'), "raw angle bracket in href: {value}");
         assert!(value.ends_with("%3C/svg%3E"), "href was cut short: {value}");
         assert!(after_href[value.len()..].starts_with("\">"), "attribute does not close the tag");
+    }
+
+    const SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn the_token_is_put_into_the_script_that_declares_it_and_nowhere_else() {
+        let files = web_files(SECRET);
+        for f in &files {
+            assert!(!f.body.contains("__TOKEN__"), "{} still holds the placeholder", f.path);
+            let n = f.body.matches(SECRET).count();
+            if f.path == TOKEN_FILE { assert_eq!(n, 1, "{} must carry the token once", f.path); } else { assert_eq!(n, 0, "{} must not carry the token", f.path); }
+        }
+        let core = files.iter().find(|f| f.path == TOKEN_FILE).unwrap();
+        assert!(core.body.contains(&format!("const TOKEN = \"{SECRET}\";")));
+        // The unreplaced sources keep the placeholder in the token file only, so a file moved there by mistake shows up.
+        let with_placeholder: Vec<_> = WEB_SOURCES.iter().filter(|s| s.2.contains("__TOKEN__")).map(|s| s.0).collect();
+        assert_eq!(with_placeholder, [TOKEN_FILE]);
+    }
+
+    #[test]
+    fn every_file_in_web_is_served_and_every_served_file_exists() {
+        let mut on_disk: Vec<String> = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/web")).unwrap()
+            .filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".js") || n.ends_with(".css") || n.ends_with(".html")).collect();
+        on_disk.sort();
+        let mut listed: Vec<String> = WEB_SOURCES.iter().map(|s| if s.0 == "/" { "index.html".to_string() } else { s.0.rsplit('/').next().unwrap().to_string() }).collect();
+        listed.sort();
+        assert_eq!(on_disk, listed, "a file in web/ that is not in WEB_SOURCES would 404 in the binary");
+    }
+
+    #[test]
+    fn the_shell_loads_exactly_the_listed_files_in_the_listed_order() {
+        let shell = WEB_SOURCES[0].2;
+        let attr = |prefix: &str| -> Vec<String> { shell.split(prefix).skip(1).filter_map(|r| r.split('"').next().map(String::from)).collect() };
+        let scripts = attr("<script src=\"");
+        let listed: Vec<String> = WEB_SOURCES.iter().filter(|s| s.1 == JS).map(|s| s.0.to_string()).collect();
+        assert_eq!(scripts, listed);
+        assert_eq!(scripts.first().map(String::as_str), Some(TOKEN_FILE), "core.js loads first");
+        assert_eq!(attr("<link rel=\"stylesheet\" href=\""), ["/app.css"]);
+    }
+
+    /// One request over a real socket to a server running the same Host check and file lookup as
+    /// `serve_on`, without its sampler and history threads (they write under the real home folder).
+    fn fetch(host: &str, path: &str) -> (u16, String, String) {
+        use std::io::{Read, Write};
+        let (server, port) = bind_free().expect("bind");
+        let hosts = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+        let files = web_files(SECRET);
+        let worker = Arc::clone(&server);
+        let handle = thread::spawn(move || {
+            let req = worker.incoming_requests().next().unwrap();
+            let host_ok = host_allowed(&hosts, req.headers().iter().find(|h| h.field.equiv("Host")).map(|h| h.value.to_string()).as_deref());
+            let url = req.url().to_string();
+            let res = match files.iter().find(|f| f.path == url) {
+                _ if !host_ok => Response::from_string("bad host").with_status_code(403).boxed(),
+                Some(f) => web_response(f),
+                None => Response::from_string("not found").with_status_code(404).boxed(),
+            };
+            let _ = req.respond(res);
+        });
+        let host = host.replace("PORT", &port.to_string());
+        let mut conn = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(conn, "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").unwrap();
+        let mut raw = String::new();
+        conn.read_to_string(&mut raw).unwrap();
+        handle.join().unwrap();
+        let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+        let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+        (status, head.to_ascii_lowercase(), body.to_string())
+    }
+
+    #[test]
+    fn each_web_file_is_served_with_its_content_type_and_no_cache_header() {
+        for &(path, content_type, _) in WEB_SOURCES {
+            let (status, head, body) = fetch("127.0.0.1:PORT", path);
+            assert_eq!(status, 200, "{path}");
+            assert!(head.contains(&format!("content-type: {}", content_type.to_ascii_lowercase())), "{path}: {head}");
+            assert!(!head.contains("cache-control"), "{path} must match the page, which sends none: {head}");
+            assert!(!body.is_empty(), "{path}");
+        }
+    }
+
+    #[test]
+    fn unknown_paths_are_404_and_the_host_check_still_guards_every_file() {
+        for path in ["/nope.js", "/js/", "/js/missing.js", "/index.html", "/../Cargo.toml", "/js/../Cargo.toml", "/web/core.js"] {
+            assert_eq!(fetch("127.0.0.1:PORT", path).0, 404, "{path}");
+        }
+        for path in ["/", "/app.css", "/js/core.js"] {
+            let (status, _, body) = fetch("evil.example:PORT", path);
+            assert_eq!((status, body.as_str()), (403, "bad host"), "{path} with a foreign Host");
+            assert!(!body.contains(SECRET));
+        }
+        // The token is the secret of the page's own origin: a rebinding page must not read the script that holds it.
+        assert_eq!(fetch("localhost:PORT", "/js/core.js").0, 200);
     }
 
     #[test]

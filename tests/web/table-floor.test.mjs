@@ -1,12 +1,11 @@
-// Table column floors. The grid strings and the floor block in web/index.html are read as text, so the test
+// Table column floors. The grid strings and the floor block in the dashboard scripts (web/*.js) are read as text, so the test
 // needs no browser. Whether a wide table really scrolls inside its card is checked by hand in a browser.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* floor:begin \*\/([\s\S]*?)\/\* floor:end \*\//);
-assert.ok(m, 'floor block not found in web/index.html');
+assert.ok(m, 'floor block not found in the dashboard scripts (web/*.js)');
 const { trackMin, tracksMin, scrollState, setFloor, nameAttrs, SIDE_BY_SIDE } = new Function(m[1] + '\nreturn { trackMin, tracksMin, scrollState, setFloor, nameAttrs, SIDE_BY_SIDE };')();
 
 const MIN_FLEX = 80;

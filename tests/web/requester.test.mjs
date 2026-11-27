@@ -1,13 +1,13 @@
-// Logic tests for the Privilege page's requester helpers in web/index.html. Like the export tests, they lift the
+// Logic tests for the Privilege page's requester helpers in the dashboard scripts (web/*.js). Like the export tests, they lift the
 // block between the `requester` markers out of the page and run it alone, so that block must stay free of DOM and
 // storage access. Layout, the expanding rows and the themes are checked by hand in a browser.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* requester:begin \*\/([\s\S]*?)\/\* requester:end \*\//);
-assert.ok(m, 'requester block not found in web/index.html');
+assert.ok(m, 'requester block not found in the dashboard scripts (web/*.js)');
 const R = new Function(m[1] + '\nreturn { hopLabel, chainLabel, requesterApp, terminalNote, hopFacts, chainText, chainJson, authRequester, authNote, visible, cutText, chainCutNote, UNKNOWN_REQUESTER, NO_PARENT };')();
 const fmt = (s) => 'T' + s;
 const hop = (command, exe = '', extra = {}) => ({ pid: 10, exe, command, ...extra });

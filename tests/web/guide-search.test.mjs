@@ -1,4 +1,4 @@
-// Logic tests for the Guide's search and Copy flow in web/index.html. Like the URL-state tests, this lifts the blocks
+// Logic tests for the Guide's search and Copy flow in the dashboard scripts (web/*.js). Like the URL-state tests, this lifts the blocks
 // between the `guide-search` and `guide-copy` markers out of the page, so the search block must stay free of DOM
 // access. What the page looks like and how the keyboard works are checked by hand in a browser. The fixtures are the
 // real table (tests/fixtures/guide-table.json, checked against the Rust table by `cargo test`) and the results both
@@ -7,8 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
-const block = (name) => { const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/')); assert.ok(m, name + ' block not found in web/index.html'); return m[1]; };
+import { html } from './page.mjs';
+const block = (name) => { const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/')); assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)'); return m[1]; };
 const search = block('guide-search');
 const G = new Function(search + '\nreturn { guideWords, guideRanked, guideSearch, guideTopics, guideGroups, topicLabel, guidePick, guideSig, guideSummary, GUIDE_CUTOFF };')();
 const { copyFlow } = new Function(block('guide-copy') + '\nreturn { copyFlow };')();

@@ -110,3 +110,17 @@ make test
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record (2026-11-26)
+
+**Built.** `web/index.html` (2,827 lines) is now a 43-line shell plus `web/app.css` (164) and 15 classic scripts (`core` 406, `table` 471, `data` 93, ten `page-*.js` of 26 to 370, `helpers` 451, `shell` 121). The split is contiguous line ranges taken at top-level seams, so the scripts joined in load order equal the old script block byte for byte. A page is a contiguous range, so some pure marked blocks sit in the file next to the code they were written with (the Guide search logic in `core.js`, the requester helpers in `table.js`); `docs/agents/layout.md` lists what each file holds.
+
+**What the server sent before** (step 1): the page, `/` only, with `content-type: text/html; charset=utf-8`; no `cache-control`, no Content-Security-Policy, no other header. The fonts alone carry `public, max-age=31536000, immutable`. The new files are served the same way: a type and no cache header.
+
+**Deviations.** The token line stays in `core.js` unchanged and `web_files()` in `src/server.rs` replaces `__TOKEN__` in that one file; the placeholder is thus in the byte-equality fixture as it was. The Node tests read the page through `tests/web/page.mjs` (shell with the stylesheet and scripts put back in load order) instead of each naming a file. The fixture in `tests/fixtures/web-before/` is kept.
+
+**Tests.** `tests/web/split.test.mjs`: byte equality, 800-line budget, no unlisted script, `core.js` first, a stand-in-browser run of every script in order (and a reversed order that must fail), the token only in `core.js` and only used as a request header. `src/server.rs`: token only in the token file, every file in `web/` is in `WEB_SOURCES`, the shell's tags equal `WEB_SOURCES` in order, 200 and content type for each file over a socket, 404 for unknown paths, 403 on a foreign Host.
+
+**Checked in Chrome** (scratch HOME, no resize, dark and light): every page opened with no page error; Storage after a Rescan (clean-ups, Inside System Data, Growth), Privilege with a requester detail opened, all five Performance tabs including Top consumers, Guide; a write through `api()` returned 200 and the same write without the token is refused; all requests, scripts, styles and fonts came from `127.0.0.1`.
+
+**Not verified.** Narrow widths, forced colors and reduced motion; the Tauri shell; the Stop and Quit dialogs and approve/trash writes (only the settings write was exercised); `/code-review` and `/writing-review`; CI.
