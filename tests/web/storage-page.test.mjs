@@ -43,7 +43,7 @@ test('state: complete only when the server says complete is true; anything else 
 
 test('partial scan: no safe-to-remove total, only the reason; complete scan: the total', () => {
   const rows = P.storageRows(scan({ complete: false }));
-  assert.equal(P.safeTotalText(scan({ complete: false }), rows), 'Not shown until the scan is complete.');
+  assert.equal(P.safeTotalText(scan({ complete: false }), rows), 'Safe total: not shown until the scan is complete');
   assert.equal(P.safeTotalText(scan(), P.storageRows(scan())), '40.0 GB');
 });
 
