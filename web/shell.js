@@ -37,7 +37,7 @@ function drawNav() {
     const b = own(badges, id), svg = h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'aria-hidden': 'true' });
     svg.innerHTML = '<path d="' + icon + '" stroke-linecap="round" stroke-linejoin="round"/>'; // createElement has no SVG namespace for innerHTML children
     return h('div', { class: 'navrow' },
-      h('button', { class: 'nav' + (S.view === id ? ' on' : '') + (b ? ' has-badge' : ''), type: 'button', 'data-nav': id, 'aria-current': S.view === id ? 'page' : null, onClick: () => { rec({ view: id }); if (id === 'performance') loadMetrics(); if (id === 'storage') loadStorage(); } }, svg, h('span', { class: 'grow' }, label)),
+      h('button', { class: 'nav' + (S.view === id ? ' on' : '') + (b ? ' has-badge' : ''), type: 'button', 'data-nav': id, 'aria-current': S.view === id ? 'page' : null, onClick: () => { const wasOpen = S.navOpen; rec({ view: id, navOpen: false }); if (wasOpen) $('main').focus(); if (id === 'performance') loadMetrics(); if (id === 'storage') loadStorage(); } }, svg, h('span', { class: 'grow' }, label)),
       b ? h('a', { class: 'badge ' + b.tone, href: badgeHash(id), 'data-nav': 'badge-' + id, title: b.label, 'aria-label': b.label }, b.text) : null);
   };
   nav.replaceChildren(...NAV_GROUPS.map((g) => h('div', { role: 'group', 'aria-labelledby': 'navg-' + g.toLowerCase() }, h('div', { class: 'navgroup', id: 'navg-' + g.toLowerCase() }, g), NAV.filter((n) => n.group === g).map(item))));
@@ -48,6 +48,8 @@ const show = (page) => { $('crumb').replaceChildren(...nodesOf(page.crumb)); $('
 function render() {
   pruneTables(TABLES, Object.keys(PAGE_SORTS[S.view] || {})); pruneTables(HEADERS, Object.keys(PAGE_SORTS[S.view] || {}));
   drawNav();
+  document.querySelector('.shell').classList.toggle('nav-open', S.navOpen);
+  $('navtoggle').setAttribute('aria-expanded', String(S.navOpen));
   const hadReq = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.req : null;
   const searchHint = S.view === 'guide' ? 'Search commands and terms' : S.view === 'storage' ? 'Search folders' : 'Search apps, ports';
   $('q').placeholder = searchHint; $('q').setAttribute('aria-label', S.view === 'guide' || S.view === 'storage' ? searchHint : 'Search apps and ports');
@@ -86,14 +88,20 @@ function render() {
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
+  // The collapsed-nav drawer's own backdrop (shares .overlay's look, stacked above it): clicking it is the same
+  // as Escape. CSS hides both the backdrop and the open drawer above the breakpoint where the sidebar is never
+  // collapsed, so this is inert there.
+  if (S.navOpen) layer.push(h('div', { class: 'overlay navbackdrop', onClick: () => closeNav() }));
   const trash = trashLayer();
   if (trash) layer.push(trash);
+  const sig = sigLayer();
+  if (sig) layer.push(sig);
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   if (S.copyText) layer.push(h('div', { class: 'copybox', role: 'dialog', 'aria-label': 'Copy blocked' }, h('p', { class: 'small', style: 'margin:0' }, 'The browser did not allow copying. The text is selected: press Cmd+C.'),
     h('textarea', { readonly: true, rows: 8, 'aria-label': 'Row as JSON' }, S.copyText), h('button', { class: 'btn sm', onClick: () => rec({ copyText: null }) }, 'Close')));
   $('layer').replaceChildren(...layer);
   decorateTables();
-  const af = (trash || document).querySelector('[data-autofocus]'); if (af) af.focus();
+  const af = (trash || sig || document).querySelector('[data-autofocus]'); if (af) af.focus();
   else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
@@ -101,6 +109,16 @@ function render() {
 // A button, not a #link: a link would change the address, and the address is the page's state.
 $('skip').addEventListener('click', () => $('main').focus());
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
+// Below the breakpoint where the sidebar collapses behind this button (860px, also in web/app.css -- change both
+// together); above it the button is hidden by CSS and neither of these fires from a click.
+function openNav() { rec({ navOpen: true }); $('nav').querySelector('[data-nav]')?.focus(); }
+// Closing (Escape, the backdrop, or the toggle itself) returns focus to the button that opened it; a nav item's
+// own click closes with a different focus target (the new page), so it sets navOpen directly instead of calling this.
+function closeNav() { rec({ navOpen: false }); $('navtoggle').focus(); }
+$('navtoggle').addEventListener('click', () => (S.navOpen ? closeNav() : openNav()));
+// Widening past the breakpoint while the drawer is open would otherwise strand its backdrop over the page: the
+// toggle that would close it is hidden by CSS above this width, and the sidebar itself no longer needs collapsing.
+window.addEventListener('resize', () => { if (S.navOpen && window.innerWidth > 860) rec({ navOpen: false }); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
 window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); });
@@ -112,7 +130,7 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
 applyTheme(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
-setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
+setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000); setInterval(loadReqLive, 5000);
 setInterval(loadVolume, 30000);
 setInterval(loadProcesses, 5000); // matches the server's own 5 s procusage sampler interval
 setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that checks S.perfLive, document.hidden and the active view

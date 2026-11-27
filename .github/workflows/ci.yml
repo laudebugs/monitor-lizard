@@ -60,6 +60,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make check-code
       - run: make test
+        timeout-minutes: 12 # fails a hung step with its log, but only while the runner is alive: a frozen VM falls back to GitHub's lost-heartbeat handling and the 30 minute job limit. The real protection is that the hdiutil mount tests skip in CI
 
   # The only required status check in branch protection. Passes when every needed job passed or was skipped.
   gate:

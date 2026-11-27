@@ -7,11 +7,23 @@
 | `make check` | `check-docs` + `check-code` |
 | `make check-docs` | `scripts/check-todos.mjs` (board consistency), `scripts/check-doc-indexes.mjs` (every doc is indexed) |
 | `make check-code` | `cargo check --locked --all-targets` with warnings as errors. Clippy, duplication (`.jscpd.json` is ready: `npx jscpd .`) and size budgets are not wired yet |
-| `make test` | `cargo test --locked` (macOS only), then `node --test tests/web/*.test.mjs` for the dashboard's logic (URL hash state, table export). Node 22 or newer. Use the glob: `node --test tests/web` (a directory) fails on Node 24. The tests lift a marked block out of the dashboard scripts (`web/*.js`, assembled by `tests/web/page.mjs`) and do not cover layout |
+| `make test` | `cargo test --locked` (macOS only; the two hdiutil mount tests skip in CI, see below), then `node --test tests/web/*.test.mjs` for the dashboard's logic (URL hash state, table export). Node 22 or newer. Use the glob: `node --test tests/web` (a directory) fails on Node 24. The tests lift a marked block out of the dashboard scripts (`web/*.js`, assembled by `tests/web/page.mjs`) and do not cover layout |
 | `make fmt` | `cargo fmt`. Not in `check`: see the 2026-11-26 note in `AGENTS.md` |
 | `make todos` | Prints the derived todo board |
 | `make doctor` | Verifies required tools are installed |
 | `make ci` | `check` + `test`: the whole fast lane |
+
+## Run the mount tests
+
+Two tests in `src/storage/trash.rs` (`an_item_with_a_volume_mounted_inside_it_is_refused`, `an_item_that_is_itself_a_mount_point_is_refused`) attach a small disk image with `hdiutil` in a temp folder. A hosted macOS runner has frozen during `hdiutil detach -force`, so they skip themselves when `GITHUB_ACTIONS` or `CI` is set and print `SKIPPED IN CI` to stderr. The mount-crossing refusal is therefore verified on a developer's machine only. Run them locally with the skip lifted:
+
+```sh
+ML_RUN_MOUNT_TESTS=1 cargo test mount                       # the two trash tests
+ML_RUN_MOUNT_TESTS=1 cargo test -- --ignored never_crosses  # the walker's own mount test (ignored by default)
+hdiutil info                                                # afterwards: none of the tests' own images is attached
+```
+
+Every `hdiutil` call in them has a time limit, and a guard detaches with `-force` and deletes the image even when the test fails. A child that survives the kill for 5 s is abandoned and lives until the test binary exits. CI still runs a unit test of the device comparison (`crosses`).
 
 ## Pin tool versions in one place
 

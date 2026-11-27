@@ -421,10 +421,13 @@ function trashSync(selection) {
   if (trashApply({ type: 'selection', key: selection.key })) setTimeout(trashFocusBack, 0);
 }
 const trashClose = () => trashDispatch({ type: 'close' });
-// One Escape closes one layer: the Trash dialog if it is open, otherwise the Stop dialog.
+// One Escape closes one layer: the Trash dialog if it is open, otherwise the Stop dialog, otherwise the
+// collapsed-nav drawer (the widest-reaching layer, checked last since a dialog can be open over the drawer).
 function closeTopLayer() {
   if (trashOpen()) { trashClose(); return 'trash'; }
+  if (sigOpen()) { sigClose(); return 'signal'; }
   if (S.modal) { rec({ modal: null }); return 'stop'; }
+  if (S.navOpen) { closeNav(); return 'nav'; }
   return null;
 }
 // Tab stays inside the dialog: it wraps at both ends, and Shift+Tab from the heading goes to the last button.

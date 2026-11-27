@@ -200,7 +200,7 @@ fn path_checks(item: &Item, pol: &Policy) -> Result<(), Refuse> {
     if canonical != path || !(inside(pol.home) || inside(pol.apps)) { return Err((Code::Outside, reason::OUTSIDE)); }
     if meta.uid() != pol.uid { return Err((Code::NotOwned, reason::NOT_OWNED)); }
     // An item that is itself a mount point lives on another device than the folder holding it.
-    if path.parent().and_then(|p| std::fs::symlink_metadata(p).ok()).is_some_and(|p| p.dev() != meta.dev()) { return Err((Code::MountInside, reason::MOUNT_POINT)); }
+    if path.parent().and_then(|p| std::fs::symlink_metadata(p).ok()).is_some_and(|p| walk::crosses(p.dev(), meta.dev())) { return Err((Code::MountInside, reason::MOUNT_POINT)); }
     if item.label == Label::Yours && !pol.confirm_yours { return Err((Code::NeedsYoursConfirmation, reason::YOURS)); }
     if !matches!(item.size, Reading::Value(_)) || !item.complete { return Err((Code::Unmeasured, reason::UNMEASURED)); }
     if item.modified_ns.is_none() || modified_ns(path) != item.modified_ns { return Err((Code::Changed, reason::CHANGED)); }
@@ -640,47 +640,111 @@ pub(crate) mod tests {
         assert!(log.borrow().0.is_empty());
     }
 
-    /// Runs a command, killing it after `secs`; true only for a clean exit.
-    fn run_within(cmd: &mut std::process::Command, secs: u64) -> bool {
-        let Ok(mut child) = cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() else { return false };
-        let until = Instant::now() + Duration::from_secs(secs);
+    /// How long a killed command gets to be reaped before it is given up on. A process stuck in the kernel (an
+    /// `hdiutil` waiting on `diskimages-helper`) can ignore SIGKILL, and an unbounded `wait()` on it hangs the whole run.
+    const REAP_SECS: u64 = 5;
+
+    /// Runs a command and kills it after `secs`. `Ok` only for a clean exit; otherwise the error names the command and how long it ran.
+    /// A child that survives the kill is abandoned after `REAP_SECS` and left until the test binary exits.
+    /// Nothing here waits without a limit: after the kill it polls for `REAP_SECS` and then abandons the child.
+    pub(crate) fn run_within(cmd: &mut std::process::Command, secs: u64) -> Result<(), String> {
+        let name = format!("{cmd:?}");
+        let started = Instant::now();
+        let mut child = cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|e| format!("could not start {name}: {e}"))?;
+        let until = started + Duration::from_secs(secs);
         loop {
             match child.try_wait() {
-                Ok(Some(status)) => return status.success(),
+                Ok(Some(status)) if status.success() => return Ok(()),
+                Ok(Some(status)) => return Err(format!("{name} exited with {status} after {:.1}s", started.elapsed().as_secs_f32())),
                 Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(50)),
-                _ => { let _ = child.kill(); let _ = child.wait(); return false; }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let reap_until = Instant::now() + Duration::from_secs(REAP_SECS);
+                    while Instant::now() < reap_until {
+                        if let Ok(Some(_)) = child.try_wait() { return Err(format!("{name} timed out and was killed after {:.1}s (limit {secs}s)", started.elapsed().as_secs_f32())); }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    return Err(format!("{name} timed out after {:.1}s (limit {secs}s) and did not exit {REAP_SECS}s after SIGKILL; abandoned", started.elapsed().as_secs_f32()));
+                }
+                Err(e) => return Err(format!("{name}: waiting failed after {:.1}s: {e}", started.elapsed().as_secs_f32())),
             }
         }
     }
 
-    /// A disk image attached at a mount point in a temp folder. Dropping it detaches the volume, even
-    /// when the test panics; if that fails the folders are left alone rather than walked into.
-    struct Mounted { mnt: PathBuf, root: PathBuf }
+    /// Set this to `1` to run the hdiutil mount tests where they would otherwise be skipped (CI).
+    pub(crate) const RUN_MOUNT_TESTS: &str = "ML_RUN_MOUNT_TESTS";
+
+    /// True where the hdiutil tests must not run: GitHub Actions or another CI (`GITHUB_ACTIONS` or `CI` set), unless
+    /// `ML_RUN_MOUNT_TESTS=1`. A hosted macOS runner has frozen for good during `hdiutil detach -force`, and a frozen runner
+    /// uploads no log. So the mount-crossing refusals are verified on a developer's machine only. The notice goes straight to
+    /// stderr, which the test harness does not capture, so it is visible in the CI log.
+    pub(crate) fn skip_mount_tests(test: &str) -> bool {
+        let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty() && v != "0" && v != "false");
+        if std::env::var(RUN_MOUNT_TESTS).as_deref() == Ok("1") || !(set("GITHUB_ACTIONS") || set("CI")) { return false; }
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr(), "\n*** SKIPPED IN CI: {test}: hdiutil can freeze the runner; run locally with `{RUN_MOUNT_TESTS}=1 cargo test mount` (the mount refusals are verified locally only) ***\n");
+        true
+    }
+
+    /// True when `p` is on a different device than its parent, that is, something is mounted there.
+    fn is_mounted(p: &Path) -> bool {
+        match (fs::metadata(p), p.parent().and_then(|q| fs::metadata(q).ok())) { (Ok(a), Some(b)) => a.dev() != b.dev(), _ => false }
+    }
+
+    /// A disk image attached at a mount point in a temp folder. Every hdiutil call has a time limit. Dropping it detaches the
+    /// volume with `-force`, even when the test panics, then deletes the `.dmg`; if the detach fails the folders are left alone
+    /// rather than walked into.
+    pub(crate) struct Mounted { mnt: PathBuf, root: PathBuf, img: PathBuf }
     impl Mounted {
-        /// None where a disk image cannot be attached (a sandbox, a headless runner).
-        fn attach(mnt: &Path, scratch: &Path, root: &Path) -> Option<Mounted> {
+        /// None where a disk image cannot be attached (a sandbox, a headless runner), with the reason printed.
+        pub(crate) fn attach(mnt: &Path, scratch: &Path, root: &Path) -> Option<Mounted> {
             use std::process::Command;
             let img = scratch.join("v.dmg");
-            let made = run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "8m", "-fs", "HFS+", "-volname", "mltest", "-quiet"]).arg(&img), 60);
-            let guard = Mounted { mnt: mnt.to_path_buf(), root: root.to_path_buf() };
-            if made && run_within(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-quiet", "-mountpoint"]).arg(mnt).arg(&img), 60) { Some(guard) } else {
-                eprintln!("skipped: hdiutil could not attach a disk image here");
-                std::mem::forget(guard);
-                None
+            let guard = Mounted { mnt: mnt.to_path_buf(), root: root.to_path_buf(), img: img.clone() };
+            let made = run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "8m", "-fs", "HFS+", "-volname", "mltest", "-quiet"]).arg(&img), 30);
+            let attached = made.and_then(|()| run_within(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-quiet", "-mountpoint"]).arg(mnt).arg(&img), 30));
+            match attached {
+                Ok(()) => Some(guard),
+                Err(why) => {
+                    eprintln!("skipped: hdiutil could not attach a disk image here: {why}");
+                    // A timed-out attach may still have mounted: only then does the guard need to detach.
+                    if !is_mounted(mnt) { let _ = fs::remove_file(&img); std::mem::forget(guard); }
+                    None
+                }
             }
         }
     }
     impl Drop for Mounted {
         fn drop(&mut self) {
-            if !run_within(std::process::Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&self.mnt), 60) {
-                eprintln!("could not detach the test volume at {:?}; leaving its folders in place", self.mnt);
-                keep(&self.root);
+            match run_within(std::process::Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&self.mnt), 30) {
+                Ok(()) => { let _ = fs::remove_file(&self.img); }
+                // Already unmounted counts as detached.
+                Err(_) if !is_mounted(&self.mnt) => { let _ = fs::remove_file(&self.img); }
+                Err(why) => {
+                    eprintln!("could not detach the test volume at {:?}; leaving its folders and image in place: {why}", self.mnt);
+                    keep(&self.root);
+                    keep(&self.img);
+                }
             }
         }
     }
 
     #[test]
+    fn run_within_kills_a_command_that_overruns_and_names_it_in_the_error() {
+        let t = Instant::now();
+        let err = run_within(std::process::Command::new("/bin/sleep").arg("30"), 1).unwrap_err();
+        assert!(t.elapsed() < Duration::from_secs(10), "it returned promptly: {:?}", t.elapsed());
+        assert!(err.contains("sleep") && err.contains("timed out") && err.contains("limit 1s"), "{err}");
+        assert!(run_within(&mut std::process::Command::new("/usr/bin/true"), 5).is_ok());
+        assert!(run_within(&mut std::process::Command::new("/usr/bin/false"), 5).unwrap_err().contains("exited with"));
+    }
+
+    // The two mount tests run `hdiutil`, which has frozen a hosted macOS runner for good (no log was uploaded). They are skipped
+    // when `GITHUB_ACTIONS` or `CI` is set, so the mount-crossing refusal is verified on a developer's machine only. To run them
+    // anywhere: `ML_RUN_MOUNT_TESTS=1 cargo test mount`.
+    #[test]
     fn an_item_with_a_volume_mounted_inside_it_is_refused() {
+        if skip_mount_tests("an_item_with_a_volume_mounted_inside_it_is_refused") { return; }
         let (home, apps, scratch) = (temp("mount"), temp("mount-apps"), temp("mount-img"));
         let d = cache_dir(&home, "app");
         let mnt = d.join("mnt");
@@ -694,6 +758,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_item_that_is_itself_a_mount_point_is_refused() {
+        if skip_mount_tests("an_item_that_is_itself_a_mount_point_is_refused") { return; }
         let (home, apps, scratch) = (temp("mountpoint"), temp("mountpoint-apps"), temp("mountpoint-img"));
         let d = home.join("Library/Caches/app");
         fs::create_dir_all(&d).unwrap();

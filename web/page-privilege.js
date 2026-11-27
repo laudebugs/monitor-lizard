@@ -1,13 +1,13 @@
 // The detail under a row: the app (a guess), the terminal hint and every hop with the facts the collector read.
 // Text only, and every value a stranger chose has been through `visible`; <bdi> keeps a right-to-left name from
 // reordering its neighbours.
-function requesterDetail(id, chain, note) {
+function requesterDetail(id, chain, note, rowId) {
   const app = requesterApp(chain), cut = chainCutNote(chain);
   return h('div', { class: 'reqdetail', id, role: 'group', 'aria-label': 'Requester detail' },
     h('p', { class: 'sum' }, h('strong', {}, 'App: '), h('bdi', {}, app.hint), h('span', { class: 'mut' }, '  ·  '), h('strong', {}, 'Terminal: '), h('bdi', {}, terminalNote(chain))),
     note ? h('p', { class: 'mut sum' }, h('bdi', {}, note)) : null,
     chain.length ? h('ol', {}, chain.map((hop, i) => h('li', {}, h('div', { class: 'hophead' }, h('span', { class: 'mut' }, i === 0 ? 'ran sudo' : 'started by the one above'), ' ', h('strong', { class: 'mono' }, h('bdi', {}, hopLabel(hop)))),
-      h('dl', {}, hopFacts(hop, fmtWhen).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, h('bdi', {}, v))])))), cut ? h('li', { class: 'mut' }, cut) : null) : h('p', {}, NO_PARENT));
+      h('dl', {}, hopFacts(hop, fmtWhen).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, h('bdi', {}, v))])), rowId ? sigControls(rowId, chain, i) : null)), cut ? h('li', { class: 'mut' }, cut) : null) : h('p', {}, NO_PARENT));
 }
 // A collision-free element id for a row id: every character outside [A-Za-z0-9-] becomes _<hex>_, and `_` itself is one of them.
 const reqDomId = (id) => 'req-' + [...id].map((c) => (/[A-Za-z0-9-]/.test(c) ? c : '_' + c.codePointAt(0).toString(16) + '_')).join('');
@@ -18,7 +18,7 @@ function reqToggle(id, cell, when) {
   const open = !!S.reqOpen[id];
   return h('button', { class: 'disc', type: 'button', 'data-req': id, 'aria-expanded': String(open), 'aria-controls': open ? reqDomId(id) : null, 'aria-label': (open ? 'Hide who ran this, ' : 'Show who ran this, ') + when,
     title: open ? 'Hide who ran this' : 'Show every program and script that led to this',
-    onClick: () => rec({ reqOpen: Object.assign({}, S.reqOpen, { [id]: !open }) }) }, h('span', { 'aria-hidden': 'true', class: 'caret' }, open ? '▾' : '▸'), cell);
+    onClick: () => { rec({ reqOpen: Object.assign({}, S.reqOpen, { [id]: !open }) }); if (!open) loadReqLive(); } }, h('span', { 'aria-hidden': 'true', class: 'caret' }, open ? '▾' : '▸'), cell);
 }
 function priv() {
   const failed = failedSudo();
@@ -35,12 +35,12 @@ function priv() {
   const sudoRow = (e) => {
     const id = 'sudo:' + e.ts + ':' + e.pid, has = Array.isArray(e.chain) && e.chain.length > 0;
     return [h('div', { class: 'tr', style: TS + ';cursor:default' }, has ? reqToggle(id, timeCell(e.ts), fmtWhen(e.ts)) : h('span', {}, timeCell(e.ts)), h('span', { class: 'small', ...wrap }, h('bdi', {}, cutText(e.args))), h('span', { class: 'small', ...wrap }, h('bdi', {}, requesterApp(e.chain).hint)), h('span', { class: 'mut small', ...wrap }, h('bdi', {}, chainLabel(e.chain)))),
-      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), e.chain) : null];
+      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), e.chain, null, id) : null];
   };
   const authRow = (e) => {
     const id = 'auth:' + e.time + ':' + e.pid + ':' + e.right, cap = e.source === 'captured' && Array.isArray(e.chain) && e.chain.length > 0, has = cap || (e.source === 'ps' && !!e.parent);
     return [h('div', { class: 'tr', style: T + ';cursor:default' }, has ? reqToggle(id, h('span', {}, e.time.slice(11, 19)), e.time.slice(0, 19)) : h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', ...wrap }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', ...wrap }, h('bdi', {}, authRequester(e)))),
-      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), cap ? e.chain : [], authNote(e)) : null];
+      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), cap ? e.chain : [], authNote(e), cap ? id : null) : null];
   };
   return pageShell({ title: verdict('priv', { failed: failedAuth() }), body: [
     failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. Open a row to see every program and script that led to it. A request marked "no matching launch recorded" was launched before Monitor Lizard was running, exited before capture, or is older than the records kept.')))) : null,

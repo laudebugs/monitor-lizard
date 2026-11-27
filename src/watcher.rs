@@ -37,6 +37,8 @@ pub const MAX_HOPS: usize = 12;
 pub struct SudoEvent { pub ts: u64, pub pid: u32, pub tool: String, pub args: String, pub chain: Vec<Hop> }
 
 fn bsd(pid: u32) -> Option<BSDInfo> { proc_pid::pidinfo::<BSDInfo>(i32::try_from(pid).ok()?, 0).ok() }
+/// Start time of `pid` in seconds since the epoch, read the same way a hop's `started` was captured, so the two compare.
+pub fn started_of(pid: u32) -> Option<u64> { bsd(pid).map(|b| b.pbi_start_tvsec).filter(|&t| t > 0) }
 fn ppid(pid: u32) -> Option<u32> { bsd(pid).map(|b| b.pbi_ppid) }
 fn pids() -> Vec<u32> { pids_by_type(ProcFilter::All).unwrap_or_default() }
 
