@@ -86,7 +86,7 @@ function stackedAreaN(layers, max, hgt) {
   return svg;
 }
 // A two-layer stacked area for user/system CPU%, the common case of stackedAreaN().
-const stackedArea = (bottom, top, max, hgt) => stackedAreaN([{ values: bottom, color: 'var(--acc)' }, { values: top, color: 'var(--ok)' }], max, hgt);
+const stackedArea = (bottom, top, max, hgt) => stackedAreaN([{ values: bottom, color: 'var(--acc)' }, { values: top, color: 'var(--s2)' }], max, hgt);
 // Colors a per-core load bar the same three-tier way the design calls for everywhere load is shown:
 // quiet under 65%, a warning up to 85%, bad above it -- never a fourth color, so this stays one scale.
 const loadColor = (pct) => (pct > 85 ? 'var(--bad)' : pct > 65 ? 'var(--warn)' : 'var(--acc)');
@@ -156,7 +156,7 @@ function perfCpuGpuTab_(win, last, winLabel) {
     totalLast == null ? null : stackedArea(userS, sysS, 100, 90),
     h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px' },
       legendDot('var(--acc)', 'User ' + (userLast == null ? '-' : f0(userLast) + '%')),
-      legendDot('var(--ok)', 'System ' + (sysLast == null ? '-' : f0(sysLast) + '%'))));
+      legendDot('var(--s2)', 'System ' + (sysLast == null ? '-' : f0(sysLast) + '%'))));
   const loadRow = h('div', { style: 'display:flex;gap:24px;margin-bottom:14px' }, [['1 min', 'load1'], ['5 min', 'load5'], ['15 min', 'load15']].map(([l, k]) => {
     const v = rv(last && last[k]);
     return h('div', {}, h('div', { class: 'mut small' }, l), h('div', { style: 'font-size:20px;font-weight:600' }, v == null ? '-' : v.toFixed(2)));
@@ -174,12 +174,12 @@ function perfCpuGpuTab_(win, last, winLabel) {
       h('h3', { class: 'sec', style: 'margin:0' }, 'GPU'),
       deviceLast == null ? h('span', { class: 'mut small' }, rReason(last && last.gpu.device_pct)) : h('span', { class: 'v', style: 'font-size:20px' }, f0(deviceLast) + '%')),
     deviceLast == null ? null : linesChart([
-      { values: deviceS, color: 'var(--fg)' }, { values: rendererS, color: 'var(--acc)' }, { values: tilerS, color: 'var(--ok)' },
+      { values: deviceS, color: 'var(--fg)' }, { values: rendererS, color: 'var(--acc)' }, { values: tilerS, color: 'var(--s2)' },
     ], 100, 90),
     deviceLast == null ? null : h('div', { style: 'display:flex;gap:16px;margin-top:8px;font-size:12px;flex-wrap:wrap' },
       legendDot('var(--fg)', 'Device ' + f0(deviceLast) + '%'),
       legendDot('var(--acc)', 'Renderer ' + (rv(last.gpu.renderer_pct) == null ? '-' : f0(rv(last.gpu.renderer_pct)) + '%')),
-      legendDot('var(--ok)', 'Tiler ' + (rv(last.gpu.tiler_pct) == null ? '-' : f0(rv(last.gpu.tiler_pct)) + '%'))),
+      legendDot('var(--s2)', 'Tiler ' + (rv(last.gpu.tiler_pct) == null ? '-' : f0(rv(last.gpu.tiler_pct)) + '%'))),
     h('p', { class: 'mut small', style: 'margin:10px 0 0' }, 'Per-core frequency, GPU power and per-process GPU use are not measured on this Mac.'));
   return [cpuCard, loadRow, coreCard, gpuCard];
 }
@@ -187,7 +187,8 @@ function perfCpuGpuTab_(win, last, winLabel) {
 // as capacitySegments() documents; a part that could not be read is null, never 0.
 function capacityBar(args) {
   const { segments, total, note } = capacitySegments(args);
-  const COLORS = { used: 'var(--acc)', purgeable: 'var(--warn)', free: 'var(--line)' };
+  // Purgeable is hatched, not just amber: green and amber sit at nearly the same lightness, so the stripes carry the difference for a reader who cannot tell the hues apart.
+  const COLORS = { used: 'var(--acc)', purgeable: 'repeating-linear-gradient(135deg,var(--warn) 0 3px,var(--panel2) 3px 5px)', free: 'var(--line)' };
   const NAMES = { used: 'Used', purgeable: 'Purgeable', free: 'Free' };
   if (!segments.length) return h('p', { class: 'mut small', style: 'margin:0' }, 'Capacity unavailable: ' + note);
   const summary = segments.map((x) => NAMES[x.key] + ' ' + formatBytes(x.bytes)).join(', ') + (total ? ', of ' + formatBytes(total) : '');
@@ -237,9 +238,9 @@ function perfDiskNetTab_(win, last) {
   const d = last && last.disk, n = last && last.network;
   const rd = d && d.read_bytes_per_sec, wr = d && d.write_bytes_per_sec, ro = d && d.read_ops_per_sec, wo = d && d.write_ops_per_sec;
   const throughput = rateCard('Disk throughput', [seriesOf((s) => s.disk.read_bytes_per_sec), seriesOf((s) => s.disk.write_bytes_per_sec)],
-    [{ label: 'Read', color: 'var(--acc)', value: rv(rd), reason: rReason(rd) }, { label: 'Write', color: 'var(--ok)', value: rv(wr), reason: rReason(wr) }], formatRate, 1e6);
+    [{ label: 'Read', color: 'var(--acc)', value: rv(rd), reason: rReason(rd) }, { label: 'Write', color: 'var(--s2)', value: rv(wr), reason: rReason(wr) }], formatRate, 1e6);
   const ops = rateCard('Operations per second', [seriesOf((s) => s.disk.read_ops_per_sec), seriesOf((s) => s.disk.write_ops_per_sec)],
-    [{ label: 'Read', color: 'var(--acc)', value: rv(ro), reason: rReason(ro) }, { label: 'Write', color: 'var(--ok)', value: rv(wo), reason: rReason(wo) }], formatOps, 100);
+    [{ label: 'Read', color: 'var(--acc)', value: rv(ro), reason: rReason(ro) }, { label: 'Write', color: 'var(--s2)', value: rv(wo), reason: rReason(wo) }], formatOps, 100);
   const status = capacityStatus({ volume: S.volume, failed: S.volumeFailed });
   const capacity = card(h('h3', { class: 'sec', style: 'margin:0 0 10px' }, 'Capacity of the startup disk'),
     status === 'ok' ? capacityBar(volumeBarArgs(S.volume)) : h('p', { class: 'mut small', style: 'margin:0' }, CAPACITY_STATUS_TEXT[status]));
@@ -247,7 +248,7 @@ function perfDiskNetTab_(win, last) {
   const state = networkState({ interfacesUp: n ? n.interfaces_up : null, down: rv(nd), up: rv(nu) });
   const network = state.kind === 'ok'
     ? rateCard('Network', [seriesOf((s) => s.network.down_bytes_per_sec), seriesOf((s) => s.network.up_bytes_per_sec)],
-      [{ label: 'Download', color: 'var(--acc)', value: rv(nd), reason: rReason(nd) }, { label: 'Upload', color: 'var(--ok)', value: rv(nu), reason: rReason(nu) }], formatRate, 1e6)
+      [{ label: 'Download', color: 'var(--acc)', value: rv(nd), reason: rReason(nd) }, { label: 'Upload', color: 'var(--s2)', value: rv(nu), reason: rReason(nu) }], formatRate, 1e6)
     : card(h('h3', { class: 'sec', style: 'margin:0 0 10px' }, 'Network'),
       h('p', { class: state.kind === 'no-connection' ? '' : 'mut small', style: 'margin:0;font-weight:' + (state.kind === 'no-connection' ? '600' : '400') }, state.kind === 'no-connection' ? state.text : 'Network rates are unavailable: ' + rReason(nd || nu)),
       state.kind === 'no-connection' ? h('p', { class: 'mut small', style: 'margin:6px 0 0' }, 'No network interface is up, so there is nothing to measure.') : null);
@@ -256,7 +257,7 @@ function perfDiskNetTab_(win, last) {
 }
 // label, color and the MemorySample field each legend dot and the stacked chart read; one list drives
 // both so adding or reordering a layer can't desync a legend dot from the series it describes.
-const MEMORY_LAYERS = [['app', 'App', 'var(--acc)'], ['wired', 'Wired', 'var(--ok)'], ['compressed', 'Compressed', 'var(--warn)'], ['cached', 'Cached', 'var(--line)']];
+const MEMORY_LAYERS = [['app', 'App', 'var(--acc)'], ['wired', 'Wired', 'var(--s2)'], ['compressed', 'Compressed', 'var(--warn)'], ['cached', 'Cached', 'var(--line)']];
 function perfMemoryTab_(win, last) {
   const seriesOf = { app: perfSeries(win, (s) => s.memory.app_bytes), wired: perfSeries(win, (s) => s.memory.wired_bytes), compressed: perfSeries(win, (s) => s.memory.compressed_bytes), cached: perfSeries(win, (s) => s.memory.cached_bytes) };
   const m = last && last.memory;
