@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `S3b` |
-| Status | `done` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D5 |
 | Depends on | S2a, S3a |
 | ADRs | None |
@@ -97,13 +97,13 @@ README safety paragraph; plan status.
 - [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages (two reviews each round)
 - [x] `/writing-review` run on any prose (the dialog strings and the docs; two reviews each round)
 - [x] `make check` and `make test` green
-- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
 2026-11-27. Agent testing never called `POST /api/trash` on a real server. The page ran against a scratch server (a scratch `HOME`) with `window.fetch` replaced in the console by scripted replies for: preview ok with a token, a yours preview with refusals, the yours re-preview carrying `confirm_yours=1`, commit ok (double click sent one commit), partial failure, 409 busy, expired token, network error, a 500 with a body, all items refused, and Tab and Escape handling. Dark and light were looked at; forced colors was not run in a browser.
 
-Not run by the agent: the acceptance step, a real move of a throwaway folder. The owner ran it afterwards (see below).
+Not run by the agent: the acceptance step, a real move of a throwaway folder. The owner ran it afterwards (see below). The todo stays in `ongoing/` only because its dependency S2a is not done; the board check refuses a done todo with an unfinished dependency.
 
 ### Built
 
