@@ -138,7 +138,7 @@ function stWrites() {
     list ? h('ul', { style: 'list-style:none;margin:10px 0 0;padding:0' }, list.rows.map((r) => stWriteRow(r, d.hours))) : null,
     list && list.more ? h('p', { class: 'small mut', style: 'margin:6px 0 0' }, plural(list.more, 'more app', 'more apps') + ' wrote less.') : null,
     life ? h('p', { id: 'wr-life', class: 'small' + (life.shown ? '' : ' mut'), style: 'margin:10px 0 0' }, life.text) : null,
-    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Own processes only: the processes of other users, root included, cannot be read without root. Stores app names and byte counts, never file names.'));
+    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Own processes only: reading another user\'s processes, root\'s included, needs root. Stores app names and byte counts, never file names.'));
 }
 function stStrip(d, state, now) {
   const snaps = d.snapshots || {}, n = rv(snaps.count);
