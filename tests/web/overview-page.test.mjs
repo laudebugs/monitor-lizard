@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { html } from './page.mjs';
 const m = html.match(/\/\* overview-page:begin \*\/([\s\S]*?)\/\* overview-page:end \*\//);
 assert.ok(m, 'overview-page block not found in the dashboard scripts (web/*.js)');
-const P = new Function(m[1] + '\nreturn { lookedSince, feedWindowText, feedRows, machineRows, LOOK_FALLBACK_SECS };')();
+const P = new Function(m[1] + '\nreturn { lookedSince, feedWindowText, feedRows, machineRows, feedWhen, cpuAverage, bySeverity, LOOK_FALLBACK_SECS };')();
 const NOW = 2_000_000_000, DAY = 86400;
 const label = (k) => k.toUpperCase();
 
@@ -87,4 +87,22 @@ test('the forecast row shows its reason when there is no forecast yet', () => {
 test('the memory row links to the Memory tab', () => {
   const rows = P.machineRows({ freeText: 'x', memoryText: 'Normal', cpuText: '1%' });
   assert.deepEqual(rows.find((r) => r.id === 'memory').href, { view: 'performance', ex: { perfTab: 'memory' } });
+});
+
+test('a feed time is a clock time today, a weekday this week and a date after that', () => {
+  const now = new Date(2026, 10, 27, 15, 0, 0).getTime() / 1000;
+  assert.equal(P.feedWhen(new Date(2026, 10, 27, 9, 5, 0).getTime() / 1000, now), '09:05');
+  assert.equal(P.feedWhen(new Date(2026, 10, 24, 9, 5, 0).getTime() / 1000, now), 'Tue');
+  assert.equal(P.feedWhen(new Date(2026, 9, 2, 9, 5, 0).getTime() / 1000, now), 'Oct 2');
+});
+const cpu = (ts, v) => ({ ts, cpu: { total_pct: v == null ? { unavailable: 'x' } : { value: v } } });
+test('the CPU average covers the last five minutes and skips unreadable samples', () => {
+  const samples = [cpu(100, 100), cpu(1000, 10), cpu(1100, null), cpu(1200, 30)];
+  assert.equal(P.cpuAverage(samples, 300), 20);
+  assert.equal(P.cpuAverage([], 300), null);
+  assert.equal(P.cpuAverage([cpu(5, null)], 300), null);
+});
+test('decisions are sorted by severity and keep their order within a severity', () => {
+  const list = [{ sev: 'low', n: 1 }, { sev: 'high', n: 2 }, { sev: 'medium', n: 3 }, { sev: 'high', n: 4 }];
+  assert.deepEqual(P.bySeverity(list).map((x) => x.n), [2, 4, 3, 1]);
 });
