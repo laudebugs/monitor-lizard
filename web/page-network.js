@@ -72,7 +72,7 @@ function netBaseRows() {
   });
 }
 // render() rebuilds the page, so focus goes back to the row's own button.
-const netSelect = (host) => { rec({ nhost: S.nhost === host ? null : host }); const el = document.querySelector('[data-net-host="' + CSS.escape(host) + '"]'); if (el) el.focus(); };
+const netSelect = (host) => { rec({ nhost: S.nhost === host ? null : host }); const el = document.querySelector('[data-net-host="' + CSS.escape(host) + '"]'); if (el) el.focus({ preventScroll: true }); };
 function netInspector(f, hostRows) {
   const kv = (...pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
   const first = f.first == null ? netFirstSeenText(f.first, S.histOk) : timeCell(f.first);

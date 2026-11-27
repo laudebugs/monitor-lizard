@@ -224,3 +224,11 @@ test('the chart tooltip reads only tokens the contrast pairs cover, and forced c
   const fc = css.match(/@media\(forced-colors:active\)\{\.chart-tip\{[^\n]*/)[0];
   for (const w of ['Canvas', 'CanvasText', 'Highlight']) assert.ok(fc.includes(w), w + ' is missing from the forced-colors chart rules');
 });
+
+test('a stale tile dims its text, not the tooltip that opens over it', () => {
+  assert.ok(!/\.tile\.stale\{[^}]*opacity/.test(css), 'opacity on the tile itself would dim the tooltip below 4.5:1');
+  const rule = css.match(/\.tile\.stale>:not\(\.chart\)[^{]*\{([^}]*)\}/);
+  assert.ok(rule, 'the stale rule dims the tile children except the chart');
+  assert.match(rule[1], /opacity:\.6/);
+  assert.ok(!/\.chart-tip\{[^}]*opacity/.test(css));
+});

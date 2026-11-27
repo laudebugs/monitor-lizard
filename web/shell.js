@@ -41,7 +41,7 @@ function drawNav() {
       b ? h('a', { class: 'badge ' + b.tone, href: badgeHash(id), 'data-nav': 'badge-' + id, title: b.label, 'aria-label': b.label }, b.text) : null);
   };
   nav.replaceChildren(...NAV_GROUPS.map((g) => h('div', { role: 'group', 'aria-labelledby': 'navg-' + g.toLowerCase() }, h('div', { class: 'navgroup', id: 'navg-' + g.toLowerCase() }, g), NAV.filter((n) => n.group === g).map(item))));
-  if (had) { const el = nav.querySelector('[data-nav="' + had + '"]'); if (el) el.focus(); }
+  if (had) { const el = nav.querySelector('[data-nav="' + had + '"]'); if (el) el.focus({ preventScroll: true }); }
 }
 // The top bar's breadcrumb and the page below it change together.
 const show = (page) => { $('crumb').replaceChildren(...nodesOf(page.crumb)); $('content').replaceChildren(...nodesOf(page.nodes)); };
@@ -104,7 +104,7 @@ function render() {
   $('layer').replaceChildren(...layer);
   decorateTables();
   const af = (trash || sig || document).querySelector('[data-autofocus]'); if (af) af.focus();
-  else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
+  else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus({ preventScroll: true }); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
   searchRefresh();

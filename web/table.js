@@ -364,7 +364,7 @@ function exportBar(key, header) {
     n ? 'Export ' + kind.toUpperCase() + ' (' + n + (n === 1 ? ' row' : ' rows') + ')' : 'Nothing to export (' + kind.toUpperCase() + ')');
   // A real button, not hover text: it works from the keyboard, and the full text stays in the page (hidden, not removed).
   const more = h('button', { class: 'btn sm', type: 'button', id: 'xmore-' + key, 'aria-expanded': String(open), 'aria-controls': 'xinfo-' + key,
-    onClick: () => { rec({ xopen: Object.assign({}, S.xopen, { [key]: !open }) }); const b = $('xmore-' + key); if (b) b.focus(); } }, open ? 'Hide file details' : 'File details');
+    onClick: () => { rec({ xopen: Object.assign({}, S.xopen, { [key]: !open }) }); const b = $('xmore-' + key); if (b) b.focus({ preventScroll: true }); } }, open ? 'Hide file details' : 'File details');
   return h('div', { class: 'xbar' }, btn('csv'), btn('json'), columnsMenu(key, header), h('span', { class: 'mut small xnote' }, note.line), more,
     h('p', { class: 'mut small xinfo', id: 'xinfo-' + key, hidden: !open }, note.full));
 }
@@ -556,7 +556,7 @@ function startDrawerResize(e) {
     () => {
       if (raf) cancelAnimationFrame(raf);
       S.drawerW = pending; localStorage.setItem('drawer-width', S.drawerW); render();
-      if (hadFocus) document.querySelector('.handle')?.focus();
+      if (hadFocus) document.querySelector('.handle')?.focus({ preventScroll: true });
     },
   );
 }

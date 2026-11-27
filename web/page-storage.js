@@ -291,7 +291,7 @@ const scrollBox = (name, floor, ...kids) => h('div', { class: 'sbox', style: 'ov
   h('div', { style: 'min-width:' + floor + 'px' }, ...kids));
 const listReset = 'list-style:none;margin:0;padding:0';
 // Focus goes back to the control that opened a panel when it closes: render() rebuilds every control.
-const stFocus = (id, m) => { rec(m); const el = $(id); if (el) el.focus(); };
+const stFocus = (id, m) => { rec(m); const el = $(id); if (el) el.focus({ preventScroll: true }); };
 function cleanupRow(r, on) {
   return h('li', { class: 'tr' + (on ? ' on' : ''), style: CLEAN_COLS + ';min-width:0' },
     h('span', nameAttrs(r.path), h('span', { style: 'display:flex;min-width:0' }, r.head ? h('span', ST_HEAD, r.head) : null, h('span', ST_TAIL, r.tail))),

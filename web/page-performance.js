@@ -1,7 +1,10 @@
 // A Reading<T> from the Rust side serializes as {value: T}, {unavailable: "reason"} or the bare
 // string "restricted"; `null` is a plain Option<Reading<T>> that was never populated this sample.
-const rv = (r) => (r && 'value' in r ? r.value : null);
-const rReason = (r) => (r == null ? 'not sampled yet' : r === 'restricted' ? 'restricted' : r.unavailable || 'unavailable');
+/* perf-reading:begin */
+// A string is not an object `in` can test: the bare "restricted" would throw, and one such sample would take the whole page's render with it.
+const rv = (r) => (r && typeof r === 'object' && 'value' in r ? r.value : null);
+const rReason = (r) => (r == null ? 'not sampled yet' : r === 'restricted' ? 'restricted' : (typeof r === 'object' && r.unavailable) || 'unavailable');
+/* perf-reading:end */
 function perfSeries(samples, pick) { return samples.map((s) => rv(pick(s))); }
 // One drawn line: its values, and why sample i has none (the hover tooltip says so instead of showing a blank or a 0).
 const perfLine = (win, label, color, pick) => ({ label, color, values: perfSeries(win, pick), reason: (i) => rReason(pick(win[i])) });
@@ -12,6 +15,7 @@ const chartSpec = (win, id, name, fmt, extra) => Object.assign({ id, name: name 
 // cards show one combined value built from several Readings, so there is one "why" to report, not one
 // per field. `fields` is `[[value, reading], ...]`; the fields that did read are not reported.
 function firstReason(fields) { for (const [v, r] of fields) if (v == null) return rReason(r); return null; }
+/* perf-window:begin */
 // Nearest-point decimation, not averaging: the six values this page mixes (percent, bytes/sec,
 // bytes) would need different combining rules to average sensibly, and a sparkline only needs to
 // read as the right shape, not preserve every sample.
@@ -21,6 +25,17 @@ function downsample(points, max) {
   for (let i = 0; i < max; i++) out.push(points[Math.floor((i + 1) * points.length / max) - 1]);
   return out;
 }
+function perfWindowed() {
+  const secs = S.perfWin === '1h' ? 3600 : 300;
+  const cutoff = (S.metrics.length ? S.metrics[S.metrics.length - 1].ts : 0) - secs;
+  const win = S.metrics.filter((s) => s.ts > cutoff);
+  // About one point per two pixels of the sparkline's actual rendered width, so density tracks a
+  // resized window instead of assuming one fixed layout; the previous render's own .spark element
+  // is the best available measurement for the one about to be built.
+  const w = document.querySelector('.spark')?.clientWidth || 200;
+  return S.perfWin === '1h' ? downsample(win, Math.max(10, Math.round(w / 2))) : win;
+}
+/* perf-window:end */
 // The one place a sample index and a value become an SVG coordinate, shared by every chart below
 // so a fixed-viewBox chart (see spark()'s comment on why it's fixed) always maps the same way.
 const chartXY = (n, w, max, hgt) => ({ x: (i) => (i * w / n).toFixed(1), y: (v) => (hgt - Math.min(v, max) / max * hgt).toFixed(1) });
@@ -39,16 +54,6 @@ function spark(values, max, label, hv) {
   const svg = h('svg', { class: 'spark', viewBox: '0 0 ' + w + ' ' + hgt, preserveAspectRatio: 'none', role: 'img', 'aria-label': label });
   if (path) svg.innerHTML = '<path d="' + path.area + '" fill="var(--acc)" fill-opacity="0.18"></path><path d="' + path.line + '" fill="none" stroke="var(--acc)" stroke-width="1.6" vector-effect="non-scaling-stroke"></path>';
   return hv ? chartHost(svg, { ...hv, max: max || 1, series: [{ label: hv.label, color: 'var(--acc)', values, reason: hv.reason }], tile: true }) : svg;
-}
-function perfWindowed() {
-  const secs = S.perfWin === '1h' ? 3600 : 300;
-  const cutoff = (S.metrics.length ? S.metrics[S.metrics.length - 1].ts : 0) - secs;
-  const win = S.metrics.filter((s) => s.ts > cutoff);
-  // About one point per two pixels of the sparkline's actual rendered width, so density tracks a
-  // resized window instead of assuming one fixed layout; the previous render's own .spark element
-  // is the best available measurement for the one about to be built.
-  const w = document.querySelector('.spark')?.clientWidth || 200;
-  return S.perfWin === '1h' ? downsample(win, Math.max(10, Math.round(w / 2))) : win;
 }
 // A plain line chart (no fill) for one or more series sharing one y-axis, taller than the tile
 // spark() so per-core bars and the stacked area below it have somewhere to sit; the viewBox stays

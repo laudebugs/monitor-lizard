@@ -1,6 +1,6 @@
 const SAFETY_TAG = { 'read-only': 'ok', 'changes files': 'warn', 'needs sudo': 'bad' };
 // render() rebuilds every control, so a keyboard user would lose their place; put focus back on the one just used.
-const guideAct = (id, m) => { rec(m); const el = $(id); if (el) el.focus(); };
+const guideAct = (id, m) => { rec(m); const el = $(id); if (el) el.focus({ preventScroll: true }); };
 // One live region that render() never rebuilds, so a screen reader hears changes made after the content is replaced.
 function announce(msg) { const el = $('announcer'); if (!el) return; el.textContent = ''; setTimeout(() => { el.textContent = msg; }, 60); }
 async function loadGuide() {

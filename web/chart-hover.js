@@ -23,12 +23,25 @@ function chartStep(n, cur, key) {
 }
 // A keyboard highlight is remembered as a time, not an index: every poll adds a sample and the
 // 1 hour window thins them out again, so an index would drift. The nearest sample wins; one older
-// than the whole window sticks to the oldest.
-function chartIndexForTs(ts, t) {
+// than the whole window sticks to the oldest. Samples can share a time, so among equals the one
+// closest to `near` (the index last highlighted) wins, which lets Right step past a duplicate.
+function chartIndexForTs(ts, t, near) {
   if (!ts.length || typeof t !== 'number' || !Number.isFinite(t)) return -1;
+  const off = (i) => (Number.isInteger(near) ? Math.abs(i - near) : i);
   let best = 0;
-  for (let i = 1; i < ts.length; i++) if (Math.abs(ts[i] - t) < Math.abs(ts[best] - t)) best = i;
+  for (let i = 1; i < ts.length; i++) {
+    const d = Math.abs(ts[i] - t), b = Math.abs(ts[best] - t);
+    if (d < b || (d === b && off(i) < off(best))) best = i;
+  }
   return best;
+}
+// Where the tooltip's left edge goes inside a chart `width` wide, for a guide at `x` px: to the right
+// of the guide, else to its left, and never past either edge of the chart. A tooltip wider than the
+// chart sits at 0 (the stylesheet lets it wrap inside the chart's width).
+function chartTipLeft(x, width, tipWidth, gap) {
+  if (!(width > 0) || !(tipWidth < width)) return 0;
+  const left = x + gap + tipWidth <= width ? x + gap : x - gap - tipWidth;
+  return Math.min(Math.max(left, 0), width - tipWidth);
 }
 // "32s ago", "4m 12s ago", "1h 2m ago"; `long` spells the units out for a screen reader.
 function chartAgo(secs, long) {
@@ -66,7 +79,7 @@ function chartSample(spec, i, now) {
 
 /* chart-hover-view:begin */
 // What each chart currently highlights, by chart id: { ptr: fraction | null, key: sample time | null,
-// focused }. It lives here, not on the chart, because the page rebuilds every chart on every poll; the
+// keyIdx, focused }. It lives here, not on the chart, because the page rebuilds every chart on every poll; the
 // new chart reads it back, so the marker stays where it was and the focused chart keeps the keyboard
 // (render() gives focus back through data-req, as it does for buttons).
 const CH = {};
@@ -91,17 +104,24 @@ function chartHost(svg, spec) {
   chFrame.now.add(id);
   const guide = h('span', { class: 'chart-guide', hidden: true });
   const dots = spec.series.map((s) => h('span', { class: 'chart-dot', hidden: true, style: 'background:' + s.color }));
-  const tip = h('span', { class: 'chart-tip', hidden: true });
+  // The tooltip is a visual copy: a screen reader gets the hidden summary below, and a key press's announcement.
+  const tip = h('span', { class: 'chart-tip', hidden: true, 'aria-hidden': 'true' });
   const keys = !!spec.keys;
   const wrap = h('span', Object.assign({ class: 'chart' + (spec.tile ? ' chart-tile' : '') }, keys
     ? { tabindex: '0', role: 'group', 'data-req': id, 'aria-label': spec.name + '. Left and right arrow keys read each sample.', 'aria-keyshortcuts': 'ArrowLeft ArrowRight Home End' } : {}),
     svg, guide, ...dots, tip);
-  if (keys) svg.setAttribute('aria-hidden', 'true');
+  if (keys) {
+    svg.setAttribute('aria-hidden', 'true');
+    // The newest sample in words, written at draw time (every poll) and not a live region, so nothing is spoken
+    // unasked; a pointer-only screen-reader or voice user reads it by moving through the page.
+    const latest = chartSample(spec, n - 1, Date.now() / 1000);
+    wrap.append(h('span', { class: 'sr-only' }, spec.name + ', latest: ' + (latest ? latest.say : '')));
+  }
   const index = () => {
     const st = CH[id];
     if (!st) return -1;
     if (st.ptr != null) return chartIndexAt(n, st.ptr);
-    return st.key != null ? chartIndexForTs(spec.ts, st.key) : -1;
+    return st.key != null ? chartIndexForTs(spec.ts, st.key, st.keyIdx) : -1;
   };
   const paint = () => {
     const sample = chartSample(spec, index(), Date.now() / 1000);
@@ -110,10 +130,10 @@ function chartHost(svg, spec) {
     const left = (sample.frac * 100).toFixed(2) + '%';
     guide.style.left = left;
     sample.rows.forEach((r, k) => { dots[k].hidden = r.y == null; dots[k].style.left = left; dots[k].style.top = r.y == null ? '' : (r.y * 100).toFixed(2) + '%'; });
-    tip.style.left = left;
-    tip.classList.toggle('flip', sample.frac > 0.5);
     tip.replaceChildren(h('span', { class: 'chart-tip-t' }, sample.ago),
       ...sample.rows.map((r) => h('span', { class: 'chart-tip-r' }, h('i', { class: 'chart-sw', style: 'background:' + r.color }), h('span', {}, r.label + ' '), h('b', {}, r.text))));
+    // Measured after the text is in: the tooltip stays inside the chart whatever it says.
+    tip.style.left = chartTipLeft(sample.frac * svg.getBoundingClientRect().width, svg.getBoundingClientRect().width, tip.offsetWidth, 10).toFixed(1) + 'px';
   };
   const at = (e) => { const r = svg.getBoundingClientRect(); return r.width > 0 ? (e.clientX - r.left) / r.width : null; };
   // A rebuilt chart under a resting pointer gets a pointer event with no movement; it must not undo a key press.
@@ -121,12 +141,19 @@ function chartHost(svg, spec) {
     const f = at(e);
     if (f == null || (e.clientX === chPos[0] && e.clientY === chPos[1] && CH[id])) return;
     chPos = [e.clientX, e.clientY];
-    CH[id] = Object.assign(CH[id] || {}, { ptr: f });
+    CH[id] = Object.assign(CH[id] || {}, { ptr: f, lift: null });
     paint();
   };
   wrap.addEventListener('pointermove', point);
   wrap.addEventListener('pointerenter', point);
-  const leave = () => { if (CH[id]) { CH[id].ptr = null; if (!CH[id].focused && CH[id].key == null) delete CH[id]; } paint(); };
+  const clear = () => { if (CH[id]) { CH[id].ptr = null; if (!CH[id].focused && CH[id].key == null) delete CH[id]; } paint(); };
+  // A finger that lifts leaves at once; the reading stays a moment so it can be read.
+  const leave = (e) => {
+    if (!(e && e.pointerType === 'touch')) return clear();
+    const stamp = CH[id] && (CH[id].lift = Date.now());
+    setTimeout(() => { if (CH[id] && CH[id].lift === stamp) clear(); }, 1500);
+  };
+  wrap.addEventListener('pointerdown', point);
   wrap.addEventListener('pointerleave', leave);
   wrap.addEventListener('pointercancel', leave);
   if (keys) {
@@ -134,7 +161,7 @@ function chartHost(svg, spec) {
       // Arriving by keyboard shows the newest sample at once; a click that merely focuses it does not.
       const first = !CH[id];
       CH[id] = Object.assign(CH[id] || { ptr: null, key: null }, { focused: true });
-      if (first && CH[id].key == null && wrap.matches(':focus-visible')) CH[id].key = spec.ts[n - 1];
+      if (first && CH[id].key == null && wrap.matches(':focus-visible')) Object.assign(CH[id], { key: spec.ts[n - 1], keyIdx: n - 1 });
       paint();
     });
     // A poll removes the focused chart and render() focuses its replacement in the same task; only a
@@ -146,7 +173,7 @@ function chartHost(svg, spec) {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
       e.preventDefault();
       const next = chartStep(n, index(), e.key);
-      CH[id] = Object.assign(CH[id] || {}, { ptr: null, key: spec.ts[next], focused: true });
+      CH[id] = Object.assign(CH[id] || {}, { ptr: null, key: spec.ts[next], keyIdx: next, focused: true });
       paint();
       const sample = chartSample(spec, next, Date.now() / 1000);
       // Only a key press speaks: a poll redraw or a pointer move never does.

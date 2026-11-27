@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { html } from './page.mjs';
 const m = html.match(/\/\* chart-hover:begin \*\/([\s\S]*?)\/\* chart-hover:end \*\//);
 assert.ok(m, 'chart-hover block not found in the dashboard scripts (web/*.js)');
-const { chartIndexAt, chartStep, chartIndexForTs, chartAgo, chartSample } = new Function(m[1] + '\nreturn { chartIndexAt, chartStep, chartIndexForTs, chartAgo, chartSample };')();
+const { chartIndexAt, chartStep, chartIndexForTs, chartTipLeft, chartAgo, chartSample } = new Function(m[1] + '\nreturn { chartIndexAt, chartStep, chartIndexForTs, chartTipLeft, chartAgo, chartSample };')();
 
 test('a chart with no samples has nothing to point at', () => {
   assert.equal(chartIndexAt(0, 0.5), -1);
@@ -98,4 +98,29 @@ test('a value above the chart max sits on the top edge', () => {
 test('an index outside the chart has no sample', () => {
   assert.equal(chartSample(spec(), 3, 110), null);
   assert.equal(chartSample(spec(), -1, 110), null);
+});
+
+test('samples that share a time: the one nearest the last highlighted index wins, so Right is never trapped', () => {
+  const ts = [1, 2, 2, 3];
+  assert.equal(chartIndexForTs(ts, 2, 2), 2);
+  assert.equal(chartIndexForTs(ts, 2, 1), 1);
+  assert.equal(chartIndexForTs(ts, 2), 1);
+  assert.equal(chartStep(4, chartIndexForTs(ts, 2, 2), 'ArrowRight'), 3);
+});
+
+test('the tooltip goes right of the guide, else left of it, and never past an edge', () => {
+  assert.equal(chartTipLeft(100, 1000, 200, 10), 110);
+  assert.equal(chartTipLeft(900, 1000, 200, 10), 690);
+  assert.equal(chartTipLeft(1000, 1000, 200, 10), 790);
+  assert.equal(chartTipLeft(0, 1000, 200, 10), 10);
+  assert.equal(chartTipLeft(150, 300, 200, 10), 0, 'fits on neither side: clamped to the left edge');
+  assert.equal(chartTipLeft(250, 300, 200, 10), 40, 'left of the guide');
+  assert.equal(chartTipLeft(120, 300, 290, 10), 0, 'wide but narrower than the chart: left edge');
+});
+
+test('a tooltip as wide as the chart, a chart of no width or a missing size sits at 0', () => {
+  assert.equal(chartTipLeft(50, 200, 200, 10), 0);
+  assert.equal(chartTipLeft(50, 200, 500, 10), 0);
+  assert.equal(chartTipLeft(50, 0, 100, 10), 0);
+  assert.equal(chartTipLeft(50, 200, NaN, 10), 0);
 });
