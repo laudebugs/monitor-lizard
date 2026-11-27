@@ -430,6 +430,26 @@ test('storage: a not-yet-scanned location id survives the address, a hostile one
   assert.equal(L.writeHash({ ...stBase, q: 'cache' }), '#storage?q=cache');
 });
 
+test('network: the filter, grouping and selected host round-trip through the address', () => {
+  const nBase = { view: 'network', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: { ngroup: 'app', nhost: null } };
+  const s = { ...nBase, filter: 'unsigned', ex: { ngroup: 'host', nhost: '203.0.113.44' } };
+  const h = L.writeHash(s);
+  assert.equal(h, '#network?pick=203.0.113.44&filter=unsigned&group=host');
+  assert.deepEqual(L.parseHash(h), s);
+  assert.equal(L.writeHash(nBase), '#network', 'defaults write nothing');
+});
+
+test('network: a grouping or host outside the allowed shapes falls back, and an IPv6 host survives', () => {
+  for (const bad of ['evil', '', '__proto__', 'APP']) assert.equal(L.parseHash('#network?group=' + bad).ex.ngroup, 'app', bad);
+  for (const bad of ['<script>', '', 'a b', 'x'.repeat(65)]) assert.equal(L.parseHash('#network?pick=' + encodeURIComponent(bad)).ex.nhost, null, bad);
+  assert.equal(L.parseHash('#network?pick=' + encodeURIComponent('2607:f8b0::2003')).ex.nhost, '2607:f8b0::2003');
+  assert.equal(L.parseHash('#network?pick=' + encodeURIComponent('fe80::1%en0')).ex.nhost, 'fe80::1%en0');
+});
+
+test('network: a host search link from the old address still searches', () => {
+  assert.equal(L.parseHash('#network?host=203.0.113.44').q, '203.0.113.44');
+});
+
 test('persistence: the filter, Apple toggle and selected item round-trip through the address', () => {
   const pBase = { view: 'persist', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: { pApple: '0', pItem: null } };
   const s = { ...pBase, filter: 'unsigned', ex: { pApple: '1', pItem: '/Users/me/Library/LaunchAgents/a.plist' } };
