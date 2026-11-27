@@ -118,7 +118,6 @@ Built and checked in a real browser on a synthetic home. The todo stays in `ongo
 - The tiles add up to the used total through a "Not measured" strip (used minus measured). The scan reads known folders only.
 - That strip reads "about" while any section is unavailable, a lower bound or unfinished, and says it is not free space.
 - Per-row "measured N min ago" is the scan time. The API has no per-row timestamp.
-- Follow-up: the safe subtotal that a partial scan still shows, and the Rescan and Review all safe buttons that use `disabled`, are in [X3](../ready/X3-storage-partial-subtotal-and-aria-disabled.md).
 - The server answers a Rescan inside its minute with 200 and the old result, never 429. A 429 branch was written first and was dead code, so it is removed.
 - SAFE is shown only for the server label `safe`, a rule on the page's safe list, and an absolute path under `/Users/<name>/`. A test reads `src/storage/rules.rs` and fails if the lists differ.
 - The Folder column shows the home-relative path and cuts only the front, so the last two segments always show. The title and the export keep the full path.

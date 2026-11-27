@@ -146,11 +146,11 @@ function actions(d, now = 1000) {
     loadStorage: () => { calls.loads++; },
     rescanInfo: (x) => (x && x.scanning ? { ok: false, wait: 0, text: 'A scan is running.' } : x && x.next_scan_allowed_at > now
       ? { ok: false, wait: 5, text: 'A scan started less than a minute ago. The next one can start in 5 s.' } : { ok: true, wait: 0, text: '' }),
-    S_: S,
+    $: () => ({ focus: () => { calls.focus = (calls.focus || 0) + 1; } }),
   };
   const make = new Function(...Object.keys(env), fn(storageJs, 'rescanNow') + '\n' + fn(storageJs, 'stActions') + '\nreturn stActions;')(...Object.values(env));
   const tree = make(d, now);
-  return { tree, calls, said, S, btn: walk({ tag: 'x', attrs: {}, kids: tree.filter(Boolean) }).find((n) => n.tag === 'button' && /Rescan|Scanning/.test(text(n))) };
+  return { tree, calls, said, S, get focused() { return calls.focus; }, btn: walk({ tag: 'x', attrs: {}, kids: tree.filter(Boolean) }).find((n) => n.tag === 'button' && /Rescan|Scanning/.test(text(n))) };
 }
 
 test('Rescan: reachable by Tab (aria-disabled, never disabled) while a scan runs or inside the minute; a click sends nothing', () => {
@@ -163,6 +163,7 @@ test('Rescan: reachable by Tab (aria-disabled, never disabled) while a scan runs
     assert.ok(text(why).length > 5, 'the reason is on the page');
     a.btn.attrs.onClick({ preventDefault() {} });
     a.btn.attrs.onClick({ preventDefault() {} });
+    assert.equal(a.focused, 2, 'focus goes back to the rebuilt button after each click');
     assert.equal(a.calls.loads, 0, 'no request');
     assert.equal(a.said.length, 2);
   }

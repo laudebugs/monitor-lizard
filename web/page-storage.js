@@ -35,6 +35,7 @@ function rescanNow() {
   const info = rescanInfo(S.stData, Date.now() / 1000);
   if (info.ok) { loadStorage(true); return; }
   rec({ stNote: info.text });
+  const btn = $('st-rescan-btn'); if (btn) btn.focus(); // render() rebuilt the button; a keyboard user stays on it
   announce(info.text);
 }
 // Picking the tile that is already picked clears it. Focus goes back to the tile, since render() rebuilds it.
