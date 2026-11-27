@@ -23,7 +23,7 @@ Add the Storage nav item and the first half of the page from design direction D:
 - The page must say so. Show a Partial banner while `complete` is false, and "at least" before a total whose `lower_bound` is true.
 - Show "measured N min ago" per row and "not yet scanned" rows for `not_reached`. Never show a final treemap or a "safe to remove" total while `complete` is false.
 - B7 builds the capacity bar; reuse it, do not copy it.
-- `web/index.html` conventions: `h()` helper, `rec()` state, `sortHeader`, `paginate`, bundled fonts, no remote assets.
+- Conventions in `web/*.js`: `h()` helper, `rec()` state, `sortHeader`, `paginate`, bundled fonts, no remote assets.
 
 ## Scope
 
@@ -43,7 +43,7 @@ Add the Storage nav item and the first half of the page from design direction D:
 
 | File | Change |
 |---|---|
-| `web/index.html` | nav entry, `storage()` view, `storage-page` pure block, url-state entries, TABLE_META and EXPORT entries, page CSS |
+| `web/page-storage.js`, `web/page-storage-logic.js`, `web/core.js`, `web/table.js`, `web/app.css` | nav entry (`shell.js`), `storage()` view (`page-storage.js`), `storage-page` pure block (`page-storage-logic.js`), url-state entries (`core.js`), TABLE_META and EXPORT entries, page CSS |
 | `tests/web/storage-page.test.mjs` | (new) logic tests for the pure block and the rules.rs cross-check |
 | `tests/web/url-state.test.mjs` | Storage filter, tile, item, search and sort |
 | `tests/web/page-shell.test.mjs` | Storage nav group and verdict title |
@@ -111,13 +111,14 @@ Built and checked in a real browser on a synthetic home. The todo stays in `ongo
 - [ ] A scan of a real developer home has not been looked at.
 - [ ] A physical keyboard has not been used; arrow keys were sent as synthetic events.
 - [ ] The owner's window is 1352 px wide, so 1360 px is not available; the widest check is recorded in the PR.
-- [ ] The Performance page does not filter by the search box; typing there still jumps to Apps.
+- [ ] The Performance page does not filter by the search box; typing there still jumps to Apps. This is a known gap.
 
 ## Notes
 
 - The tiles add up to the used total through a "Not measured" strip (used minus measured). The scan reads known folders only.
 - That strip reads "about" while any section is unavailable, a lower bound or unfinished, and says it is not free space.
 - Per-row "measured N min ago" is the scan time. The API has no per-row timestamp.
+- Follow-up: the safe subtotal that a partial scan still shows, and the Rescan and Review all safe buttons that use `disabled`, are in [X3](../ready/X3-storage-partial-subtotal-and-aria-disabled.md).
 - The server answers a Rescan inside its minute with 200 and the old result, never 429. A 429 branch was written first and was dead code, so it is removed.
 - SAFE is shown only for the server label `safe`, a rule on the page's safe list, and an absolute path under `/Users/<name>/`. A test reads `src/storage/rules.rs` and fails if the lists differ.
 - The Folder column shows the home-relative path and cuts only the front, so the last two segments always show. The title and the export keep the full path.

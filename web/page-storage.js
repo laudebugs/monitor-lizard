@@ -114,7 +114,7 @@ function stTileNote(t) {
   if (t.kind === 'rest') return REST_NOT_FREE + ' Used space outside the folders this scan reads' + (t.approx
     ? ', roughly' : '');
   if (t.kind === 'other') return plural(t.members.length, 'small section', 'small sections');
-  return t.unmeasured ? plural(t.unmeasured, 'location', 'locations') + ' not fully measured' : null;
+  return t.unmeasured ? plural(t.unmeasured, 'folder', 'folders') + ' not fully measured' : null;
 }
 function stTileButton(t, tile, state) {
   const na = t.bytes == null, on = tile === t.id, size = tileSizeText(t), note = stTileNote(t);
@@ -195,8 +195,8 @@ function stSectionInspector(d, state, rows, tiles, tile) {
   const c = labelCounts(mine), pending = mine.filter((r) => r.kind === 'pending').length;
   const measured = t ? tileSizeText(t) + (t.bytes == null ? ': ' + t.reason : '') : atLeast(d.coverage.bytes_measured,
     state !== 'complete');
-  const folders = String(mine.length - pending) + (pending ? ', ' + plural(pending, 'location',
-    'locations') + ' not yet scanned' : '');
+  const folders = String(mine.length - pending) + (pending ? ', ' + plural(pending, 'folder',
+    'folders') + ' not yet scanned' : '');
   const showAll = tile !== ST_ALL ? h('button', { class: 'btn sm', type: 'button',
     onClick: () => rec({ stTile: ST_ALL, stItem: null, page: {} }) }, 'Show all') : null;
   return h('aside', { class: 'drawer card', 'aria-label': 'Section detail' },
@@ -263,8 +263,8 @@ function stBanner(d, state) {
     style: 'padding:12px 16px;margin-bottom:14px;border-color:var(--warn)' },
     h('span', { class: 'tag warn' }, 'Partial'),
     ' This scan did not finish every folder (' + coverageText(d)
-      + '). Sizes marked "at least" can only grow. The treemap is not final,'
-    + ' and no safe-to-remove total appears until a scan completes.');
+      + '). Sizes marked "at least" can only grow. The treemap is not final.'
+    + ' No safe-to-remove total appears until a scan completes.');
 }
 function stActions(d, now) {
   const info = rescanInfo(d, now), busy = !!(d && d.scanning);
@@ -472,7 +472,7 @@ function trashBody(t) {
   lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per folder' : 'What would move' }, [...moved, ...rest].map(trashItemRow)));
   lines.push(p(sum.note, 'small mut'));
   if (done) {
-    lines.push(p('The scan result is cached for a minute, so moved folders may stay listed. Press Rescan after it expires.', 'small'));
+    lines.push(p('Moved folders may stay listed for up to a minute. Wait a minute, then press Rescan.', 'small'));
     lines.push(p(sum.historyId == null ? 'The server did not report a History entry for this request.' : 'Recorded as request ' + sum.historyId + ' in History.', 'small'));
     lines.push(h('a', { class: 'small', href: writeHash({ view: 'history' }) }, 'Open History'));
   }

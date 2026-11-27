@@ -40,7 +40,7 @@ The Disk and network tab: read and write throughput with operations per second, 
 
 | File | Change |
 |---|---|
-| `web/index.html` | Disk and network tab, `capacityBar`, the `disk-net` logic block, the `tab` address key |
+| `web/page-performance.js`, `web/core.js` | Disk and network tab and `capacityBar` (`page-performance.js`); the `disk-net` logic block and the `tab` address key in `url-state` (`core.js`) |
 | `src/netif.rs` | (new) counts interfaces that are up, running and hold a routable address |
 | `src/sampler.rs` | `network.interfaces_up` |
 | `src/server.rs` | One route line for `/api/volume` |
@@ -107,7 +107,7 @@ make check-docs
 
 ## Implementation Record
 
-2026-11-26. Status: left in `ongoing/`; three acceptance items are open.
+2026-11-26. Status: left in `ongoing/`; four checklist boxes are open, two acceptance items and two process items.
 
 - **Built:** a "Disk and network" tab in the Performance tab bar, like the CPU and GPU tab, with no new sidebar entry. It has a capacity card, a throughput chart, an operations chart and a network chart. The Overview Disk and Network tiles open it.
 - **Reusable bar:** `capacityBar(args)` takes `{ used, purgeable, free, unavailable }`: bytes, or `null` for a part that could not be read, plus the reason. Its sizing is `capacitySegments`, in the `disk-net` block.
@@ -116,5 +116,6 @@ make check-docs
 - **Failed reads:** a failed `/api/volume` read shows "Could not read capacity. Retrying." and retries on the next poll; the first paint says "Reading capacity...".
 - **Tests:** Node cases for bar sizing, bad numbers, whole-number percentages, capacity status, rate formatting, the network rule and the `tab` key; Rust tests for `netif` and the reply.
 - **Browser:** Chrome with a scratch HOME, own tab. Seen in dark and light: the live tab with real capacity, purgeable unavailable, no connection (page state set, not a real outage) and a 400 px frame without overflow.
-- **Open:** the approved-design comparison, and the 1440 px and below-1100 px checks, because the window was not resized.
+- **Open:** two acceptance items, the approved-design comparison and the 1440 px and below-1100 px browser checks (the window was not resized); and two process items, `/writing-review` on the prose and the move to `done/`.
+- **Follow-up:** two Storage page problems found while reviewing PR #72 (a safe subtotal on a partial scan, and `disabled` buttons that leave the Tab order) are in [X3](../ready/X3-storage-partial-subtotal-and-aria-disabled.md).
 - **Known gap:** the card helper is used only by the new tab; the older CPU and GPU cards still carry their own copy of the markup.

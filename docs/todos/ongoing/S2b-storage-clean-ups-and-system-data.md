@@ -37,7 +37,7 @@ Add the rest of the Storage page: a "Suggested clean-ups" list ranked by size, a
 
 | File | Change |
 |---|---|
-| `web/index.html` | `storageCleanups()`, `systemData()`, `exportReport()` |
+| `web/page-storage.js`, `web/page-storage-logic.js` | `storageCleanups()`, `systemDataCard()`, `exportReport()` (`page-storage.js`); `systemData()` and `reportHtml()` (`page-storage-logic.js`) |
 
 ## Steps
 
@@ -91,7 +91,7 @@ Plan status.
 
 Built:
 
-- Pure functions in the `storage-cleanups` block of `web/index.html`: `stCleanups`, `cleanupView` (top 50), `safeIds`, `pickedRows`, `sumSizes`/`sumText`, `systemData`, `reportHtml`. 19 tests in `tests/web/storage-cleanups.test.mjs`.
+- Pure functions in the `storage-cleanups` block of `web/page-storage-logic.js`: `stCleanups`, `cleanupView` (top 50), `safeIds`, `pickedRows`, `sumSizes`/`sumText`, `systemData`, `reportHtml`. 19 tests in `tests/web/storage-cleanups.test.mjs`.
 - Page: `storageCleanups()`, `systemDataCard()`, `exportReport()`, an inline confirmation that says the report lists file paths, and an inspector for "Review all safe". Labels still come from `shownLabel`, unchanged.
 - The picked set (`stMulti`), "Show all" and the export prompt are in memory, not in the URL hash, so the hash allow-lists did not change.
 - `ST_RULE_TEXT` moved into the new block so the report can use it. The floor test's `nameAttrs` count went from 5 to 6.

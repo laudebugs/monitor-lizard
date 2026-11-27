@@ -85,7 +85,7 @@ function pathId(path) {
   for (let i = 0; i < path.length; i++) { h ^= path.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
   return 'p' + h.toString(16).padStart(8, '0');
 }
-// One table row per measured folder, then one per location the scan did not reach. No two rows share an id.
+// One table row per measured folder, then one per folder the scan did not reach. No two rows share an id.
 function storageRows(d) {
   const total = d && d.capacity ? stNum(d.capacity.total) : null, at = d && d.scanned_at, seen = new Set();
   const uniqueId = (given, path) => {
@@ -167,7 +167,7 @@ function tileCategories(id, tiles) {
   const t = tiles.find((x) => x.id === id);
   return !t || t.kind === 'rest' ? [] : t.kind === 'other' ? t.members.map((m) => m.realId) : [t.realId];
 }
-// Rows for the table: the selected tile, then the label chip. A location not reached has no section and no label,
+// Rows for the table: the selected tile, then the label chip. A folder not reached has no section and no label,
 // so it shows only with no tile and no label chosen.
 function visibleRows(rows, tiles, tileId, label) {
   const cats = tileCategories(tileId, tiles);
@@ -279,7 +279,7 @@ const ST_RULE_FALLBACK = 'Not on the safe list, so it needs a look first.';
 const ST_CLEANUP_TOP = 50;
 const stRuleText = (rule) => (hasOwn(ST_RULE_TEXT, rule) ? ST_RULE_TEXT[rule] : ST_RULE_FALLBACK);
 // Every measured folder with a label, biggest first; a size that could not be read goes last and keeps its reason.
-// A location the scan did not reach has no label and is not listed.
+// A folder the scan did not reach has no label and is not listed.
 function stCleanups(rows) {
   return rows.filter((r) => r.kind === 'item' && ST_LABELS.includes(r.label)).sort(bySize)
     .map((r) => Object.assign({}, r, { why: stRuleText(r.rule) }));
@@ -356,7 +356,7 @@ function reportHtml({ d, rows, shownRows, system, generated, filterText }) {
   const folderRow = (r) => '<tr>' + td(rel(r), 'p') + td(ST_CATEGORIES[r.category] || r.category || '-') + '<td><span class="tag">' + escHtml(r.label || '-') + '</span></td>' + td(sizeText(r), 'n') + '</tr>';
   const cleanRow = (r) => '<tr>' + td(rel(r), 'p') + td(r.why) + '<td><span class="tag">' + escHtml(r.label) + '</span></td>' + td(sizeText(r), 'n') + '</tr>';
   const head = (cols) => '<tr>' + cols.map((c, i) => '<th' + (i === cols.length - 1 ? ' class="n"' : '') + '>' + escHtml(c) + '</th>').join('') + '</tr>';
-  const partial = state === 'complete' ? '' : '<p class="note"><strong>Partial scan.</strong> ' + escHtml(coverageText(d)) + '. Sizes marked "at least" can only grow, and no safe-to-remove total is shown.</p>';
+  const partial = state === 'complete' ? '' : '<p class="note"><strong>Partial scan.</strong> ' + escHtml(coverageText(d)) + '. Sizes marked "at least" can only grow. The treemap is not final. No safe-to-remove total appears until a scan completes.</p>';
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
     + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Storage report</title><style>' + REPORT_CSS + '</style></head><body>'
