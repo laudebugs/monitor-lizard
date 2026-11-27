@@ -240,7 +240,7 @@ mod tests {
 
     // Each opener opens the lock file itself, and a flock belongs to the open file, so threads here
     // exclude each other as separate processes would. The test therefore needs no child process,
-    // and it waits for the threads with a time limit, so a stuck opener fails instead of hanging.
+    // and it waits at most 30 s for all the threads, so a stuck opener fails instead of hanging.
     #[test]
     fn four_threads_opening_at_once_all_succeed_apply_the_schema_once_and_make_one_backup_of_the_old_database() {
         use std::os::unix::fs::PermissionsExt;
@@ -252,8 +252,9 @@ mod tests {
         drop(done);
         // Without the open lock an opener fails here: threads share a pid, so two of them collide on
         // the temporary backup name, and a backup of an already-migrated file fails its version check.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
         for _ in 0..4 {
-            let opened = finished.recv_timeout(std::time::Duration::from_secs(30)).expect("an opener did not finish within 30 s, or its thread panicked");
+            let opened = finished.recv_timeout(until.saturating_duration_since(std::time::Instant::now())).expect("the openers did not all finish within 30 s, or a thread panicked");
             opened.expect("every opener succeeds");
         }
         assert_eq!(version_of(&db), MIGRATIONS.len());

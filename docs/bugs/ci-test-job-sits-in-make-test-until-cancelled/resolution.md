@@ -16,7 +16,7 @@ The baseline gained three tests:
 
 Together these cover what the old baseline test did. The old test proved that marks from two processes were not lost. No mark is lost when the lock excludes other holders and `change_at` holds it from before the read until the write. The existing test `concurrent_marks_from_threads_all_land` still checks that marks from threads are not lost.
 
-The migrations threads test, `four_threads_opening_at_once_all_succeed_apply_the_schema_once_and_make_one_backup_of_the_old_database`, took over the backup checks. The backup is at version 0, holds the seeded row with `hits` 7, and is mode 0600. It is the only `.bak` file, so no temporary backup is left. The test now waits at most 30 s for each opener.
+The migrations threads test, `four_threads_opening_at_once_all_succeed_apply_the_schema_once_and_make_one_backup_of_the_old_database`, took over the backup checks. The backup is at version 0, holds the seeded row with `hits` 7, and is mode 0600. It is the only `.bak` file, so no temporary backup is left. The test now waits at most 30 s for all four openers.
 
 ## A released lock can stay held for about a millisecond
 

@@ -505,7 +505,9 @@ mod tests {
             Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the change thread panicked"),
         }
         // Another process writes a mark while it holds the lock. A change that read the file before
-        // taking the lock would write back the old list and lose this mark.
+        // taking the lock would write back the old list and lose this mark. In a run where another
+        // baseline test holds the in-process lock, the change may not have read anything yet, so
+        // that run can miss the bug; it can never fail or hang because of it.
         save_to(&p, &Baseline::from_entries(vec![typed(Kind::App, "/Other.app")])).unwrap();
         drop(held);
         let result = finished.recv_timeout(Duration::from_secs(10)).expect("the change did not finish within 10 s of the lock being released, or its thread panicked");
