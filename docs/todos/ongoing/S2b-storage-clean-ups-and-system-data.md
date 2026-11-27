@@ -86,3 +86,24 @@ Plan status.
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record (2026-11-26)
+
+Built:
+
+- Pure functions in the `storage-cleanups` block of `web/index.html`: `stCleanups`, `cleanupView` (top 50), `safeIds`, `pickedRows`, `sumSizes`/`sumText`, `systemData`, `reportHtml`. 19 tests in `tests/web/storage-cleanups.test.mjs`.
+- Page: `storageCleanups()`, `systemDataCard()`, `exportReport()`, an inline confirmation that says the report lists file paths, and an inspector for "Review all safe". Labels still come from `shownLabel`, unchanged.
+- The picked set (`stMulti`), "Show all" and the export prompt are in memory, not in the URL hash, so the hash allow-lists did not change.
+- `ST_RULE_TEXT` moved into the new block so the report can use it. The floor test's `nameAttrs` count went from 5 to 6.
+- Indexes always read "unavailable": the scan reads no Spotlight index. "Other" is every measured section that is not caches, logs, downloads, mail or applications (developer tools).
+- The clean-ups list is a card list, not a table, so it has no `TABLE_META`/`EXPORT` entry.
+
+Checked in a real browser (Chrome, scratch HOME, window not resized): list ranking and chips, Review all safe sum (34.0 MB = the two safe rows), system data rows with the snapshot reason, the export prompt, and `reportHtml` run in the page (escaped name, no script, no remote address).
+
+Pending:
+
+- [ ] The downloaded file was not opened offline; only its generated text was checked.
+- [ ] "Show all" with 10,000 rows was tested in Node only, not drawn in the browser.
+- [ ] A scan of a real developer home was not looked at.
+- [ ] `/code-review` and `/writing-review` not run.
+- [ ] Narrow-window layout of the new lists not checked.
