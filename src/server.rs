@@ -83,6 +83,7 @@ pub fn serve_on(server: Arc<Server>) {
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
+    history::start_capacity_writer();
     let agent = llm_server::start();
     history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
     thread::spawn(|| {
@@ -95,7 +96,7 @@ pub fn serve_on(server: Arc<Server>) {
         let url = req.url().to_string();
         let (path, query) = url.split_once('?').unwrap_or((&url, ""));
         let hdr = |n: &'static str| req.headers().iter().find(|h| h.field.equiv(n)).map(|h| h.value.to_string());
-        let host_ok = hdr("Host").is_some_and(|h| hosts.contains(&h)); // DNS-rebinding guard
+        let host_ok = host_allowed(&hosts, hdr("Host").as_deref()); // DNS-rebinding guard
         // Writes need: same origin (if sent) and the page's secret token.
         let write_ok = hdr("Origin").is_none_or(|o| origins.contains(&o)) && hdr("X-MonitorLizard-Token").is_some_and(|t| t == secret);
         let json_resp = |body: String| Response::from_string(body).with_header(Header::from_bytes("content-type", "application/json").unwrap()).boxed();
@@ -108,6 +109,7 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/api/privilege") => cached(&privs),
             (Method::Get, "/api/persistence") => cached(&pers),
             (Method::Get, "/api/storage") => json_resp(storage_cache.respond(query, &storage_scan)),
+            (Method::Get, "/api/storage/history") => json_resp(storage_history_reply(&history::db_path(), unix_now()).to_string()),
             (Method::Get, "/api/volume") => { let (code, body) = storage::boot_capacity_reply(); json_resp(body).with_status_code(code) }
             (Method::Get, "/api/metrics") => {
                 let since = query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -202,6 +204,19 @@ pub fn serve_on(server: Arc<Server>) {
         let _ = req.respond(res);
     }
 }
+
+fn unix_now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
+
+/// The capacity series and its forecast. It only reads: a read-only connection, no table creation, no
+/// migration. A database that cannot be read gives `available: false` instead of an error, so the page
+/// still shows the current capacity.
+fn storage_history_reply(db: &std::path::Path, now: u64) -> serde_json::Value {
+    let series = history::read_capacity_series(db, now).map_err(|e| history::unavailable(&e));
+    storage::forecast::reply(series, history::local_day(now, history::local_utc_offset(now)))
+}
+
+/// The DNS-rebinding guard: the Host header must be exactly one of the addresses this server listens on.
+fn host_allowed(hosts: &[String], header: Option<&str>) -> bool { header.is_some_and(|h| hosts.iter().any(|x| x == h)) }
 
 /// The outcome of a mark or unmark request that passed validation.
 struct Change { kind: Kind, key: String, mark: bool, changed: bool }
@@ -310,5 +325,50 @@ mod tests {
         // If unblock() did not do its job, this join() hangs rather than failing outright --
         // tiny_http's own documented contract for unblock() is what makes that an acceptable risk here.
         handle.join().expect("the request loop thread must exit once unblocked, not panic");
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ml-server-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn the_history_route_reads_the_series_without_changing_the_database() {
+        let dir = temp_dir("history-route");
+        let db = dir.join("h.db");
+        let day = 86_400u64;
+        {
+            let h = History::at(&db).unwrap();
+            for i in 0..8u64 { h.record_capacity(100 * day + i * day + 3600, 0, ((600 + 10 * i) * 1_000_000_000, 0, (400 - 10 * i) * 1_000_000_000)).unwrap(); }
+        }
+        let before = std::fs::read(&db).unwrap();
+        let v = storage_history_reply(&db, 108 * day);
+        assert_eq!(v["available"], true);
+        assert_eq!(v["samples"].as_array().unwrap().len(), 8);
+        assert!(v["forecast"]["status"].is_string());
+        assert_eq!(std::fs::read(&db).unwrap(), before, "a GET must not write to the database file");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_history_route_says_unavailable_for_an_unreadable_database_and_empty_for_a_missing_one() {
+        let dir = temp_dir("history-unavailable");
+        // A folder where the database should be: it exists but cannot be opened as one.
+        let v = storage_history_reply(&dir, 1_000_000);
+        assert_eq!((v["available"].clone(), v["forecast"]["status"].clone()), (false.into(), "unavailable".into()));
+        assert!(v["reason"].as_str().unwrap().contains("history unavailable"));
+        let v = storage_history_reply(&dir.join("none.db"), 1_000_000);
+        assert_eq!((v["available"].clone(), v["forecast"]["status"].clone()), (true.into(), "collecting".into()));
+        assert!(!dir.join("none.db").exists(), "reading does not create the file");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn only_the_servers_own_host_names_pass_the_host_check() {
+        let hosts = ["127.0.0.1:4747".to_string(), "localhost:4747".to_string()];
+        assert!(host_allowed(&hosts, Some("127.0.0.1:4747")) && host_allowed(&hosts, Some("localhost:4747")));
+        for bad in [Some("evil.example:4747"), Some("127.0.0.1"), Some("127.0.0.1:4748"), Some(""), None] { assert!(!host_allowed(&hosts, bad), "{bad:?}"); }
     }
 }

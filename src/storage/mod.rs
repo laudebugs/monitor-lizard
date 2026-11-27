@@ -3,6 +3,7 @@
 //! Read-only: nothing here removes or moves a file. The scan reads metadata only (`lstat`), never
 //! follows a symlink, never crosses a device and never walks the whole disk.
 mod cache;
+pub mod forecast;
 mod rules;
 mod volume;
 mod walk;
@@ -10,6 +11,19 @@ mod walk;
 pub use cache::{to_json, Cache, ScanFn};
 pub use rules::{Label, Rule};
 pub use volume::boot_capacity_reply;
+
+/// (used, purgeable, free) bytes for the daily sample, read now without a scan. None when used or free
+/// cannot be read; an unreadable purgeable share counts as 0 because `used` then already includes it.
+pub fn capacity_triple() -> Option<(u64, u64, u64)> {
+    triple_of(&volume::split_capacity(crate::iokit::boot_volume_capacity(), volume::available_and_important()))
+}
+
+fn triple_of(c: &Capacity) -> Option<(u64, u64, u64)> {
+    match (&c.used, &c.free) {
+        (Reading::Value(u), Reading::Value(f)) => Some((*u, if let Reading::Value(p) = c.purgeable { p } else { 0 }, *f)),
+        _ => None,
+    }
+}
 
 use crate::sampler::Reading;
 use serde::Serialize;

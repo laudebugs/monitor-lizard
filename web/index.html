@@ -268,7 +268,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -1524,10 +1524,11 @@ function performanceView_() {
 // ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
 // page can say how long it has taken and show the result the moment it lands. A failed read is retried with a growing pause.
 const ST_TRASH_WHY = 'Available after the removal route ships';
-let stTimer = 0, stSeq = 0, stFails = 0;
+let stTimer = 0, stSeq = 0, stFails = 0, stHistAt = 0;
 async function loadStorage(fresh) {
   if (S.view !== 'storage' || (document.hidden && !fresh)) return;
   clearTimeout(stTimer);
+  if (fresh || Date.now() - stHistAt > 60000) loadStorageHistory();
   const mine = ++stSeq, before = { data: S.stData, failed: S.stFailed };
   let after, note = null;
   try {
@@ -1586,6 +1587,36 @@ function stWaiting(state, d, now) {
   }[state];
   return h('div', {}, h('p', { class: 'mut' }, say), state === 'refused' || state === 'failed' ? null : skeleton);
 }
+// The capacity history under the startup disk bar: the weekly change, the forecast, and the chart. The chart is a picture of
+// numbers the text already states, so the svg carries the same sentence as its label.
+async function loadStorageHistory() {
+  stHistAt = Date.now();
+  try {
+    const r = await fetch('/api/storage/history');
+    if (!r.ok) throw new Error('history read failed');
+    const data = await r.json();
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('empty reply');
+    quiet({ stHist: data, stHistFailed: false });
+  } catch (e) { quiet({ stHistFailed: true }); }
+}
+function stHistory() {
+  const hist = S.stHist, fmt = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), out = capacityOutlook(hist, S.stHistFailed && !hist, fmt), week = weekText(hist), chart = capacityChart(hist), last = lastSampleText(hist, fmt);
+  const label = capacityChartLabel(chart, out);
+  const svg = chart ? h('svg', { class: 'cap-chart', viewBox: '0 0 ' + chart.w + ' ' + chart.h, role: 'img', 'aria-label': label, style: 'width:100%;height:auto;max-height:160px;display:block;margin-top:8px' }) : null;
+  if (svg) svg.innerHTML = (chart.topY == null ? '' : '<line x1="0" x2="' + chart.w + '" y1="' + chart.topY + '" y2="' + chart.topY + '" stroke="var(--mut)" stroke-width="1" vector-effect="non-scaling-stroke"></line>')
+    + '<path d="' + chart.line + '" fill="none" stroke="var(--acc)" stroke-width="2" vector-effect="non-scaling-stroke"></path>'
+    + (chart.dash ? '<path d="' + chart.dash + '" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"></path>' : '');
+  const when = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return h('div', { class: 'cap-history', style: 'margin-top:14px;border-top:1px solid var(--line);padding-top:12px' },
+    h('h3', { class: 'sec', style: 'margin:0 0 6px' }, 'Growth'),
+    h('dl', { class: 'kv', style: 'margin:0;padding:0;border-top:0' },
+      h('dt', {}, 'This week'), h('dd', { id: 'cap-week', style: 'word-break:normal' }, week || 'Not available'),
+      h('dt', {}, 'Disk full'), h('dd', { id: 'cap-forecast', style: 'word-break:normal' }, out.headline + (out.detail ? '. ' + out.detail : '')),
+      last ? [h('dt', {}, 'Last sample'), h('dd', { id: 'cap-last', style: 'word-break:normal' }, last)] : null),
+    out.note ? h('p', { class: 'small mut', style: 'margin:6px 0 0' }, out.note) : null,
+    svg, svg ? h('p', { class: 'small mut', style: 'margin:4px 0 0', 'aria-hidden': 'true' }, 'Used space, ' + when(chart.from) + ' to ' + when(chart.to) + '.'
+      + (chart.dash ? ' Dashed line: the forecast.' : '') + ' Top line: the disk size.') : null);
+}
 function stStrip(d, state, now) {
   const snaps = d.snapshots || {}, n = rv(snaps.count);
   const size = rv(snaps.size) == null ? ', size unavailable: ' + rReason(snaps.size) : ', '
@@ -1599,7 +1630,8 @@ function stStrip(d, state, now) {
     h('p', { class: 'small', style: 'margin:12px 0 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
       h('span', { class: 'tag ' + (done ? 'ok' : 'warn') }, done ? 'Complete' : 'Partial'), stale,
       h('span', {}, coverageText(d) + ', ' + measuredText(d.scanned_at, now))),
-    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Local snapshots: ' + snapText));
+    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Local snapshots: ' + snapText),
+    stHistory());
 }
 function stTileNote(t) {
   if (t.bytes == null) return t.reason;
@@ -2186,6 +2218,79 @@ function nextTile(ids, current, key) {
   if (key === 'Home') return ids[0];
   if (key === 'End') return ids[ids.length - 1];
   return ids[Math.min(ids.length - 1, Math.max(0, i + (key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : key === 'ArrowRight' || key === 'ArrowDown' ? 1 : 0)))];
+}
+
+// Capacity history (GET /api/storage/history): the weekly change, the forecast sentence and the chart's geometry.
+// The forecast is a straight line over the last 14 days; every sentence says "about" and every range comes from the fit.
+const CH_W = 600, CH_H = 140, CH_PAD = 10, CH_MAX_AHEAD = 90, CH_FAR_DAYS = 730;
+const chDays = (d) => (Number.isFinite(d) && d >= 0 ? (d < 1 ? 'less than a day' : d >= CH_FAR_DAYS ? 'more than 2 years' : plural(Math.round(d), 'day', 'days')) : null);
+const chCount = (d) => (d < 1 ? 'less than a day' : Math.round(d) + (Math.round(d) === 1 ? ' day' : ' days'));
+// "Grew 14.2 GB this week". The server sends null until the samples span six days.
+function weekText(history) {
+  if (!history || history.available !== true) return null;
+  if (history.stale === true) return 'Weekly change: no recent samples';
+  const b = history.week_change_bytes;
+  if (typeof b !== 'number' || !Number.isFinite(b)) return 'Weekly change: collecting history';
+  if (b === 0) return 'No change in used space this week';
+  return (b > 0 ? 'Grew ' : 'Shrank ') + formatBytes(Math.abs(b)) + ' this week';
+}
+// What the strip says about the disk filling. kind: loading, failed, unavailable, collecting, flat, growing.
+// `headline` is the field, `detail` the range or the reason, `note` what the number rests on.
+// `fmt` turns a unix time into a date for display; the page passes the local format, a test passes its own.
+const chDate = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
+// "2026-11-26, today" / "2026-11-20, 6 days ago": when the newest sample was taken, so a forecast never hides its age.
+function lastSampleText(history, fmt) {
+  if (!history || history.available !== true || typeof history.last_sample_ts !== 'number') return null;
+  const n = history.days_since_last_sample, when = (fmt || chDate)(history.last_sample_ts);
+  return Number.isFinite(n) ? when + (n <= 0 ? ', today' : n === 1 ? ', yesterday' : ', ' + n + ' days ago') : when;
+}
+function capacityOutlook(history, failed, fmt) {
+  if (!history) return failed ? { kind: 'failed', headline: 'Capacity history could not be read', detail: 'The current capacity above is not affected.', note: '' } : { kind: 'loading', headline: 'Reading capacity history', detail: '', note: '' };
+  if (history.available !== true) return { kind: 'unavailable', headline: 'History unavailable', detail: 'The history database could not be opened, so there is no forecast. The current capacity above is not affected.', note: '' };
+  const f = history.forecast || {}, win = Number.isFinite(history.window_days) ? history.window_days : 14;
+  if (f.status === 'collecting') return { kind: 'collecting', headline: 'Collecting history', detail: (f.days_have | 0) + ' of ' + (f.days_needed | 0) + ' days so far; a forecast needs ' + (f.days_needed | 0) + '.', note: '' };
+  if (f.status === 'not_growing') return { kind: 'flat', headline: 'Not growing', detail: 'Used space was flat or shrinking over the last ' + win + ' days.', note: '' };
+  if (f.status !== 'growing' || !Number.isFinite(f.days_until_full)) return { kind: 'unavailable', headline: 'History unavailable', detail: 'The forecast could not be read.', note: '' };
+  const days = chDays(f.days_until_full), lo = f.days_low, hi = f.days_high;
+  const far = f.days_until_full >= CH_FAR_DAYS;
+  const same = Number.isFinite(lo) && typeof hi === 'number' && Math.round(lo) === Math.round(hi);
+  const range = far || same || !Number.isFinite(lo) ? '' : typeof hi === 'number' ? 'Range ' + chCount(lo).replace(/ days?$/, '') + ' to ' + chCount(hi) : 'Range ' + chCount(lo) + ' or more';
+  const note = 'A straight line over the last ' + win + ' days of used space, purgeable included. The range is about one standard error of the daily growth: roughly two chances in three that the real date falls inside it, if growth stays steady. A change in habits changes it.';
+  const lead = f.days_until_full < 1 || far ? '' : 'about ';
+  if (history.stale === true) {
+    const when = typeof history.last_sample_ts === 'number' ? (fmt || chDate)(history.last_sample_ts) : 'an earlier day';
+    return { kind: 'stale', headline: 'Forecast out of date: last sample ' + when,
+      detail: 'Counted from then, the disk would have filled in ' + lead + days + (range ? ' (' + range.toLowerCase() + ')' : '') + '. It may be full sooner now. The monitor was not running; the forecast updates after new daily samples.', note };
+  }
+  return { kind: 'growing', headline: 'Full in ' + lead + days, detail: range, note };
+}
+// The chart: used space (purgeable included) as a solid line, the fitted line ahead as a dashed one, the disk size as the top rule.
+// Returns null with fewer than two samples. All numbers are plain, so a test can check them.
+function capacityChart(history) {
+  const ok = (d) => d && Number.isFinite(d.day) && goodBytes(d.used) != null && goodBytes(d.purgeable) != null;
+  const s = history && history.available === true && Array.isArray(history.samples) ? history.samples.filter(ok) : [];
+  if (s.length < 2) return null;
+  const occ = s.map((d) => d.used + d.purgeable), total = goodBytes(history.total);
+  const f = history.forecast && history.forecast.status === 'growing' && total != null ? history.forecast : null;
+  const first = s[0].day, last = s[s.length - 1].day;
+  const ahead = f ? Math.min(CH_MAX_AHEAD, Math.max(3, f.days_until_full)) : 0;
+  const top = Math.max(total != null ? total : 0, ...occ), floor = Math.min(...occ);
+  const yMin = Math.max(0, floor - (top - floor) * 0.08), xEnd = last + ahead;
+  const x = (day) => CH_PAD + (xEnd > first ? (day - first) / (xEnd - first) : 0) * (CH_W - 2 * CH_PAD);
+  const y = (v) => CH_PAD + (1 - (top > yMin ? (v - yMin) / (top - yMin) : 0)) * (CH_H - 2 * CH_PAD);
+  const pt = (day, v) => x(day).toFixed(1) + ' ' + y(v).toFixed(1);
+  const line = 'M' + s.map((d, i) => pt(d.day, occ[i])).join(' L');
+  let dash = '';
+  if (f) {
+    const fitted = total - f.days_until_full * f.bytes_per_day, end = Math.min(top, fitted + f.bytes_per_day * ahead);
+    dash = 'M' + pt(last, fitted) + ' L' + pt(last + ahead, end);
+  }
+  return { w: CH_W, h: CH_H, line, dash, topY: total != null ? +y(total).toFixed(1) : null, from: s[0].ts, to: s[s.length - 1].ts, count: s.length, fromBytes: occ[0], toBytes: occ[occ.length - 1], ahead };
+}
+// The sentence a screen reader gets for the chart: the data and the forecast, since the picture alone says neither.
+function capacityChartLabel(chart, outlook) {
+  if (!chart) return '';
+  return 'Used space over ' + plural(chart.count, 'daily sample', 'daily samples') + ', from ' + formatBytes(chart.fromBytes) + ' to ' + formatBytes(chart.toBytes) + '. Forecast: ' + outlook.headline + (outlook.detail ? '. ' + outlook.detail : '') + '.';
 }
 /* storage-page:end */
 /* storage-cleanups:begin */
