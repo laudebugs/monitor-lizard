@@ -33,6 +33,15 @@ open "target/release/bundle/macos/Monitor Lizard.app"
 
 The shell (`src-tauri/`, package `monitor-lizard-shell`) is a second workspace member that links against this crate as a library (`src/lib.rs`) instead of recompiling the modules; `src/main.rs` is the thin CLI binary. It starts the same server in-process on a free port (`server::bind_free()` / `server::serve_on()`), loads the dashboard in a window, and adds a tray item (see ADR 0004 and `docs/todos/done/A17-tauri-menu-bar-shell.md`). Full Disk Access needs a Developer ID signature to survive a rebuild (confirmed by the owner's test, ADR 0004) -- an ad-hoc build loses any grant on its next rebuild.
 
+## Install the local classifier model
+
+```sh
+cargo run --release -- model install --model qwen3-4b --yes   # downloads and verifies
+cargo run --release -- model status                            # local hash check, no network
+```
+
+Without `--yes`, `install` only prints the licence, pinned repo, commit, file and size. The commit came from the Hugging Face API's own `sha` field; the SHA-256 came from the file's git-lfs pointer (`<repo>/raw/<commit>/<file>`), whose `oid sha256:<hex>` line is the git-lfs spec's own content hash. Both are pinned in `src/model_store.rs`'s `MANIFEST`, not fetched at install time, so a later push to the repo cannot change what gets downloaded. `status` never contacts the Hub.
+
 ## Look up a command
 
 ```sh

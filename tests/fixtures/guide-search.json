@@ -1,314 +1,317 @@
 [
- {
-  "q": "snapshots",
-  "commands": [
-   "tmutil-list",
-   "tmutil-delete",
-   "sm-snapshot",
-   "sm-json"
-  ],
-  "terms": [
-   "local-snapshot",
-   "purgeable",
-   "system-data"
-  ],
-  "shown": 2
- },
- {
-  "q": "snapshot",
-  "commands": [
-   "tmutil-list",
-   "tmutil-delete",
-   "sm-snapshot",
-   "sm-json"
-  ],
-  "terms": [
-   "local-snapshot",
-   "purgeable",
-   "system-data"
-  ],
-  "shown": 2
- },
- {
-  "q": "docker",
-  "commands": [
-   "docker-df",
-   "docker-prune"
-  ],
-  "terms": [],
-  "shown": 2
- },
- {
-  "q": "prune",
-  "commands": [
-   "docker-prune"
-  ],
-  "terms": [],
-  "shown": 1
- },
- {
-  "q": "sudo",
-  "commands": [
-   "sm-sudo-log",
-   "sm-watch",
-   "sm-privilege",
-   "tmutil-delete"
-  ],
-  "terms": [],
-  "shown": 2
- },
- {
-  "q": "simulators",
-  "commands": [
-   "simctl-delete-unavailable"
-  ],
-  "terms": [],
-  "shown": 1
- },
- {
-  "q": "free space",
-  "commands": [
-   "df-root",
-   "brew-cleanup-n"
-  ],
-  "terms": [
-   "purgeable",
-   "apfs"
-  ],
-  "shown": 1
- },
- {
-  "q": "df",
-  "commands": [
-   "df-root",
-   "docker-df"
-  ],
-  "terms": [],
-  "shown": 1
- },
- {
-  "q": "delete",
-  "commands": [
-   "tmutil-delete",
-   "simctl-delete-unavailable"
-  ],
-  "terms": [],
-  "shown": 2
- },
- {
-  "q": "brew",
-  "commands": [
-   "brew-cleanup-n"
-  ],
-  "terms": [],
-  "shown": 1
- },
- {
-  "q": "Time Machine",
-  "commands": [
-   "tmutil-list",
-   "tmutil-delete"
-  ],
-  "terms": [
-   "local-snapshot"
-  ],
-  "shown": 1
- },
- {
-  "q": "privilege",
-  "commands": [
-   "sm-privilege",
-   "sm-watch"
-  ],
-  "terms": [],
-  "shown": 1
- },
- {
-  "q": "a",
-  "commands": [
-   "sm-classify",
-   "sm-llm-classify"
-  ],
-  "terms": [],
-  "shown": 2
- },
- {
-  "q": "/",
-  "commands": [
-   "sm-snapshot",
-   "sm-persistence",
-   "sm-metrics",
-   "sm-storage",
-   "sm-classify",
-   "sm-llm-classify",
-   "sm-watch",
-   "sm-sudo-log",
-   "sm-privilege",
-   "sm-json",
-   "sm-serve",
-   "sm-approve",
-   "sm-help",
-   "df-root",
-   "diskutil-apfs-list",
-   "tmutil-list",
-   "tmutil-delete",
-   "du-library",
-   "simctl-delete-unavailable",
-   "docker-df",
-   "docker-prune",
-   "brew-cleanup-n"
-  ],
-  "terms": [
-   "apfs",
-   "local-snapshot",
-   "purgeable",
-   "system-data",
-   "full-disk-access",
-   "launch-agent",
-   "listener",
-   "group",
-   "trust-label"
-  ],
-  "shown": 22
- },
- {
-  "q": "  ",
-  "commands": [
-   "sm-snapshot",
-   "sm-persistence",
-   "sm-metrics",
-   "sm-storage",
-   "sm-classify",
-   "sm-llm-classify",
-   "sm-watch",
-   "sm-sudo-log",
-   "sm-privilege",
-   "sm-json",
-   "sm-serve",
-   "sm-approve",
-   "sm-help",
-   "df-root",
-   "diskutil-apfs-list",
-   "tmutil-list",
-   "tmutil-delete",
-   "du-library",
-   "simctl-delete-unavailable",
-   "docker-df",
-   "docker-prune",
-   "brew-cleanup-n"
-  ],
-  "terms": [
-   "apfs",
-   "local-snapshot",
-   "purgeable",
-   "system-data",
-   "full-disk-access",
-   "launch-agent",
-   "listener",
-   "group",
-   "trust-label"
-  ],
-  "shown": 22
- },
- {
-  "q": "-",
-  "commands": [
-   "sm-snapshot",
-   "sm-persistence",
-   "sm-metrics",
-   "sm-storage",
-   "sm-classify",
-   "sm-llm-classify",
-   "sm-watch",
-   "sm-sudo-log",
-   "sm-privilege",
-   "sm-json",
-   "sm-serve",
-   "sm-approve",
-   "sm-help",
-   "df-root",
-   "diskutil-apfs-list",
-   "tmutil-list",
-   "tmutil-delete",
-   "du-library",
-   "simctl-delete-unavailable",
-   "docker-df",
-   "docker-prune",
-   "brew-cleanup-n"
-  ],
-  "terms": [
-   "apfs",
-   "local-snapshot",
-   "purgeable",
-   "system-data",
-   "full-disk-access",
-   "launch-agent",
-   "listener",
-   "group",
-   "trust-label"
-  ],
-  "shown": 22
- },
- {
-  "q": "disk",
-  "commands": [
-   "df-root",
-   "diskutil-apfs-list",
-   "docker-df",
-   "sm-metrics",
-   "sm-storage",
-   "tmutil-delete"
-  ],
-  "terms": [
-   "full-disk-access",
-   "apfs",
-   "local-snapshot"
-  ],
-  "shown": 1
- },
- {
-  "q": "cache",
-  "commands": [
-   "sm-storage",
-   "du-library",
-   "docker-df",
-   "docker-prune",
-   "brew-cleanup-n"
-  ],
-  "terms": [
-   "purgeable",
-   "system-data"
-  ],
-  "shown": 2
- },
- {
-  "q": "listener",
-  "commands": [],
-  "terms": [
-   "listener"
-  ],
-  "shown": 0
- },
- {
-  "q": "apfs",
-  "commands": [
-   "diskutil-apfs-list"
-  ],
-  "terms": [
-   "apfs"
-  ],
-  "shown": 1
- },
- {
-  "q": "time docker",
-  "commands": [],
-  "terms": [],
-  "shown": 0
- },
- {
-  "q": "zzzz",
-  "commands": [],
-  "terms": [],
-  "shown": 0
- }
+  {
+    "q": "snapshots",
+    "commands": [
+      "tmutil-list",
+      "tmutil-delete",
+      "sm-snapshot",
+      "sm-json"
+    ],
+    "terms": [
+      "local-snapshot",
+      "purgeable",
+      "system-data"
+    ],
+    "shown": 2
+  },
+  {
+    "q": "snapshot",
+    "commands": [
+      "tmutil-list",
+      "tmutil-delete",
+      "sm-snapshot",
+      "sm-json"
+    ],
+    "terms": [
+      "local-snapshot",
+      "purgeable",
+      "system-data"
+    ],
+    "shown": 2
+  },
+  {
+    "q": "docker",
+    "commands": [
+      "docker-df",
+      "docker-prune"
+    ],
+    "terms": [],
+    "shown": 2
+  },
+  {
+    "q": "prune",
+    "commands": [
+      "docker-prune"
+    ],
+    "terms": [],
+    "shown": 1
+  },
+  {
+    "q": "sudo",
+    "commands": [
+      "sm-sudo-log",
+      "sm-watch",
+      "sm-privilege",
+      "tmutil-delete"
+    ],
+    "terms": [],
+    "shown": 2
+  },
+  {
+    "q": "simulators",
+    "commands": [
+      "simctl-delete-unavailable"
+    ],
+    "terms": [],
+    "shown": 1
+  },
+  {
+    "q": "free space",
+    "commands": [
+      "df-root",
+      "brew-cleanup-n"
+    ],
+    "terms": [
+      "purgeable",
+      "apfs"
+    ],
+    "shown": 1
+  },
+  {
+    "q": "df",
+    "commands": [
+      "df-root",
+      "docker-df"
+    ],
+    "terms": [],
+    "shown": 1
+  },
+  {
+    "q": "delete",
+    "commands": [
+      "tmutil-delete",
+      "simctl-delete-unavailable"
+    ],
+    "terms": [],
+    "shown": 2
+  },
+  {
+    "q": "brew",
+    "commands": [
+      "brew-cleanup-n"
+    ],
+    "terms": [],
+    "shown": 1
+  },
+  {
+    "q": "Time Machine",
+    "commands": [
+      "tmutil-list",
+      "tmutil-delete"
+    ],
+    "terms": [
+      "local-snapshot"
+    ],
+    "shown": 1
+  },
+  {
+    "q": "privilege",
+    "commands": [
+      "sm-privilege",
+      "sm-watch"
+    ],
+    "terms": [],
+    "shown": 1
+  },
+  {
+    "q": "a",
+    "commands": [
+      "sm-classify",
+      "sm-llm-classify"
+    ],
+    "terms": [],
+    "shown": 2
+  },
+  {
+    "q": "/",
+    "commands": [
+      "sm-snapshot",
+      "sm-persistence",
+      "sm-metrics",
+      "sm-storage",
+      "sm-classify",
+      "sm-llm-classify",
+      "sm-watch",
+      "sm-sudo-log",
+      "sm-privilege",
+      "sm-json",
+      "sm-serve",
+      "sm-model",
+      "sm-approve",
+      "sm-help",
+      "df-root",
+      "diskutil-apfs-list",
+      "tmutil-list",
+      "tmutil-delete",
+      "du-library",
+      "simctl-delete-unavailable",
+      "docker-df",
+      "docker-prune",
+      "brew-cleanup-n"
+    ],
+    "terms": [
+      "apfs",
+      "local-snapshot",
+      "purgeable",
+      "system-data",
+      "full-disk-access",
+      "launch-agent",
+      "listener",
+      "group",
+      "trust-label"
+    ],
+    "shown": 23
+  },
+  {
+    "q": "  ",
+    "commands": [
+      "sm-snapshot",
+      "sm-persistence",
+      "sm-metrics",
+      "sm-storage",
+      "sm-classify",
+      "sm-llm-classify",
+      "sm-watch",
+      "sm-sudo-log",
+      "sm-privilege",
+      "sm-json",
+      "sm-serve",
+      "sm-model",
+      "sm-approve",
+      "sm-help",
+      "df-root",
+      "diskutil-apfs-list",
+      "tmutil-list",
+      "tmutil-delete",
+      "du-library",
+      "simctl-delete-unavailable",
+      "docker-df",
+      "docker-prune",
+      "brew-cleanup-n"
+    ],
+    "terms": [
+      "apfs",
+      "local-snapshot",
+      "purgeable",
+      "system-data",
+      "full-disk-access",
+      "launch-agent",
+      "listener",
+      "group",
+      "trust-label"
+    ],
+    "shown": 23
+  },
+  {
+    "q": "-",
+    "commands": [
+      "sm-snapshot",
+      "sm-persistence",
+      "sm-metrics",
+      "sm-storage",
+      "sm-classify",
+      "sm-llm-classify",
+      "sm-watch",
+      "sm-sudo-log",
+      "sm-privilege",
+      "sm-json",
+      "sm-serve",
+      "sm-model",
+      "sm-approve",
+      "sm-help",
+      "df-root",
+      "diskutil-apfs-list",
+      "tmutil-list",
+      "tmutil-delete",
+      "du-library",
+      "simctl-delete-unavailable",
+      "docker-df",
+      "docker-prune",
+      "brew-cleanup-n"
+    ],
+    "terms": [
+      "apfs",
+      "local-snapshot",
+      "purgeable",
+      "system-data",
+      "full-disk-access",
+      "launch-agent",
+      "listener",
+      "group",
+      "trust-label"
+    ],
+    "shown": 23
+  },
+  {
+    "q": "disk",
+    "commands": [
+      "df-root",
+      "diskutil-apfs-list",
+      "docker-df",
+      "sm-metrics",
+      "sm-storage",
+      "tmutil-delete"
+    ],
+    "terms": [
+      "full-disk-access",
+      "apfs",
+      "local-snapshot"
+    ],
+    "shown": 1
+  },
+  {
+    "q": "cache",
+    "commands": [
+      "sm-storage",
+      "du-library",
+      "docker-df",
+      "docker-prune",
+      "brew-cleanup-n"
+    ],
+    "terms": [
+      "purgeable",
+      "system-data"
+    ],
+    "shown": 2
+  },
+  {
+    "q": "listener",
+    "commands": [],
+    "terms": [
+      "listener"
+    ],
+    "shown": 0
+  },
+  {
+    "q": "apfs",
+    "commands": [
+      "diskutil-apfs-list"
+    ],
+    "terms": [
+      "apfs"
+    ],
+    "shown": 1
+  },
+  {
+    "q": "time docker",
+    "commands": [],
+    "terms": [],
+    "shown": 0
+  },
+  {
+    "q": "zzzz",
+    "commands": [],
+    "terms": [],
+    "shown": 0
+  }
 ]

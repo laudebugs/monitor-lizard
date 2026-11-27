@@ -182,6 +182,24 @@
       "undo": "Press Ctrl-C to stop the server. A stopped process cannot be restarted from the dashboard."
     },
     {
+      "appears_in": null,
+      "command": "monitor-lizard model install|status [--model qwen3-4b|qwen3-1.7b] [--yes]",
+      "description": "`install` prints the pinned repo, commit, size and licence, then with --yes downloads that one file from Hugging Face, verifies its SHA-256 and refuses anything else. `status` reads and hashes the local file only, without contacting Hugging Face.",
+      "example": null,
+      "id": "sm-model",
+      "safety": "changes files",
+      "tags": [
+        "model",
+        "llm",
+        "download",
+        "install",
+        "sha256"
+      ],
+      "title": "Download and verify the local model",
+      "topic": "monitor-lizard",
+      "undo": "Delete the file under ~/.monitor-lizard/models/."
+    },
+    {
       "appears_in": "Apps",
       "command": "monitor-lizard approve <key>...",
       "description": "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path>#<fingerprint> (as the dashboard sends it; a startup entry that is only the path matches any version of that item, and exists only if you wrote it by hand) or finding:<app key>:<rule>#<ports>.",

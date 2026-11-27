@@ -140,6 +140,14 @@ pub static COMMANDS: &[Command] = &[
         tags: &["dashboard", "server", "web"],
     },
     Command {
+        id: "sm-model", topic: OWN_TOPIC, title: "Download and verify the local model",
+        command: "monitor-lizard model install|status [--model qwen3-4b|qwen3-1.7b] [--yes]",
+        description: "`install` prints the pinned repo, commit, size and licence, then with --yes downloads that one file from Hugging Face, verifies its SHA-256 and refuses anything else. `status` reads and hashes the local file only, without contacting Hugging Face.",
+        example: None, safety: Safety::ChangesFiles, appears_in: None,
+        undo: Some("Delete the file under ~/.monitor-lizard/models/."),
+        tags: &["model", "llm", "download", "install", "sha256"],
+    },
+    Command {
         id: "sm-approve", topic: OWN_TOPIC, title: "Mark items as expected",
         command: "monitor-lizard approve <key>...",
         description: "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path>#<fingerprint> (as the dashboard sends it; a startup entry that is only the path matches any version of that item, and exists only if you wrote it by hand) or finding:<app key>:<rule>#<ports>.",
