@@ -1,6 +1,5 @@
 // ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
 // page can say how long it has taken and show the result the moment it lands. A failed read is retried with a growing pause.
-const ST_TRASH_WHY = 'Available after the removal route ships';
 let stTimer = 0, stSeq = 0, stFails = 0, stHistAt = 0;
 async function loadStorage(fresh) {
   if (S.view !== 'storage' || (document.hidden && !fresh)) return;
@@ -137,11 +136,16 @@ const stPart = (title, ...kids) => h('div', { class: 'insp-sec' }, h('h3', { cla
 const stRelated = () => stPart('Related', h('a', { href: writeHash({ view: 'performance',
   ex: { perfTab: 'disknet' } }) }, 'Disk throughput on Performance'));
 // Not a disabled attribute: that would take the button out of the tab order, and a keyboard user would never learn why.
-const stTrashButton = () => h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
-  h('button', { class: 'btn btn-danger quiet sm', type: 'button', 'aria-disabled': 'true',
-    'aria-describedby': 'st-trash-why',
-    onClick: (e) => e.preventDefault() }, 'Move to Trash'),
-  h('span', { class: 'small mut', id: 'st-trash-why' }, ST_TRASH_WHY));
+// `rows` are the selected rows; the button opens a preview and never moves anything itself.
+function stTrashButton(rows) {
+  const sel = trashSelection(rows || [], (rows || []).map((r) => r.id)), yours = sel.yours.length > 0;
+  const help = sel.ok ? 'Shows what would move first. Nothing moves until you confirm.' + (yours ? ' Your own folder asks for a second confirmation.' : '') : sel.why;
+  return h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
+    h('button', { class: 'btn btn-danger quiet sm', id: 'st-trash-btn', type: 'button', 'aria-disabled': sel.ok ? null : 'true',
+      'aria-describedby': 'st-trash-why', onClick: (e) => { if (!sel.ok) { e.preventDefault(); announce(sel.why); return; } openTrash(sel); } },
+    'Move to Trash'),
+    h('span', { class: 'small mut', id: 'st-trash-why' }, help));
+}
 function stItemFacts(sel) {
   const gone = sel.kind === 'pending', sparse = sel.apparent != null && sel.bytes != null && sel.apparent > sel.bytes;
   return stKv(['Path', sel.path], ['Size', sizeText(sel)],
@@ -166,9 +170,9 @@ function stItemInspector(sel) {
         'Close')),
     stItemFacts(sel), why,
     h('div', { style: 'display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap' }, copy,
-      gone || yours ? null : stTrashButton()),
+      gone ? null : stTrashButton([sel])),
     yours ? h('p', { class: 'small mut', style: 'margin:0;padding:0 16px 14px' },
-      'These are your own files, so no removal is offered.') : null,
+      'These are your own files. Moving them to the Trash asks for a second confirmation that names the folder.') : null,
     stRelated());
 }
 function stSectionExtra(t) {
@@ -340,7 +344,7 @@ function stMultiInspector(picked, total) {
       h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stMulti: [] }) }, 'Clear')),
     stKv(['Total', sumText(total)]),
     stPart('Folders', h('ul', { style: 'margin:0;padding:0;list-style:none;font-size:13px' }, picked.map((r) => h('li', { style: 'display:flex;gap:8px;justify-content:space-between;word-break:break-all' }, h('span', {}, r.name), h('span', { class: 'mut', style: 'flex:none' }, sizeText(r)))))),
-    h('div', { style: 'padding:0 16px 14px' }, stTrashButton()));
+    h('div', { style: 'padding:0 16px 14px' }, stTrashButton(picked)));
 }
 function storage() {
   const d = S.stData, now = Date.now() / 1000, state = storageState({ data: d, failed: S.stFailed && !S.stData });
@@ -359,6 +363,7 @@ function storage() {
   // A selection belongs to the filters it was made under: changing the section, label or search drops it.
   if (S.stMulti.length && S.stMultiSig !== stPickSig()) S.stMulti = [];
   const cleanList = stCleanups(rows), picked = sel ? [] : pickedRows(cleanList, S.stMulti);
+  if (S.trash && S.trash.phase !== 'idle') trashSync(sel ? [sel.id] : picked.map((r) => r.id));
   const filterText = (tile === ST_ALL ? 'All sections' : 'Section: ' + tile) + ', ' + (S.stfilter === ST_ALL ? 'all labels' : 'label ' + S.stfilter) + (S.q.trim() ? ', search "' + S.q.trim() + '"' : '');
   return pageShell({ title, subtitle: coverageText(d) + ', ' + measuredText(d.scanned_at, now), actions,
     filters: stFilterChips(labelCounts(found)),
@@ -368,3 +373,102 @@ function storage() {
     inspector: sel ? stItemInspector(sel) : picked.length ? stMultiInspector(picked, sumSizes(picked)) : stSectionInspector(d, state, rows, tiles, tile) });
 }
 
+// ---- Move to Trash: the dialog around the state machine in page-storage-logic.js (`storage-trash`).
+// The page sends ids, never paths, through api() (the per-run token header) and keeps no token in the address.
+function openTrash(sel) { trashDispatch({ type: 'open', selection: sel }); }
+function trashDispatch(ev) {
+  const r = trashStep(S.trash || trashIdle(), ev);
+  S.trash = r.state;
+  let focus = false;
+  for (const fx of r.fx) {
+    if (fx.do === 'announce') announce(fx.text);
+    else if (fx.do === 'preview' || fx.do === 'commit') trashRequest(fx);
+    else if (fx.do === 'rescan') loadStorage(true);
+    else if (fx.do === 'focus') focus = true;
+  }
+  render();
+  if (focus) { const t = $('st-trash-btn') || $('main'); if (t) t.focus(); }
+}
+async function trashRequest(fx) {
+  let status = 0, body = null;
+  try { const r = await api(trashUrl(fx), 'POST'); status = r.status; body = await r.json(); }
+  catch (e) { if (e && e.status) { status = e.status; try { body = JSON.parse(e.text); } catch (_) { body = null; } } else body = null; }
+  trashDispatch({ type: 'reply', seq: fx.seq, status, body });
+}
+// A rescan or the address can change what is selected while the dialog is open; the machine drops a stale preview.
+function trashSync(ids) {
+  const r = trashStep(S.trash, { type: 'selection', ids });
+  if (r.state === S.trash) return;
+  S.trash = r.state;
+  for (const fx of r.fx) if (fx.do === 'announce') announce(fx.text);
+}
+const trashClose = () => trashDispatch({ type: 'close' });
+// Tab stays inside the dialog: it wraps at both ends, and Shift+Tab from the heading goes to the last button.
+function trashKeys(e) {
+  if (e.key !== 'Tab') return;
+  const box = e.currentTarget, f = [...box.querySelectorAll('button:not([disabled]), a[href]')], a = document.activeElement;
+  if (!f.length) { e.preventDefault(); box.focus(); return; }
+  if (e.shiftKey && (a === f[0] || a === box || a.getAttribute('tabindex') === '-1' || !box.contains(a))) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && (a === f[f.length - 1] || !box.contains(a))) { e.preventDefault(); f[0].focus(); }
+}
+const TRASH_STATUS_TEXT = { would_move: 'Will move', moved: 'Moved', refused: 'Refused', failed: 'Failed', not_attempted: 'Not attempted' };
+function trashItemRow(i, sizeLabel) {
+  const why = i.status === 'would_move' || i.status === 'moved' ? '' : ': ' + (i.reason || i.code || 'no reason given');
+  return h('li', { class: 'tr-item', 'data-status': i.status },
+    h('div', { class: 'tr-name' }, h('span', { class: 'tr-path', title: i.path || i.name }, i.name), labelTag(i.label)),
+    h('div', { class: 'small tr-meta' }, h('strong', {}, TRASH_STATUS_TEXT[i.status] || 'Unknown'), why,
+      i.bytes == null ? '' : ', ' + formatBytes(i.bytes) + (sizeLabel || '')));
+}
+const trashCounts = (c) => ['moved', 'refused', 'failed', 'not_attempted'].map((k) => c[k] + ' ' + k.replace('_', ' ')).join(', ');
+function trashBody(t) {
+  const sum = t.summary, p = (text, cls) => h('p', { class: cls || '', style: 'margin:0;line-height:1.5' }, text);
+  const names = () => Object.values(t.known).map((i) => trashItemRow({ id: i.id, status: 'would_move', name: i.name, path: i.path, label: i.label, bytes: i.bytes, reason: null }));
+  if (t.phase === 'previewing') return [p('Checking ' + plural(t.ids.length, 'folder', 'folders') + ' with the server. Nothing moves yet.', 'mut'), h('ul', { class: 'tr-list' }, Object.values(t.known).map((i) => h('li', { class: 'tr-item' }, h('div', { class: 'tr-name' }, h('span', { class: 'tr-path', title: i.path }, i.name), labelTag(i.label)))))];
+  if (t.phase === 'moving') return [p('Moving ' + plural(t.ids.length, 'folder', 'folders') + ' to the Trash. This can take up to 45 seconds. It cannot be cancelled once it has started.', 'mut'), h('ul', { class: 'tr-list' }, names())];
+  if (t.phase === 'error') return [p(t.message.text), t.message.retry ? p('Preview again to start over; nothing is carried across.', 'small mut') : null];
+  if (t.phase === 'confirming-yours') {
+    return [p('This selection includes ' + plural(t.yours.length, 'folder', 'folders') + ' labelled YOURS, so it holds your own files, not a cache:'),
+      h('ul', { class: 'tr-list' }, t.yours.map((y) => h('li', { class: 'tr-item' }, h('div', { class: 'tr-name' }, h('strong', { class: 'tr-path', title: y.path }, homeRelative(y.path)), labelTag(y.label)), h('div', { class: 'small tr-meta' }, y.bytes == null ? 'size unknown' : formatBytes(y.bytes))))),
+      p('Move ' + t.yours.map((y) => '“' + y.name + '”').join(', ') + ' to the Trash? Anything that uses it may stop working until you put it back. Confirming asks the server for a new preview that includes it.', 'small')];
+  }
+  const done = t.phase === 'done', moved = done ? sum.items.filter((i) => i.status === 'moved') : [], rest = sum.items.filter((i) => i.status !== 'moved');
+  const lines = [p(trashHeadline(sum, !done), 'tr-head')];
+  if (done) lines.push(p(trashCounts(sum.counts), 'small mut'));
+  if (sum.auditError) lines.push(p('History could not be written: ' + sum.auditError, 'small'));
+  if (!done && sum.counts.refused) lines.push(p(plural(sum.counts.refused, 'item is', 'items are') + ' refused and stays where it is. The rest can still move.', 'small'));
+  if (!done && t.yours.length && !t.confirmYours) lines.push(p('Your own folder ' + t.yours.map((y) => '“' + y.name + '”').join(', ') + ' needs a separate confirmation on the next step.', 'small'));
+  lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per item' : 'What would move' }, [...moved, ...rest].map((i) => trashItemRow(i))));
+  lines.push(p(sum.note, 'small mut'));
+  if (done) {
+    lines.push(sum.historyId == null ? p('No History entry was reported for this request.', 'small mut')
+      : p('Logged as History entry ' + sum.historyId + '. ', 'small'));
+    lines.push(h('a', { class: 'small', href: writeHash({ view: 'history' }) }, 'Open History'));
+    lines.push(p('A fresh scan was requested so this page stops listing what moved. If the last scan was less than a minute ago the server reuses it, and the list can still show moved folders until you Rescan.', 'small mut'));
+  }
+  return lines;
+}
+function trashButtons(t) {
+  const sum = t.summary, cancel = (label) => h('button', { class: 'btn', type: 'button', onClick: trashClose }, label || 'Cancel');
+  if (t.phase === 'previewing') return [cancel()];
+  if (t.phase === 'moving') return [h('button', { class: 'btn', type: 'button', 'aria-disabled': 'true', onClick: (e) => e.preventDefault() }, 'Moving...')];
+  if (t.phase === 'error') return [cancel('Close'), t.message.retry ? h('button', { class: 'btn btn-acc', type: 'button', onClick: () => trashDispatch({ type: 'again' }) }, 'Preview again') : null];
+  if (t.phase === 'done') return [h('button', { class: 'btn btn-acc', type: 'button', onClick: trashClose }, 'Close')];
+  if (t.phase === 'confirming-yours') {
+    return [h('button', { class: 'btn', type: 'button', onClick: () => trashDispatch({ type: 'yours-back' }) }, 'Go back'),
+      h('button', { class: 'btn btn-danger', type: 'button', onClick: () => trashDispatch({ type: 'yours-yes' }) }, 'Include ' + t.yours.map((y) => '“' + y.name + '”').join(', ') + ' and preview again')];
+  }
+  const needsYours = t.yours.length > 0 && !t.confirmYours, can = needsYours || !!t.token;
+  return [cancel(), h('button', { class: 'btn btn-danger', type: 'button', disabled: can ? null : true, 'aria-describedby': can ? null : 'trash-desc', onClick: () => trashDispatch({ type: 'move' }) },
+    needsYours ? 'Continue' : can ? 'Move ' + plural(sum.counts.would_move, 'folder', 'folders') + ' to the Trash' : 'Nothing can be moved')];
+}
+function trashDialog() {
+  const t = S.trash;
+  if (!t || t.phase === 'idle') return null;
+  const title = { previewing: 'Checking before anything moves', previewed: 'Move to the Trash?', 'confirming-yours': 'Move your own folder to the Trash?',
+    moving: 'Moving to the Trash', done: 'Result', error: 'Could not finish' }[t.phase];
+  return h('div', { class: 'overlay' }, h('div', { class: 'modal trash-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'trash-title', 'aria-describedby': 'trash-desc',
+    'aria-busy': t.phase === 'previewing' || t.phase === 'moving' ? 'true' : null, tabindex: '-1', onKeydown: trashKeys },
+  h('h2', { id: 'trash-title', tabindex: '-1', 'data-autofocus': '' }, title),
+  h('div', { id: 'trash-desc', class: 'trash-body' }, trashBody(t)),
+  h('div', { class: 'trash-buttons' }, trashButtons(t))));
+}

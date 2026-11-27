@@ -49,9 +49,9 @@ The server contract is plan D15 (S3a follow-up); S3b must use it as follows:
 
 ## Steps
 
-- [ ] Write the preview state machine (idle, previewing, confirmed, done) as a pure function with tests first.
-- [ ] Wire the buttons and the token header.
-- [ ] Try the flow on a folder you created for the purpose.
+- [x] Write the preview state machine (idle, previewing, confirmed, done) as a pure function with tests first.
+- [x] Wire the buttons and the token header.
+- [ ] Try the flow on a folder you created for the purpose. Outstanding: the owner does this; see the Implementation Record.
 
 ## Edge cases (must be covered)
 
@@ -90,8 +90,33 @@ README safety paragraph; plan status.
 ## Definition of done
 
 - [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-27. Not done: the todo stays in `ongoing/` because its acceptance step, a real move of a throwaway folder, was deliberately not run by the agent.
+
+### Built
+
+- `storage-trash` block in `web/page-storage-logic.js`: the pure state machine (`trashStep`) and helpers, with 24 Node tests in `tests/web/storage-trash.test.mjs`, written before the dialog.
+- The dialog in `web/page-storage.js` (`trashDialog`), mounted from `web/shell.js`: focus moves to the heading, Tab wraps inside it, the page behind is `inert`, Escape and Cancel close it without a request (not while a move runs), and every transition goes to the announcer. Styles are in `web/app.css` with a forced-colors block.
+- `api()` in `web/data.js` now attaches `status` and `text` to the error it throws. Nothing else changed in how it works.
+- The Move to Trash button stays `aria-disabled` with helper text when nothing previewable is selected. It now also appears for a single `yours` folder (it used to say no removal is offered); that path asks for the second confirmation naming the folder.
+- Order for `yours`: preview, "Continue", a confirmation that names the folder, a new preview with `confirm_yours=1`, then the move with the same flag. The first token is dropped when the confirmation is given.
+- A Rescan is requested after a result. The server reuses a scan under a minute old, so the list can still show moved folders until a later Rescan; the dialog says so.
+
+### Deviations and limits
+
+- The History page does not list `trash_moves` yet, so "Open History" opens the page and the dialog shows the entry number.
+- `quiet()` (background polls) no longer redraws while the dialog is open, as it already did for the Stop dialog.
+- Agent testing never called `POST /api/trash` on a real server. The page ran against a scratch server (a scratch `HOME`) with `window.fetch` replaced in the console by scripted replies for: preview ok with a token, a yours preview with refusals, the yours re-preview carrying `confirm_yours=1`, commit ok (double click sent one commit), partial failure, 409 busy, expired token, network error, a 500 with a body, all items refused, and Tab and Escape handling. Dark and light were looked at; forced colors was not run in a browser.
+
+### Manual check for the owner (not run)
+
+1. Make a throwaway folder in your home, for example `~/Library/Caches/monitor-lizard-s3b-test` with a few small files, and Rescan on the Storage page.
+2. Select only that folder. Check the preview, then try Escape (nothing moves), reopen, and confirm. Check the result, that the folder is in the Trash, and that `GET /api/history` shows the same entry as the dialog.
+3. Repeat with a folder labelled yours (the confirmation must name it) only if you are happy to move one.

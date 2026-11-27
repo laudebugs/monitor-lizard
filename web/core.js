@@ -368,7 +368,7 @@ async function copyFlow(command, { write, show, byId, select }) {
 
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
-const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal) render(); };
+const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !(S.trash && S.trash.phase !== 'idle')) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
 const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
 const setTheme = (t) => { localStorage.setItem('monitor-lizard-theme', t); S.theme = t; applyTheme(); render(); };

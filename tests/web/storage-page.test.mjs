@@ -227,11 +227,11 @@ test('the tile ids the address accepts are the scanner sections plus all, other 
 });
 
 test('page wiring: removal is disabled with its reason, and the page never writes the address itself', () => {
-  const view = html.slice(html.indexOf('const ST_TRASH_WHY'), html.indexOf('const SAFETY_TAG'));
-  assert.match(view, /ST_TRASH_WHY = 'Available after the removal route ships'/);
-  assert.match(view, /'aria-disabled': 'true',\s*'aria-describedby': 'st-trash-why'/, 'focusable, with its reason wired in');
+  const view = html.slice(html.indexOf('const stRelated'), html.indexOf('const SAFETY_TAG'));
+  assert.match(view, /'aria-disabled': sel\.ok \? null : 'true',\s*'aria-describedby': 'st-trash-why'/, 'focusable, with its reason wired in');
   assert.doesNotMatch(view, /disabled: true/);
-  assert.match(view, /id: 'st-trash-why' \}, ST_TRASH_WHY/);
+  assert.match(view, /id: 'st-trash-why' \}, help/);
+  assert.match(view, /if \(!sel\.ok\) \{ e\.preventDefault\(\)/, 'an unavailable button opens nothing');
   assert.doesNotMatch(view, /location\.hash|pushState|replaceState/);
   assert.match(view, /writeHash\(\{ view: 'performance'/);
   const loader = html.slice(html.indexOf('async function loadStorage('), html.indexOf('function rescanNow'));

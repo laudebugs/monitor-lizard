@@ -370,3 +370,139 @@ function reportHtml({ d, rows, shownRows, system, generated, filterText }) {
     + '<table>' + head(['Folder', 'Section', 'Label', 'Size']) + shownRows.map(folderRow).join('') + '</table></body></html>';
 }
 /* storage-cleanups:end */
+/* storage-trash:begin */
+// The Move to Trash flow as a pure state machine. No DOM, network or storage access: `trashStep(state, event)` returns the
+// next state and the effects the page must run (a request, an announcement, a rescan), so every rule is tested here.
+// Phases: idle, previewing, previewed, confirming-yours, moving, done, error. The token lives only in `previewed` and
+// `confirming-yours`, with the ids it was issued for, and is dropped by every other transition.
+const TRASH_MAX_IDS = 50; // src/storage/trash.rs MAX_IDS
+const TRASH_ID = /^[0-9a-f]{16}$/i;
+const TRASH_PUT_BACK = 'Items go to your Trash, not to a permanent delete. Finder’s Put Back may not be offered for them; History keeps the original path of every item, so you can move one back by hand.';
+const trashKey = (ids) => [...new Set(ids)].sort().join(',');
+const trashIdle = () => ({ phase: 'idle', seq: 0 });
+// What the selected rows allow. `rows` are storageRows() items, whose labels already went through shownLabel, so a
+// label the page does not trust is never treated as safe here. `ids` empty or `ok: false` keeps the button inert.
+function trashSelection(rows, ids) {
+  const want = [...new Set(ids || [])], by = new Map((rows || []).map((r) => [r.id, r]));
+  const picked = want.map((id) => by.get(id)).filter((r) => r && r.kind === 'item');
+  const named = (r) => ({ id: r.id, name: r.name, path: r.path, label: r.label === ST_LABEL.safe || r.label === ST_LABEL.yours ? r.label : ST_LABEL.review, bytes: r.bytes == null ? null : r.bytes, lowerBound: !!r.lowerBound });
+  const items = picked.map(named), yours = items.filter((r) => r.label === ST_LABEL.yours);
+  let why = null;
+  if (!want.length) why = 'Select a folder first';
+  else if (picked.length !== want.length) why = 'A selected folder is not in the latest scan. Rescan first';
+  else if (picked.some((r) => !TRASH_ID.test(r.id))) why = 'This folder has no id from the scan, so it cannot be removed. Rescan first';
+  else if (picked.length > TRASH_MAX_IDS) why = 'At most ' + TRASH_MAX_IDS + ' folders at a time';
+  return { ok: why == null, why, ids: items.map((r) => r.id), items, yours };
+}
+const TRASH_STATUSES = ['would_move', 'moved', 'refused', 'failed', 'not_attempted'];
+const trashNum = (n) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
+// One reply read defensively. Counts come from the listed items, so the list and the numbers cannot disagree, and
+// only a `moved` status is ever counted as moved.
+function trashSummary(body, known) {
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const list = Array.isArray(b.items) ? b.items : [];
+  const items = list.filter((i) => i && typeof i === 'object').map((i) => {
+    const mine = known && known[i.id];
+    return { id: String(i.id), status: TRASH_STATUSES.includes(i.status) ? i.status : 'failed', code: typeof i.code === 'string' ? i.code : null,
+      reason: typeof i.reason === 'string' ? i.reason : null, bytes: trashNum(i.bytes), name: mine ? mine.name : homeRelative(typeof i.path === 'string' ? i.path : String(i.id)),
+      path: mine ? mine.path : typeof i.path === 'string' ? i.path : '', label: mine ? mine.label : ST_LABEL.review };
+  });
+  const counts = Object.fromEntries(TRASH_STATUSES.map((s) => [s, items.filter((i) => i.status === s).length]));
+  const sized = (s) => items.filter((i) => i.status === s);
+  const sum = (s) => ({ bytes: sized(s).reduce((n, i) => n + (i.bytes || 0), 0), unknown: sized(s).filter((i) => i.bytes == null).length });
+  return { items, counts, would: sum('would_move'), moved: sum('moved'), historyId: Number.isInteger(b.history_id) && b.history_id >= 0 ? b.history_id : null,
+    token: typeof b.confirm_token === 'string' && b.confirm_token ? b.confirm_token : null, dryRun: b.dry_run !== false, okFlag: b.ok === true,
+    note: typeof b.note === 'string' && b.note ? b.note : TRASH_PUT_BACK, auditError: typeof b.audit_error === 'string' && b.audit_error ? b.audit_error : null,
+    hasItems: items.length > 0 };
+}
+const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0).replace(/^unavailable$/, 'unknown size');
+// A refusal of the whole request: a plain sentence and the way forward. `moved` says whether a body listed anything moved.
+function trashProblem(status, code, committing) {
+  const again = ' Nothing was moved. Preview again to continue.';
+  const table = {
+    busy: 'Another removal is still running. Nothing was moved. Wait for it to finish, then preview again.',
+    confirmation_expired: 'The preview is older than 10 minutes and has expired.' + again,
+    confirmation_mismatch: 'The selection or the scan changed after the preview, so it no longer applies.' + again,
+    confirmation_invalid: 'The preview is no longer valid (it may already have been used).' + again,
+    confirmation_required: 'The server needs a preview of this exact selection first.' + again,
+    too_many_previews: 'Too many previews are waiting. Previews expire after 10 minutes. Wait a moment and preview again.',
+    unknown_id: 'A folder is not in the latest scan any more. Nothing was moved. Rescan, then select again.',
+    home_untrusted: 'The server does not trust this home folder, so it moves nothing. Nothing was moved.',
+    audit_unavailable: 'The server could not write the History entry, so it moved nothing. Nothing was moved. Preview again once History is available.',
+  };
+  if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(table, code)) return table[code];
+  if (status === 0) return committing ? 'The page could not read the server’s reply, so it cannot say whether anything moved. Nothing is shown as moved. Open History to check, then preview again.'
+    : 'The page could not reach the server. Nothing was moved. Preview again when the dashboard is running.';
+  if (status === 429) return table.too_many_previews;
+  if (status === 409) return 'The server could not use the preview (' + (code || 'conflict') + ').' + again;
+  return (committing ? 'The server reported an error (' + status + (code ? ', ' + code : '') + ') without saying what happened. Nothing is shown as moved. Open History to check, then preview again.'
+    : 'The server could not preview this selection (' + status + (code ? ', ' + code : '') + '). Nothing was moved.');
+}
+// A request the server calls malformed, or a scan that no longer matches, will not work on a blind second try.
+function trashRetryable(status, code) { return !['unknown_id', 'home_untrusted', 'bad_ids', 'bad_dry', 'bad_flag', 'repeated_parameter'].includes(code); }
+const trashUrl = (fx) => '/api/trash?ids=' + fx.ids.map(encodeURIComponent).join(',') + (fx.confirmYours ? '&confirm_yours=1' : '')
+  + (fx.token ? '&dry=0&confirm_token=' + encodeURIComponent(fx.token) : '&dry=1');
+const trashNeedsYours = (s) => s.yours.length > 0 && !s.confirmYours;
+function trashHeadline(sum, preview) {
+  const c = sum.counts, n = sum.items.length;
+  if (preview) return c.would_move ? plural(c.would_move, 'folder', 'folders') + ' would move to the Trash, ' + trashBytes(sum.would) + '.' : 'None of the ' + plural(n, 'folder', 'folders') + ' can be moved.';
+  if (c.moved === 0) return 'Nothing was moved' + (n ? ': ' + (c.refused === n ? (n === 1 ? 'the item was refused' : 'all ' + n + ' items were refused') : plural(c.failed + c.refused + c.not_attempted, 'item was', 'items were') + ' not moved') : '') + '.';
+  return 'Moved ' + c.moved + ' of ' + plural(n, 'item', 'items') + ' to the Trash, ' + trashBytes(sum.moved) + '.';
+}
+function trashStep(s, ev) {
+  const none = { state: s, fx: [] }, say = (text) => ({ do: 'announce', text });
+  const ask = (state, confirmYours) => ({ state: Object.assign({}, state, { phase: 'previewing', seq: s.seq + 1, confirmYours, token: null, summary: null, message: null }),
+    fx: [{ do: 'preview', seq: s.seq + 1, ids: state.ids, confirmYours }, say('Checking ' + plural(state.ids.length, 'folder', 'folders') + '. Nothing moves yet.')] });
+  const phase = s.phase;
+  switch (ev.type) {
+    case 'open': {
+      const sel = ev.selection;
+      if (phase !== 'idle' && phase !== 'done') return none;
+      if (!sel || !sel.ok) return { state: s, fx: [say((sel && sel.why) || 'Nothing to preview')] };
+      const known = Object.fromEntries(sel.items.map((i) => [i.id, i]));
+      return ask({ phase: 'previewing', seq: s.seq, ids: sel.ids, key: trashKey(sel.ids), known, yours: sel.yours }, false);
+    }
+    case 'reply': {
+      if ((phase !== 'previewing' && phase !== 'moving') || ev.seq !== s.seq) return none;
+      const committing = phase === 'moving', body = ev.body, sum = trashSummary(body, s.known), status = ev.status | 0;
+      const code = body && typeof body === 'object' && typeof body.code === 'string' ? body.code : null;
+      const readable = status === 200 && body && typeof body === 'object' && sum.hasItems;
+      // A 500 that still lists items says what moved, so it is shown as a result, never as a plain error.
+      const partial = committing && status >= 500 && sum.hasItems;
+      if (readable && !committing && sum.dryRun) {
+        const state = Object.assign({}, s, { phase: 'previewed', summary: sum, token: sum.token && sum.counts.would_move > 0 ? sum.token : null, message: null });
+        return { state, fx: [say(trashHeadline(sum, true) + (sum.counts.refused ? ' ' + plural(sum.counts.refused, 'item is', 'items are') + ' refused.' : ''))] };
+      }
+      if ((readable && (committing || !sum.dryRun)) || partial) {
+        const state = Object.assign({}, s, { phase: 'done', summary: sum, token: null, message: null });
+        return { state, fx: [say(trashHeadline(sum, false)), { do: 'rescan' }] };
+      }
+      const text = committing && status === 200 ? 'The server’s reply could not be read, so it cannot say whether anything moved. Nothing is shown as moved. Open History to check, then preview again.'
+        : trashProblem(status, code, committing);
+      return { state: Object.assign({}, s, { phase: 'error', token: null, summary: null, message: { text, retry: trashRetryable(status, code) } }), fx: [say(text)] };
+    }
+    case 'move': {
+      if (phase !== 'previewed') return none; // a second click while moving, or before a preview, does nothing
+      if (trashNeedsYours(s)) {
+        return { state: Object.assign({}, s, { phase: 'confirming-yours' }), fx: [say('Your own folder is selected. Confirm it separately.')] };
+      }
+      if (!s.token) return none;
+      return { state: Object.assign({}, s, { phase: 'moving', seq: s.seq + 1 }),
+        fx: [{ do: 'commit', seq: s.seq + 1, ids: s.ids, confirmYours: s.confirmYours, token: s.token }, say('Moving ' + plural(s.ids.length, 'folder', 'folders') + ' to the Trash.')] };
+    }
+    case 'yours-yes': return phase === 'confirming-yours' ? ask(s, true) : none;
+    case 'yours-back': return phase === 'confirming-yours' ? { state: Object.assign({}, s, { phase: 'previewed' }), fx: [] } : none;
+    case 'again': return phase === 'error' ? ask(s, false) : none;
+    case 'close': {
+      if (phase === 'idle') return none;
+      if (phase === 'moving') return { state: s, fx: [say('The move is running and cannot be cancelled. Wait for the result.')] };
+      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say(phase === 'done' ? 'Closed.' : 'Closed. Nothing was moved.')] };
+    }
+    case 'selection': {
+      if (!['previewing', 'previewed', 'confirming-yours', 'error'].includes(phase) || trashKey(ev.ids || []) === s.key) return none;
+      return { state: { phase: 'idle', seq: s.seq }, fx: [say('The selection changed, so the preview was cleared. Nothing was moved.')] };
+    }
+    default: return none;
+  }
+}
+/* storage-trash:end */

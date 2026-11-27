@@ -1,6 +1,6 @@
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'X-MonitorLizard-Token': TOKEN } });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { const text = await r.text(), e = new Error(text); e.status = r.status; e.text = text; throw e; } // the Trash flow reads the status and the body of a refusal
   return r;
 }
 async function load(fresh) {
