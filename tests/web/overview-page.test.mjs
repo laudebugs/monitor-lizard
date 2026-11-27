@@ -98,11 +98,18 @@ test('a feed time is a clock time today, a weekday this week and a date after th
 const cpu = (ts, v) => ({ ts, cpu: { total_pct: v == null ? { unavailable: 'x' } : { value: v } } });
 test('the CPU average covers the last five minutes and skips unreadable samples', () => {
   const samples = [cpu(100, 100), cpu(1000, 10), cpu(1100, null), cpu(1200, 30)];
-  assert.equal(P.cpuAverage(samples, 300), 20);
-  assert.equal(P.cpuAverage([], 300), null);
-  assert.equal(P.cpuAverage([cpu(5, null)], 300), null);
+  assert.equal(P.cpuAverage(samples, 300, 1210), 20);
+  assert.equal(P.cpuAverage([], 300, 1), null);
+  assert.equal(P.cpuAverage([cpu(5, null)], 300, 6), null);
 });
 test('decisions are sorted by severity and keep their order within a severity', () => {
   const list = [{ sev: 'low', n: 1 }, { sev: 'high', n: 2 }, { sev: 'medium', n: 3 }, { sev: 'high', n: 4 }];
   assert.deepEqual(P.bySeverity(list).map((x) => x.n), [2, 4, 3, 1]);
+});
+test('a CPU average from samples that stopped arriving is not shown', () => {
+  assert.equal(P.cpuAverage([cpu(1200, 30)], 300, 1500), null);
+});
+test('a feed time in the future reads as a clock time', () => {
+  const now = new Date(2026, 10, 27, 15, 0, 0).getTime() / 1000;
+  assert.equal(P.feedWhen(now + 3600, now), '16:00');
 });
