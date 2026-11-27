@@ -22,6 +22,7 @@ pub mod procusage;
 pub mod rules;
 pub mod sampler;
 pub mod query;
+pub mod requester_signal;
 pub mod server;
 pub mod settings;
 pub mod snapshot;

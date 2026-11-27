@@ -1,4 +1,4 @@
-use crate::{web, actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, trash_route, watcher, query::{self, urldecode}};
+use crate::{web, actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, requester_signal, sampler, settings, snapshot, storage, trash_route, watcher, query::{self, urldecode}};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -95,6 +95,7 @@ pub fn serve_on(server: Arc<Server>) {
     }
     let storage_cache: Arc<storage::Cache> = Default::default();
     let confirmations: Arc<trash_route::ConfirmTokens> = Default::default();
+    let signal_confirmations: trash_route::ConfirmTokens = Default::default();
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
@@ -241,6 +242,10 @@ pub fn serve_on(server: Arc<Server>) {
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
             }
+            // Preview and confirm, like /api/trash: nothing is signalled without a token from a preview of the same items.
+            (Method::Post, "/api/requester/signal") if write_ok => { let (code, body) = requester_signal::serve_reply(query, &signal_confirmations); json_resp(body).with_status_code(code) }
+            // Command lines of other processes: the token is required even for this read (the module decides).
+            (Method::Get, "/api/requester/status") => { let (code, body) = requester_signal::serve_status(write_ok, query); json_resp(body).with_status_code(code) }
             (Method::Post, _) => forbidden(),
             (Method::Get, "/fonts/IBMPlexSans-Regular.woff2") => Response::from_data(FONT_REGULAR).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexSans-Medium.woff2") => Response::from_data(FONT_MEDIUM).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),

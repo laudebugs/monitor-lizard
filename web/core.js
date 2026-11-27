@@ -112,7 +112,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, procRows: null, procFailed: false, procSort: 'cpu', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, privOk: false, persOk: false, histOk: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, procRows: null, procFailed: false, procSort: 'cpu', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, reqLive: {}, sig: undefined, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -368,7 +368,7 @@ async function copyFlow(command, { write, show, byId, select }) {
 
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
-const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !trashOpen()) render(); };
+const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !trashOpen() && !sigOpen()) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
 const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
 const setTheme = (t) => { localStorage.setItem('monitor-lizard-theme', t); S.theme = t; applyTheme(); render(); };

@@ -1,0 +1,155 @@
+# P2: Freeze, resume or stop the process that requested sudo
+
+| Field | Value |
+|---|---|
+| ID | `P2` |
+| Status | `done` |
+| Plan | [system-monitor](../../plans/system-monitor.md), section 2 (`src/privilege.rs`, `src/watcher.rs`) and D3 (writes are guarded) |
+| Depends on | P1 |
+| ADRs | None |
+| Branch | `feat/p2-freeze-requester` |
+| PR title | `feat(privilege): freeze or stop the process that requested sudo` |
+| Size | L (over 400), kept as one PR because the route, the dialogs and the audit share one contract |
+| PR | [#75](https://github.com/laudebugs/monitor-lizard/pull/75) |
+
+## Goal
+
+P1 shows every process between the person and `sudo`. The owner asked to act on what they see: pause a runaway script that keeps asking for sudo, resume it, or stop it. For each hop of a requester chain, offer Freeze (SIGSTOP), Resume (SIGCONT), Stop (SIGTERM) and Force stop (SIGKILL), on that one process and on the whole chain from that hop down to the process that ran `sudo`. The dialog says plainly what the action does to that process, and asks twice when the process is the owner's own session (a shell, `login`, the terminal app, `claude`).
+
+## Context
+
+- P1 (done): the requester detail on the Privilege page; `Hop` carries pid, executable, command, start time, terminal and working directory.
+- Stop flow (`/api/kill`, `actions::check`): re-reads the start time before signalling.
+- `src/trash_route.rs`: the model for preview, single-use confirmation token and audit before action.
+- `SECURITY.md`: the signal guarantees (own user only, never launchd or itself) that this route must keep.
+
+## Scope
+
+**In scope:**
+
+- `POST /api/requester/signal` (preview and commit) and `GET /api/requester/status` (what the page shows: frozen, exited, reused, children).
+- A pure server module that verifies every pid against the captured hop immediately before signalling, with fakes in the tests.
+- Audit rows in the existing `actions` table (signal names STOP, CONT, TERM, KILL), written before any signal.
+- Dialogs: severity (danger, caution, plain), second confirmation for danger, whole-chain list, focus trap, announcer, Escape, one request per double click.
+- A Frozen badge and the exited / reused / already-frozen availability states.
+
+**Out of scope:**
+
+- Signalling anything that is not a hop of a captured chain. A chain is a hop plus every hop closer to the process that ran `sudo`; side branches are listed, never signalled.
+- Unfreezing on exit or any timer: a frozen process stays frozen until the person resumes it.
+- Endpoint Security, or acting on processes before they are captured.
+
+## Target files
+
+| File | Change |
+|---|---|
+| `src/requester_signal.rs` | (new) verification, ordering, confirmation, audit, reply |
+| `src/server.rs`, `src/lib.rs`, `src/watcher.rs` | Route wiring; a public start-time read for a hop |
+| `tests/fixtures/danger-hops.json` | (new) the danger lists and cases, checked by the Rust and Node tests |
+| `web/page-signal.js` | (new) severity classifier, dialog state machine, dialog view |
+| `web/page-privilege.js`, `web/index.html`, `web/app.css`, `src/web.rs` | Hop buttons, badge, script tag, styles |
+| `tests/web/signal.test.mjs`, `tests/web/signal-view.test.mjs` | (new) |
+| `docs/agents/layout.md`, `README.md`, `SECURITY.md`, `docs/plans/system-monitor.md` | Updated |
+
+## Steps
+
+- [x] Tests first: Rust unit tests with fake and real `sleep` children; Node tests for the state machine and classifier.
+- [x] Server module, then the route.
+- [x] Page: buttons, dialogs, polling of the status.
+- [x] Look at the dialog states in Chrome in both themes on a scratch server (scripted replies).
+
+## Edge cases (must be covered)
+
+| Input | Expected |
+|---|---|
+| Process already exited | Buttons disabled: "Already exited, nothing to freeze" (code `gone`) |
+| Pid now belongs to another process (start time or executable differs) | Refused: "This pid now belongs to a different process" (`pid_reused`) |
+| Already frozen | Frozen badge, Resume offered, a second freeze refused (`already_frozen`) |
+| Root-owned or another user's process | Refused (`root_owned`, `not_yours`) |
+| launchd, Monitor Lizard, its parents or its children | Refused (`launchd`, `monitor_lizard`) |
+| Stop sent to a frozen process | SIGTERM then SIGCONT, so the TERM is delivered |
+| Audit row cannot be written | Nothing is signalled (`audit_unavailable`) |
+| Token reused, expired, or for another selection | Refused (`confirmation_*`) |
+| More than 12 pids | Refused (`too_many_items`) |
+| Chain | Freeze and resume run parent first, stop and force stop child first |
+| Stopped by ^Z or a debugger, not by this app | Never continued: `not_frozen_by_us`; force stop still works |
+| Items that are not parent and child | `not_a_chain` |
+| Your own session (shell, login, terminal, Claude) | `needs_danger_confirmation` unless `confirm_danger=1` on preview and commit |
+| Table of Monitor Lizard's own tree cannot be built | Every signal refused (`unverifiable`) |
+| Status route without the token | 403, and no children listed for a refused process |
+
+## Acceptance criteria
+
+- Each hop of a requester detail offers the four actions on one process and on the chain, with the availability states above.
+- The dialogs name the full command line, grade it danger, caution or plain, and ask twice for danger.
+- Nothing is signalled without a preview token, an audit row and a fresh check of every pid.
+
+## Tests
+
+Rust: parse, verification refusals (fakes), ordering, token binding, audit-before-act, real freeze, resume and stop on `sleep` processes the test starts. Node: severity classifier and dialog state machine; dialog view against a stand-in DOM.
+
+## Verification
+
+```sh
+make check
+make test
+make check-docs
+```
+
+## Docs to update
+
+`docs/agents/layout.md`, `README.md`, `SECURITY.md`, `docs/plans/system-monitor.md`.
+
+## Risks and open questions
+
+- A frozen shell or terminal hangs the owner's session until it is resumed from another place; the danger dialog says so.
+- A start-time check closes pid reuse but not a swap in the instant between the check and the signal.
+
+## Definition of done
+
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
+- [x] `/code-review` run per `AGENTS.md`: two independent reviews of PR #75 (standards and spec) were run by the coordinator after the first commit; each finding and its fix is in the second commit's message. A review of that second commit has not been run.
+- [x] `/writing-review` run on the dialog strings and docs, in both rounds
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-27.
+
+**Built**
+
+- `src/requester_signal.rs`: `POST /api/requester/signal` (preview, single-use token, audit first) and `GET /api/requester/status`. `tests/fixtures/danger-hops.json` holds the danger lists that Rust and the page both check.
+- Chain reading: "a hop plus every hop closer to the process that ran `sudo`". Other children of those processes are listed in the dialog and never signalled. At most 12 pids per request.
+- Every pid is verified three times: at preview, before the audit rows, and right before its own signal (start time, executable, uid, state, parent from one `proc_pidinfo` call; not launchd, not Monitor Lizard or its parents and descendants).
+- Stop on a frozen process sends TERM then CONT; each signal that will be sent has its own audit row (STOP, CONT, TERM, KILL), all written before the first signal.
+- After review round 1: CONT only goes to a process the audit log shows this app froze (`not_frozen_by_us` otherwise; force stop still works); `scope=chain` checks parent and child links (`not_a_chain`; the check just before a signal accepts a child that is already gone, because stop goes child first); the table of Monitor Lizard's own tree fails closed (`unverifiable`); one signalling request at a time (`busy`); the binding is length-prefixed; the status route needs the token and lists children only for fully verified processes, with one `ps` per request.
+- Danger is now checked by the server, as a deliberate second step and not an authorisation boundary (anything holding the token can send the flag): a hop that is a shell, `login`, `su`, `ssh`, a multiplexer, a terminal or editor app, or `claude` (also `claude` run by an interpreter; see round 3 for the wider rule) needs `confirm_danger=1` on preview and commit, bound into the token. The page sends it after the second confirmation, then sends the real request from that flagged preview. What only the page does: the warning text and the caution level for scripts and for processes with children; a hop whose children are not yet known is caution until the first live status.
+- The page: buttons per hop and for the chain below it, a Frozen badge (and "Stopped by something else"), disabled states with the reason beside them, and the dialogs.
+
+**Tests:** Rust `requester_signal` 30 tests (fakes for every refusal; real detached `sleep` and `sh` processes that the tests start themselves and kill in drop guards; a real parent-first freeze and child-first stop). Whole crate 477 passed, four ignored, five consecutive runs stable after one flake (a child-first stop failed its own chain check; fixed). Node: 36 tests in `signal.test.mjs` and `signal-view.test.mjs`; 350 web tests in all.
+
+**Browser:** Chrome, scratch HOME, scripted `fetch` replies only (no real process signalled), light and dark, window not resized. Seen in round 2: the chain dialog, the second confirmation, the flagged preview then one real request despite a double click, the result list, and the "Stopped by something else" hop.
+
+**Not verified:** forced colors; a screen reader; a narrow window; a full keyboard walk-through in a browser; a real sudo chain end to end; the dialog's error and refused-preview states by eye (Node tests only); the second confirmation against a real shell (tests use fakes and detached shells the tests start).
+
+**Open:** the start time compares whole seconds (that is what the collector records); a process swapped in the instant between the last check and the signal remains a race. The page's `reqLive` is polled every five seconds, so a button can be stale until the next poll; the server re-checks anyway.
+
+**Process note:** my first `make test` ran with the real `HOME` by mistake, before I set a scratch one. The tests use temporary directories, but it is unconfirmed whether any of them touched `~/.monitor-lizard`. Every later run used a scratch `HOME`.
+
+### Review round 2 (commit 031dd6c), fixed in the third commit
+
+Round 2 verified the eight round-1 fixes in code and left two medium and four low findings.
+
+1. **Medium, a planned audit row was read as a real signal.** A late refusal or a failed send left a row for a signal that never went, and `froze_by_log` took it as truth, so a later Resume could say `not_frozen_by_us`, and a STOP row for a pid never stopped made a later ^Z count as ours. Fix: every planned signal that is not sent gets a compensating `unsent <SIGNAL>` row with the pids it did not reach (a failed TERM and its CONT, a late refusal, a state change since planning); `froze_by_log` skips the planned row each one cancels. Tests: late refusal after planning, a failed STOP, a failed TERM on a frozen process, and a ^Z of a never-frozen pid.
+2. **Medium, the danger classifier failed open.** It missed a native Claude Code install (`.../claude/versions/<version>`; I read the layout of the installed copy: `~/.local/bin/claude` is a link to `~/.local/share/claude/versions/<version>`, next to a `ClaudeCode.app`), `node /x/claude.js`, many terminals, IDEs and launchers, and passed silently when the command could not be read. Fix: the rule now looks at the file name of the executable and of argv0, every `.app` folder on either path, every folder or word named `claude`, `claude-code` or `claude.*`, and treats an interpreter with no readable command line, or an unknown executable, as your own session. The lists grew (Tabby, Rio, Windsurf, Sublime Text, Nova, Xcode, the JetBrains IDEs, `npx`, `tsx`, `electron`, `ClaudeCode.app` and others) in `tests/fixtures/danger-hops.json`, which Rust and the page both test, case by case.
+3. **Low, wording.** SECURITY.md and README no longer call the flag server-enforced: the server refuses without an explicit confirm flag, a deliberate second step and not an authorisation boundary.
+4. **Low, `ps` before the 403.** The status route built the real world before checking the token. The token is now checked first, then the world is built. SECURITY.md now says a request runs `ps` at most twice (the table of Monitor Lizard's own tree, and one table of command lines and children that also serves the danger check).
+5. **Low, a gone child.** A chain with an exited process now says `chain_exited` ("A process below it in this chain has exited ... use one process at a time") instead of a misleading `not_a_chain`. The status route reports a `chain_code` per item, and the page turns the chain buttons off the same way a preview would refuse them.
+6. **Low, scope creep.** The two other todos (S3b and T2) came into the branch from the merge of `main`; after the merge the PR diff against `main` contains no edit to them. Nothing to revert.
+7. **Also.** A flagged re-preview no longer sends silently: if its result differs from the first preview (items, levels, states, children), the dialog shows it with a note and asks again. The flagged preview names the token it supersedes (`replaces=`), and the server uses that token up, so a danger flow leaves no unused token.
+
+**Tests after round 3:** Rust `requester_signal` 38 tests; crate 485 passed, 4 ignored, three runs in a row stable. Node 352 web tests, of which 38 are `signal` and `signal-view`. The Chrome check (scripted replies, no real process, light and dark, window not resized) saw the changed-preview note with no request sent for it, the next click sending the flagged request once, and the chain buttons off below an exited process. It also showed one defect, fixed after: the note about the change stayed on the result dialog.
+
+**Still not verified:** forced colors; a screen reader; a narrow window; a keyboard walk-through in a browser; a real sudo chain end to end; the danger classifier against a real native Claude Code process (only the path layout was read, the program was not run); the result and error states after the last fix by eye; a review of the third commit.
