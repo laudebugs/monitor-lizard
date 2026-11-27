@@ -52,7 +52,7 @@ Replace the pixel lizard with the owner's chosen logo, concept D ("Pulse and tai
 - [x] Redraw the three sources; regenerate through `scripts/make-icons.sh`.
 - [x] Replace the sidebar logo.
 - [x] Look at the favicon and the sidebar mark in a real browser, in both themes.
-- [ ] Look at the Dock icon and the menu bar (light and dark) on a real screen.
+- [ ] Look at the Dock icon and the menu bar (light and dark) on a real screen: pending.
 
 ## Edge cases (must be covered)
 
@@ -104,4 +104,27 @@ make check-docs
 
 ## Implementation Record
 
-To be written when the checks are finished.
+2026-11-27.
+
+**Geometry change.** The mark failed at 16 px in one place. The tail was `M34 38 H56 V26 H46 V30`. Its last segment ended 4 units below the stroke above it, which is 1 px at 16 px, so the curl closed into a solid blob. The tail is now `M34 38 H56 V26 H46`: the hook segment is dropped and nothing else moved. The pulse (`M4 38 H14 L20 18 L28 54 L34 38`), the stroke width of 6, the square caps and the miter joins are as drawn. One geometry is used at every size, so the sidebar, the tray and the Dock icon match the favicon. Thickening the strokes was not tried: it would have closed the gap further.
+
+**Framing.** The mitered tips make the drawing 58 units wide and about 58.4 high, from y 6.1 to 64.5. The bottom tip leaves the 64 by 64 canvas by half a unit. `mark.svg`, `tray.svg` and the sidebar logo therefore use `viewBox="0 5 60 60"`, which holds the whole mark.
+
+**Files.**
+
+- `icon.svg` keeps the L1 construction: a 824 px rounded square at (100, 100) with a corner radius of 185, a vertical gradient from #12231c to #0b1410, and a faint inner outline. The mark is scaled 9.5 times, so it is about 551 px wide (67% of the ground), and its bounding box is centred on the canvas.
+- `mark.svg` draws the pulse in #4fd18b and the tail in #b8f2d2, and switches to #17803f and #0f5f2c under `prefers-color-scheme: light`.
+- `tray.svg` draws both strokes in black.
+- `scripts/make-icons.sh` no longer calls `cargo tauri icon`, whose `.icns` differed on every run. It renders the iconset sizes with `inkscape` and builds the `.icns` with `iconutil`. Two runs in a row gave identical files (SHA-1 compared for all six images and `web/index.html`). Its outputs are the same set of files as before, at the same sizes.
+- The sidebar logo uses `currentColor` for the pulse and `var(--logo-accent, var(--acc))` for the tail.
+
+**Before and after.** Before, a 12 by 12 grid of violet and mint cells formed a lizard on a violet squircle; at 16 px it was a stub with two notches, and the sidebar showed a branching path. After, a green zigzag with a pale tail sits on a near-black green squircle. At 16 px the zigzag and the squared tail are both visible. The tray image is a single black line. The sidebar mark is one violet line today, because `--logo-accent` is not set yet.
+
+**What I looked at.** I looked at renders of the app icon at 1024, 512, 128, 32 and 16 px; the favicon at 16, 32 and 128 px on a dark and a light ground; and the tray image at 18, 22, 36 and 44 px in black on a light ground and in white on a dark one (the macOS template rule draws it white on a dark bar). In a real browser, served from a scratch HOME, I looked at the sidebar logo in the dark and light themes and confirmed that `--logo-accent` recolours the tail. I also drew the favicon data URI as an image on both grounds. `make check`, `make test` (492 Rust tests and the Node tests) and `make check-docs` passed.
+
+**Known flaws.**
+
+- Where the tail starts, its square cap sticks out 3 units behind the join and shows as a small pale notch beside the pulse's last stroke. Painting the pulse on top moves the flaw to a green speck above the tail, so the drawing as specified stays. The owner may want to move the start of the tail.
+- At 16 px the app icon's tail is faint against the ground. The favicon is the better small-size drawing.
+
+**Not verified.** The Dock icon, the menu bar in light and dark, and the favicon in a real tab: the browser extension swaps in its own tab icon, so the tab strip could not be seen. The favicon under a dark OS setting was checked only as a render with the dark colours, because the browser here was in light mode. No `cargo tauri build` was run, so the `.icns` was not seen inside a built `.app`.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="900" height="520"><rect width="900" height="520" fill="#777"/>
+<image x="10" y="10" width="500" height="500" xlink:href="/icon.png"/>
+<image x="530" y="10" width="128" height="128" xlink:href="i128.png"/>
+<image x="680" y="10" width="128" height="128" xlink:href="i32.png" style="image-rendering:pixelated"/>
+<image x="530" y="160" width="128" height="128" xlink:href="i16.png" style="image-rendering:pixelated"/>
+<image x="680" y="160" width="128" height="128" xlink:href="/tray.png" style="image-rendering:pixelated"/>
+<image x="530" y="320" width="32" height="32" xlink:href="i32.png"/><image x="580" y="320" width="16" height="16" xlink:href="i16.png"/>
+</svg>
