@@ -178,3 +178,4 @@ cargo run --release -- serve   # visit every page in both themes
 - `--warn` moved to `#f6c565`, `--bad` to `#ff8f7e`, and `--bg` and `--panel` to the canvas values.
 - The repo has no JavaScript test harness, so no new test was added.
 - Sidebar groups and the test that every `NAV` entry has a group belong to the page-shell todo, as this todo's Scope says.
+- The forced-colors and reduced-motion checks moved to T1c; its result is in [T1c](T1c-check-forced-colors-and-reduced-motion.md).
