@@ -28,3 +28,4 @@ pub mod snapshot;
 pub mod storage;
 pub mod trash_route;
 pub mod watcher;
+pub mod web;

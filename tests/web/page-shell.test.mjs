@@ -1,13 +1,12 @@
-// Logic tests for the page shell in web/index.html: sidebar groups and counts, the verdict sentence that titles
+// Logic tests for the page shell in the dashboard scripts (web/*.js): sidebar groups and counts, the verdict sentence that titles
 // each page, relative time and the export note. Like the other web tests, they lift marked blocks out of the page
 // and run them on their own, so those blocks stay free of DOM and storage access. Layout is checked by hand in a
 // browser.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
-const block = (name) => { const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/')); assert.ok(m, name + ' block not found in web/index.html'); return m[1]; };
+import { html } from './page.mjs';
+const block = (name) => { const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/')); assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)'); return m[1]; };
 // page-shell reads TITLES, which the url-state block defines.
 const P = new Function(block('url-state') + block('page-shell') + '\nreturn { TITLES, NAV, NAV_GROUPS, countText, plural, navBadges, verdictTitle, relTime, countReview, titleReady, TITLE_NEEDS, relatedLinks, writeHash, parseHash };')();
 const X = new Function(block('export') + '\nreturn { exportNote, csvCell };')();

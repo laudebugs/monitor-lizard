@@ -1,13 +1,12 @@
 // Pure logic for the Storage page's clean-ups, Inside System Data and exported report. The test lifts the
-// `storage-cleanups` block out of web/index.html with the blocks it reads.
+// `storage-cleanups` block out of the dashboard scripts (web/*.js) with the blocks it reads.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const block = (name) => {
   const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/'));
-  assert.ok(m, name + ' block not found in web/index.html');
+  assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)');
   return m[1];
 };
 const names = 'stCleanups cleanupView safeIds sumSizes sumText pickedRows cleanupSummary safeCleanupLine systemData systemText stSectionReading escHtml reportHtml storageRows ST_RULE_TEXT ST_CLEANUP_TOP safeSubtotalText visibleText homeRelative'.split(' ');

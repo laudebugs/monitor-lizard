@@ -1,12 +1,11 @@
 // Pure logic for the Stop/Quit confirm dialog. The test lifts the `actions` block out of
-// web/index.html, so the block must stay free of DOM and fetch access.
+// the dashboard scripts (web/*.js), so the block must stay free of DOM and fetch access.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* actions:begin \*\/([\s\S]*?)\/\* actions:end \*\//);
-assert.ok(m, 'actions block not found in web/index.html');
+assert.ok(m, 'actions block not found in the dashboard scripts (web/*.js)');
 const { confirmable, evidenceLine, justStoppedRows } = new Function(m[1] + '\nreturn { confirmable, evidenceLine, justStoppedRows };')();
 
 test('a pid with a confirmed start time is kept', () => {

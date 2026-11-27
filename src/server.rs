@@ -1,9 +1,8 @@
-use crate::{actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, trash_route, watcher, query::{self, urldecode}};
+use crate::{web, actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, trash_route, watcher, query::{self, urldecode}};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
 
-const PAGE: &str = include_str!("../web/index.html");
 // Bundled so the UI's type pairing works with nothing installed (ADR 0002: still no network request).
 // IBM Plex Sans, SIL Open Font License 1.1 (web/fonts/OFL.txt), subsetted to basic Latin plus common
 // punctuation; two static weights instantiated from the upstream variable font.
@@ -69,7 +68,7 @@ pub fn serve_on(server: Arc<Server>) {
     let addr = bound.map(|a| a.to_string()).unwrap_or_default();
     let port = bound.map(|a| a.port()).unwrap_or(0);
     let secret = token();
-    let page = PAGE.replace("__TOKEN__", &secret);
+    let web_files = web::files(&secret);
     let (snap, privs, pers): (Cache, Cache, Cache) = (Default::default(), Default::default(), Default::default());
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || {
@@ -249,7 +248,8 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/fonts/IBMPlexMono-Regular.woff2") => Response::from_data(MONO_REGULAR).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexMono-Medium.woff2") => Response::from_data(MONO_MEDIUM).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexMono-SemiBold.woff2") => Response::from_data(MONO_SEMIBOLD).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
-            (Method::Get, "/") => Response::from_string(page.clone()).with_header(Header::from_bytes("content-type", "text/html; charset=utf-8").unwrap()).boxed(),
+            // Last, so no /api path ever reaches the file lookup.
+            (Method::Get, _) => web::reply(&web_files, &hosts, hdr("Host").as_deref(), hdr("Sec-Fetch-Site").as_deref(), path),
             _ => Response::from_string("not found").with_status_code(404).boxed(),
         };
         let _ = req.respond(res);
@@ -272,7 +272,7 @@ fn write_allowed(origins: &[String], origin: Option<&str>, secret: &str, token: 
 }
 
 /// The DNS-rebinding guard: the Host header must be exactly one of the addresses this server listens on.
-fn host_allowed(hosts: &[String], header: Option<&str>) -> bool { header.is_some_and(|h| hosts.iter().any(|x| x == h)) }
+pub(crate) fn host_allowed(hosts: &[String], header: Option<&str>) -> bool { header.is_some_and(|h| hosts.iter().any(|x| x == h)) }
 
 /// The outcome of a mark or unmark request that passed validation.
 struct Change { kind: Kind, key: String, mark: bool, changed: bool }
@@ -329,19 +329,6 @@ mod tests {
         assert_eq!(apply_change("kind=host&key=nopipe", true).err().map(|e| e.0), Some(400));
         assert_eq!(apply_change("kind=app&key=", true).err().map(|e| e.0), Some(400));
         assert_eq!(apply_change("kind=finding&key=%2FA.app%3Aunsigned-network%23x", true).err().map(|e| e.0), Some(400));
-    }
-
-    /// A data: URI in an attribute may not contain a raw double quote or angle bracket: the first quote
-    /// ends the attribute and the rest of the SVG is parsed as page markup, leaving stray text on screen.
-    #[test]
-    fn favicon_href_stays_inside_its_attribute() {
-        let at = PAGE.find("rel=\"icon\"").expect("icon link");
-        let after_href = PAGE[at..].split_once("href=\"").expect("href attribute").1;
-        let value = after_href.split('"').next().unwrap();
-        assert!(value.starts_with("data:image/svg+xml,"), "value: {value}");
-        assert!(!value.contains('<') && !value.contains('>'), "raw angle bracket in href: {value}");
-        assert!(value.ends_with("%3C/svg%3E"), "href was cut short: {value}");
-        assert!(after_href[value.len()..].starts_with("\">"), "attribute does not close the tag");
     }
 
     #[test]

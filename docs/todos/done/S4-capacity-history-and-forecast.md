@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `S4` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D6 |
 | Depends on | S1 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/s4-capacity-history-and-forecast` |
 | PR title | `feat(storage): keep daily capacity history and forecast when the disk fills` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#57](https://github.com/laudebugs/monitor-lizard/pull/57) |
 
 ## Goal
 

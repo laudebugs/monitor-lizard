@@ -1,14 +1,13 @@
-// Logic tests for table export, the column chooser and the per-row copy in web/index.html. Like the
+// Logic tests for table export, the column chooser and the per-row copy in the dashboard scripts (web/*.js). Like the
 // URL-state tests, they lift the block between the `export` markers out of the page and run it on
 // its own, so that block must stay free of DOM and storage access. Downloads, the menu and layout
 // are checked by hand in a browser.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
+import { html } from './page.mjs';
 const m = html.match(/\/\* export:begin \*\/([\s\S]*?)\/\* export:end \*\//);
-assert.ok(m, 'export block not found in web/index.html');
+assert.ok(m, 'export block not found in the dashboard scripts (web/*.js)');
 const X = new Function(m[1] + '\nreturn { csvCell, toCsv, toJson, rowObject, colId, hiddenFrom, visibleCols, toggleHidden, fileName, tableAligned, pruneTables };')();
 
 const col = (id, get, extra) => Object.assign({ id, label: id.toUpperCase(), get: get || ((r) => r[id]) }, extra);
