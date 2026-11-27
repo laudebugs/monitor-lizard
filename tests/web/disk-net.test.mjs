@@ -24,6 +24,8 @@ test('purgeable unavailable: the bar has used and free only, with a note that sa
   assert.deepEqual(r.segments.map((s) => s.pct), [40, 60]);
   assert.match(r.note, /used and free only/);
   assert.match(r.note, /volume capacity keys unreadable/);
+  assert.match(r.note, /Used includes purgeable space\./, 'the note is two sentences, not a semicolon clause');
+  assert.ok(!r.note.includes(';'));
 });
 
 test('a purgeable value of zero is a real value and stays as a segment', () => {

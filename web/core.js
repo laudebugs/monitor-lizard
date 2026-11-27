@@ -26,7 +26,7 @@ function capacitySegments(args) {
   const shares = parts.map(([, bytes]) => (total > 0 ? bytes / total * 100 : 0));
   const shown = total > 0 ? wholePercents(shares) : shares;
   const segments = parts.map(([key, bytes], i) => ({ key, bytes, pct: shares[i], shown: shown[i] }));
-  return { segments, total, note: purgeable == null ? 'Purgeable space could not be read (' + (unavailable || DISK_REASON_UNKNOWN) + '), so the bar shows used and free only; used includes any purgeable space.' : null };
+  return { segments, total, note: purgeable == null ? 'Purgeable space could not be read (' + (unavailable || DISK_REASON_UNKNOWN) + '), so the bar shows used and free only. Used includes purgeable space.' : null };
 }
 // Where the capacity card is: the first read has not come back (loading), the last read failed (failed), or there is data.
 const capacityStatus = ({ volume, failed }) => (failed ? 'failed' : volume ? 'ok' : 'loading');

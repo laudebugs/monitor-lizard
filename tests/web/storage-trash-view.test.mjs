@@ -253,10 +253,10 @@ test('the result: the rescan advice sits above the History link, failed folders 
   const sum = w.P.trashSummary({ ok: false, dry_run: false, history_id: 9, items: [item(1, 'moved'), item(2, 'failed', { reason: 'busy', bytes: null }), item(4, 'not_attempted', { bytes: null })] }, {});
   w.S.trash = { phase: 'done', seq: 3, ids: [hex(1)], yours: [], known: {}, confirmYours: false, summary: sum };
   const dlg = w.P.trashDialog(), all = dlg.allText();
-  assert.ok(all.indexOf('Moved folders may stay listed for up to a minute. Wait, then press Rescan.') > -1);
+  assert.ok(all.indexOf('Moved folders may stay listed for up to a minute. Wait a minute, then press Rescan.') > -1);
   assert.ok(all.indexOf('Moved folders may stay listed') < all.indexOf('Open History'));
   assert.ok(!all.includes('The page asked for a fresh scan'));
-  assert.ok(all.includes('Check your Trash for the failed and not attempted folders.'));
+  assert.ok(all.includes('Check your Trash for folders that failed or were not attempted.'));
   assert.ok(all.includes('Moved 1 of 3 folders to the Trash (1.0 GB).'));
   assert.ok(!/removal|removed|\bitems?\b/i.test(dlg.text), 'folder and Trash are the only terms');
 });

@@ -157,6 +157,7 @@ test('report: a partial scan says so and shows no safe-to-remove total', () => {
   const out = report(scan({ complete: false }));
   assert.match(out, /Partial scan/);
   assert.match(out, /No safe-to-remove total until a scan completes/);
+  assert.ok(out.includes('Sizes marked "at least" can only grow. The treemap is not final. No safe-to-remove total appears until a scan completes.'));
   assert.ok(!/Safe to remove: /.test(out));
 });
 

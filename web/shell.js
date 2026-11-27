@@ -137,5 +137,5 @@ setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that chec
 // A tab backgrounded for a while is caught up in this one listener-driven fetch, not by the interval
 // above firing a burst once visible again (it only ever requests what's new since the last ts held).
 document.addEventListener('visibilitychange', loadMetrics);
-document.addEventListener('visibilitychange', loadStorage);
+document.addEventListener('visibilitychange', () => loadStorage(false)); // the Event would read as fresh and start a Rescan
 document.addEventListener('visibilitychange', loadVolume); // the first read is skipped while the page is hidden
