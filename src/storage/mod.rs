@@ -4,6 +4,7 @@
 //! follows a symlink, never crosses a device and never walks the whole disk.
 mod cache;
 pub mod forecast;
+pub mod trash;
 mod rules;
 mod volume;
 mod walk;
@@ -63,7 +64,7 @@ const NOTES: &[&str] = &[
 #[serde(rename_all = "lowercase")]
 pub enum Category { Developer, Caches, Logs, Downloads, Mail, Applications }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Clone, Debug)]
 pub struct Item {
     /// Stable for a path across scans: the same id the removal route will take.
     pub id: String,
@@ -80,6 +81,10 @@ pub struct Item {
     /// `size` is a lower bound.
     pub complete: bool,
     pub unreadable: u32,
+    /// The item's own modification time in nanoseconds when it was measured, so a removal can tell
+    /// that it changed afterwards. Not sent to the page.
+    #[serde(skip)]
+    pub modified_ns: Option<u64>,
 }
 
 #[derive(Serialize, Debug)]
@@ -121,7 +126,7 @@ pub struct Storage {
 }
 
 /// FNV-1a: unlike the standard hasher it is specified, so an id stays the same across builds.
-fn item_id(path: &str) -> String {
+pub(crate) fn item_id(path: &str) -> String {
     let hash = path.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
     format!("{hash:016x}")
 }
@@ -156,7 +161,7 @@ impl Scan<'_> {
         let v = rules::label_item(self.home, path, project_idle);
         let text = path.display().to_string();
         let item = |size, apparent_bytes, entries, complete, unreadable| Item {
-            id: item_id(&text), path: text.clone(), category, label: v.label, rule: v.rule, size, apparent_bytes, entries, complete, unreadable,
+            id: item_id(&text), path: text.clone(), category, label: v.label, rule: v.rule, size, apparent_bytes, entries, complete, unreadable, modified_ns: trash::modified_ns(path),
         };
         self.items.push(match result {
             Ok(w) => {
@@ -268,7 +273,7 @@ fn run_in_background() {}
 
 /// The home folder, or `None` when `HOME` is unset, empty or relative: a relative one would make every
 /// location resolve against the current directory.
-fn home() -> Option<PathBuf> {
+pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute())
 }
 
@@ -500,7 +505,7 @@ mod tests {
 
     #[test]
     fn category_totals_sum_values_and_say_when_they_are_a_lower_bound() {
-        let item = |category, size, complete| Item { id: "i".into(), path: "p".into(), category, label: Label::Review, rule: Rule::Unclassified, size, apparent_bytes: None, entries: 0, complete, unreadable: 0 };
+        let item = |category, size, complete| Item { id: "i".into(), path: "p".into(), category, label: Label::Review, rule: Rule::Unclassified, size, apparent_bytes: None, entries: 0, complete, unreadable: 0, modified_ns: None };
         let items = [item(Category::Logs, Reading::Value(5), true), item(Category::Logs, Reading::Value(7), true), item(Category::Mail, Reading::Unavailable(reason::PERMISSION_DENIED), false), item(Category::Caches, Reading::Value(3), false)];
         let missed = [("x".to_string(), Category::Downloads)];
         let c = categories(&items, &missed);

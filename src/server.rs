@@ -124,8 +124,8 @@ pub fn serve_on(server: Arc<Server>) {
                 let rows = processes.read().map(|r| r.clone()).unwrap_or_default();
                 json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
             }
-            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?))) {
-                Ok((seen, actions, baseline_changes)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes }).to_string()),
+            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?, h.recent_trash_moves(ACTION_LIMIT)?))) {
+                Ok((seen, actions, baseline_changes, trash_moves)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes, "trash_moves": trash_moves }).to_string()),
                 // An unreadable database must not look like "no history".
                 Err(e) => Response::from_string(history::unavailable(&e)).with_status_code(500).boxed(),
             }
@@ -191,6 +191,10 @@ pub fn serve_on(server: Arc<Server>) {
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
             }
+            (Method::Post, "/api/trash") if write_ok => {
+                let (code, body) = trash_reply(query, &storage_cache);
+                json_resp(body).with_status_code(code)
+            }
             (Method::Post, _) => forbidden(),
             (Method::Get, "/fonts/IBMPlexSans-Regular.woff2") => Response::from_data(FONT_REGULAR).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexSans-Medium.woff2") => Response::from_data(FONT_MEDIUM).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
@@ -203,6 +207,27 @@ pub fn serve_on(server: Arc<Server>) {
         };
         let _ = req.respond(res);
     }
+}
+
+/// `POST /api/trash?ids=a,b[&dry=1][&confirm_yours=1]`. A real move needs the audit log to be writable,
+/// so a request that cannot be recorded moves nothing.
+fn trash_reply(query: &str, cache: &storage::Cache) -> (u16, String) {
+    let err = |code, msg: String| (code, serde_json::json!({ "error": msg }).to_string());
+    let ids = match storage::trash::parse_ids(&query_param(query, "ids").unwrap_or_default()) { Ok(v) => v, Err(e) => return err(400, e) };
+    let items = match cache.find(&ids) { Ok(v) => v, Err(e) => return err(400, e) };
+    let Some(home) = storage::home() else { return err(400, storage::reason::HOME_UNKNOWN.into()) };
+    let dry = query_param(query, "dry").as_deref() == Some("1");
+    let confirm_yours = query_param(query, "confirm_yours").as_deref() == Some("1");
+    if dry {
+        let o = storage::trash::run(&items, &home, std::path::Path::new("/Applications"), confirm_yours, true, &actions::trash);
+        return (200, serde_json::to_string(&o).unwrap_or_default());
+    }
+    let h = match History::open() { Ok(h) => h, Err(e) => return err(500, format!("the audit log is unavailable, so nothing was moved: {}", history::unavailable(&e))) };
+    let o = storage::trash::run(&items, &home, std::path::Path::new("/Applications"), confirm_yours, false, &actions::trash);
+    let audit = h.record_trash_move(unix_now(), &o);
+    let mut v = serde_json::to_value(&o).unwrap_or_default();
+    if let Err(e) = audit { v["audit_error"] = e.to_string().into(); }
+    (200, v.to_string())
 }
 
 fn unix_now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }

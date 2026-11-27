@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `S3a` |
-| Status | `ready` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D5, D10 |
 | Depends on | S1 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
 | Branch | `feat/s3a-move-to-trash-route` |
 | PR title | `feat(storage): move scanned items to the Trash with an audit entry` |
 | Size | M (200-400) |
-| PR | — |
+| PR | [#60](https://github.com/laudebugs/monitor-lizard/pull/60) |
 
 ## Goal
 
@@ -47,10 +47,10 @@ Let the server move scanned items to the Trash behind guards, with a dry run and
 
 ## Steps
 
-- [ ] Spike first (record the result here): compare the `trash` crate (check its licence and version), `NSFileManager trashItem` through FFI, and `osascript` telling Finder to delete. Pick the one that needs no new permission prompt and keeps "Put Back".
-- [ ] Write the refusal tests first.
-- [ ] Implement the route and the audit entry.
-- [ ] Try the full flow on a real folder you created for the purpose.
+- [x] Spike first (result in the Implementation Record): compare the `trash` crate (check its licence and version), `NSFileManager trashItem` through FFI, and `osascript` telling Finder to delete. Pick the one that needs no new permission prompt and keeps "Put Back".
+- [x] Write the refusal tests first.
+- [x] Implement the route and the audit entry.
+- [x] Try the full flow on a real folder you created for the purpose.
 
 ## Edge cases (must be covered)
 
@@ -91,9 +91,32 @@ make test
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-27.
+
+### Spike: how to move to the Trash
+
+`trash` 5.4.0 (MIT) has two macOS methods. Finder (osascript) keeps "Put Back" but asks for an Automation permission the first time. `NSFileManager` `trashItemAtURL` asks for nothing and, per the crate's own table, may not show "Put Back". Neither has both, and the todo rules out a new prompt, so the route uses `NSFileManager`. `trash` is built with `default-features = false`. The restore path is the Trash folder itself, and the `trash_moves` row keeps each original path. Not checked: whether Finder shows "Put Back" on this Mac. `~/.Trash` cannot be listed from a shell without Full Disk Access, so the real-Trash test (`cargo test --lib real_trash -- --ignored`) shows the file left its place and that a second move of it fails.
+
+### Built
+
+- `POST /api/trash?ids=a,b[&dry=1][&confirm_yours=1]` in `src/server.rs`, guards in `src/storage/trash.rs`, the mover in `src/actions.rs`, the `trash_moves` table and reader in `src/history.rs`, `GET /api/history` returns `trash_moves`.
+- `Cache::find` looks ids up in the latest scan; `Item` gained a `modified_ns` that is not sent to the page.
+- Tried on a throwaway `HOME` with the server running: no token and a foreign Origin gave 403, an unlisted id and a path given as an id gave 400, a dry run listed both folders and moved nothing, a real request moved them and `/api/history` returned the row.
+
+### Deviations and limits
+
+- The change check also compares exact length and entry count. The first live run showed that a 5-byte append inside one disk block changed neither the allocated size nor the folder's modification time. A same-length overwrite still passes.
+- An item whose scan was cut short (entry cap, time, unreadable subfolder) is refused as not fully measured, so a huge `node_modules` over 200,000 entries cannot be moved yet. This is deliberate; the alternative is moving something whose size nobody knows.
+- A failed move stops the batch and lists the remaining items as not attempted. A refusal does not stop the batch.
+- A real request needs the history database to open; otherwise nothing moves. The reply carries `audit_error` if the row could not be written after the move.
+- A folder swapped for a link between the check and the move is a race the check cannot close.
+- Item "in use by a running app" is not detected; the OS reason is reported if the move fails.
