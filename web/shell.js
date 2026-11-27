@@ -88,9 +88,10 @@ function render() {
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
-  // The collapsed-nav drawer's own backdrop: clicking it is the same as Escape. CSS hides both the backdrop and
-  // the open drawer above the breakpoint where the sidebar is never collapsed, so this is inert there.
-  if (S.navOpen) layer.push(h('div', { class: 'navbackdrop', onClick: () => closeNav() }));
+  // The collapsed-nav drawer's own backdrop (shares .overlay's look, stacked above it): clicking it is the same
+  // as Escape. CSS hides both the backdrop and the open drawer above the breakpoint where the sidebar is never
+  // collapsed, so this is inert there.
+  if (S.navOpen) layer.push(h('div', { class: 'overlay navbackdrop', onClick: () => closeNav() }));
   const trash = trashLayer();
   if (trash) layer.push(trash);
   const sig = sigLayer();
@@ -108,10 +109,13 @@ function render() {
 // A button, not a #link: a link would change the address, and the address is the page's state.
 $('skip').addEventListener('click', () => $('main').focus());
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
-// Below the breakpoint where the sidebar collapses behind this button; above it the button is hidden by CSS and
-// this never fires. Closing (Escape, the backdrop, or a nav item) returns focus to the button that opened it.
+// Below the breakpoint where the sidebar collapses behind this button (860px, also in web/app.css -- change both
+// together); above it the button is hidden by CSS and neither of these fires from a click.
+function openNav() { rec({ navOpen: true }); $('nav').querySelector('[data-nav]')?.focus(); }
+// Closing (Escape, the backdrop, or the toggle itself) returns focus to the button that opened it; a nav item's
+// own click closes with a different focus target (the new page), so it sets navOpen directly instead of calling this.
 function closeNav() { rec({ navOpen: false }); $('navtoggle').focus(); }
-$('navtoggle').addEventListener('click', () => { const open = !S.navOpen; rec({ navOpen: open }); if (open) $('nav').querySelector('[data-nav]')?.focus(); });
+$('navtoggle').addEventListener('click', () => (S.navOpen ? closeNav() : openNav()));
 // Widening past the breakpoint while the drawer is open would otherwise strand its backdrop over the page: the
 // toggle that would close it is hidden by CSS above this width, and the sidebar itself no longer needs collapsing.
 window.addEventListener('resize', () => { if (S.navOpen && window.innerWidth > 860) rec({ navOpen: false }); });

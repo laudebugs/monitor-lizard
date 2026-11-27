@@ -74,7 +74,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | T1d | Live-app forced colors, reduced motion and the CPU and GPU tab (the owner's DevTools check) | T1c |
 | T2 | Split the dashboard page into CSS and script files (after S4) | S4 |
 | T3 | Resizable (expandable) table columns (done 2026-11-27) | T1b, N3 |
-| T4 | A mobile-width layout direction | T1b |
+| T4 | A mobile-width layout direction (done 2026-11-27) | T1b |
 | T1b | Page shell, sidebar groups, table styles (done 2026-11-26; forced colors in T1c) | T1a, N1 |
 | R1 | Overview redesign | T1b, N1, A9 |
 | R2 | Network redesign | T1b, N1, N3, A9 |
@@ -92,4 +92,4 @@ S4 is built (2026-11-26, PR pending merge). S1 is built (2026-11-26, PR pending 
 5. **Design gap.** Apps, Listeners, Privilege and History have no redesign. Until they do, T1a and T1b give them the new tokens and shell but not the new layout.
 6. **A9 is new scope.** The designs have "Mark as expected" buttons for hosts, startup items and alerts. The feedback baseline is listed as not yet written in the system-monitor plan; A9 is its first slice, built 2026-11-26: typed baseline entries, an audit table, and buttons on the Overview, Network and Persistence pages.
 7. **Migrations exist (M1, built 2026-11-26).** `History` versions its schema with `PRAGMA user_version`, so a column can be added to an existing table by appending a step to `MIGRATIONS` (R3a does). New tables, as in S3a, S4 and S5, need no step of their own.
-8. **T4 has no design yet, unlike the design gap in item 5.** T4 is explicitly design-then-build: its own Steps record a written design pass before the CSS, rather than waiting on the owner's canvas the way R4 does.
+8. **T4 was design-then-build, unlike the design gap in item 5.** T4 measured the real narrow-width behavior first (the collapsed-sidebar problem it actually found was not the one originally guessed) and recorded that design pass in its own Implementation Record before the CSS, rather than waiting on the owner's canvas the way R4 does.
