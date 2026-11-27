@@ -168,7 +168,10 @@ mod tests {
     #[test]
     fn the_trash_audit_keeps_only_the_newest_rows() {
         let (dir, h) = trash_db("keep");
-        for n in 0..(TRASH_KEEP as u64 + 5) { h.begin_trash(n, &[("a", "/p", "safe")]).unwrap(); }
+        // The first TRASH_KEEP requests go in as one statement. Committing each one separately costs a disk sync apiece, which
+        // took minutes on a hosted runner; only the last five go through begin_trash, so the pruning is still what is tested.
+        h.0.execute("INSERT INTO trash_items(request,ts,item_id,path,label,state) WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < ?1) SELECT x, x - 1, 'a', '/p', 'safe', 'pending' FROM n", [TRASH_KEEP]).unwrap();
+        for n in TRASH_KEEP as u64..(TRASH_KEEP as u64 + 5) { h.begin_trash(n, &[("a", "/p", "safe")]).unwrap(); }
         let rows = h.recent_trash_moves(100_000).unwrap();
         assert_eq!(rows.len(), TRASH_KEEP as usize);
         assert_eq!(rows[0].ts, TRASH_KEEP as u64 + 4, "the newest survived");
