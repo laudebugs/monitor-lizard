@@ -45,7 +45,10 @@ mod tests {
     #[test]
     fn the_audit_keeps_only_the_newest_rows() {
         let (h, dir) = tmp_history("baseline-prune");
-        for n in 0..(BASELINE_CHANGE_KEEP as u64 + 5) { h.record_baseline_change(n, "app", &format!("/{n}.app"), true, "").unwrap(); }
+        // The first BASELINE_CHANGE_KEEP rows go in as one statement: a commit apiece costs a disk sync each, which can take about 35 minutes on a
+        // slow runner disk. Only the last five use record_baseline_change, so the pruning is still what is tested.
+        h.0.execute("INSERT INTO baseline_changes(ts,kind,key,marked,note) WITH RECURSIVE n(x) AS (SELECT 0 UNION ALL SELECT x + 1 FROM n WHERE x < ?1 - 1) SELECT x, 'app', '/' || x || '.app', 1, '' FROM n", [BASELINE_CHANGE_KEEP]).unwrap();
+        for n in BASELINE_CHANGE_KEEP as u64..(BASELINE_CHANGE_KEEP as u64 + 5) { h.record_baseline_change(n, "app", &format!("/{n}.app"), true, "").unwrap(); }
         let rows = h.recent_baseline_changes(usize::MAX >> 1).unwrap();
         assert_eq!(rows.len(), BASELINE_CHANGE_KEEP as usize);
         assert_eq!(rows[0].ts, BASELINE_CHANGE_KEEP as u64 + 4, "the newest survived");
