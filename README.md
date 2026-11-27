@@ -38,7 +38,7 @@ Rules for people and AI agents are in [AGENTS.md](AGENTS.md). Work comes from th
 
 ## Status and safety
 
-macOS only, early. Read-only by default and local-only (binds 127.0.0.1). The dashboard can stop your own processes after a confirmation; it never signals root processes, launchd or itself, and every write needs a per-run token. No telemetry, and no network calls except `monitor-lizard model install`, which only ever contacts Hugging Face for the one pinned file it was told to fetch. The dashboard's type is bundled (IBM Plex Sans and Mono), so it looks the same whether or not those fonts are installed; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+macOS only, early. Read-only by default and local-only (binds 127.0.0.1). The dashboard can stop your own processes after a confirmation; it never signals root processes, launchd or itself, and every write needs a per-run token. The Storage route can move scanned items to your Trash, never delete them: it takes ids from the last scan, re-checks each item on disk, asks twice for anything labelled yours, and logs every move in History. No telemetry, and no network calls except `monitor-lizard model install`, which only ever contacts Hugging Face for the one pinned file it was told to fetch. The dashboard's type is bundled (IBM Plex Sans and Mono), so it looks the same whether or not those fonts are installed; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## License
 

@@ -1,7 +1,7 @@
 //! The latest scan, kept so a request never waits for one, and the rule for when a request may
 //! start a new one. The page that asks is untrusted (any local web page can send a request that
 //! passes the Host check), so a request can start a scan at most once per `MIN_INTERVAL`.
-use super::Storage;
+use super::{Item, Storage};
 use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -84,6 +84,21 @@ impl Cache {
             });
         }
         json
+    }
+
+    /// The items of the latest scan for these ids, in order. A removal takes ids and never a path from
+    /// the page, so an id that no scan listed cannot name anything.
+    pub fn find(&self, ids: &[String]) -> Result<Vec<Item>, String> {
+        let st = self.lock();
+        let Some(result) = st.result.as_ref() else { return Err("no scan has finished yet; scan first".into()) };
+        ids.iter().map(|id| result.items.iter().find(|i| &i.id == id).cloned().ok_or_else(|| format!("id {id} is not in the latest scan"))).collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_result(result: Storage) -> Self {
+        let c = Cache::default();
+        c.lock().result = Some(result);
+        c
     }
 
     #[cfg(test)]

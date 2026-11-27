@@ -235,6 +235,12 @@ pub struct History(Connection);
 /// Made when the database is opened, not by a migration step: nothing alters it later, so `IF NOT
 /// EXISTS` is enough and `user_version` stays what the other tables expect. It holds three byte counts
 /// and the day, nothing about apps or folders.
+/// One row per removal request that was not a dry run. `ids`, `paths` and `refused` are JSON text.
+const TRASH_TABLE: &str = "CREATE TABLE IF NOT EXISTS trash_moves(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, ids TEXT NOT NULL, paths TEXT NOT NULL, bytes INTEGER NOT NULL, refused TEXT NOT NULL);";
+
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct TrashMoveRow { pub ts: u64, pub ids: Vec<String>, pub paths: Vec<String>, pub bytes: u64, pub refused: serde_json::Value }
+
 const CAPACITY_TABLE: &str = "CREATE TABLE IF NOT EXISTS capacity_daily(day INTEGER PRIMARY KEY, ts INTEGER NOT NULL, used INTEGER NOT NULL, purgeable INTEGER NOT NULL, free INTEGER NOT NULL);";
 /// How far ahead of `now` a stored row may be dated before it is treated as a clock error and deleted.
 const CLOCK_SLACK_SECS: u64 = 86_400;
@@ -349,6 +355,7 @@ impl History {
         // Migrate before switching journal mode so a file from a newer version is refused untouched.
         migrate(&mut c, MIGRATIONS, Some(&backup_path(p)))?;
         c.execute_batch(CAPACITY_TABLE)?;
+        c.execute_batch(TRASH_TABLE)?;
         // WAL so a process killed mid-batch leaves the file intact (the write-ahead log is simply
         // replayed or rolled back on next open) rather than the default rollback journal's larger
         // window for a half-written page; every table shares one connection and one journal mode.
@@ -422,6 +429,25 @@ impl History {
         self.0.execute("INSERT INTO actions(ts,sig,sent,refused) VALUES(?1,?2,?3,?4)",
             params![ts as i64, sig, format!("{sent:?}"), refused])?;
         Ok(())
+    }
+
+    /// Audit trail of every request to move items to the Trash: what moved and what was refused.
+    pub fn record_trash_move(&self, ts: u64, o: &crate::storage::trash::Outcome) -> rusqlite::Result<()> {
+        let ids: Vec<&str> = o.moved.iter().map(|e| e.id.as_str()).collect();
+        let paths: Vec<&str> = o.moved.iter().map(|e| e.path.as_str()).collect();
+        self.0.execute("INSERT INTO trash_moves(ts,ids,paths,bytes,refused) VALUES(?1,?2,?3,?4,?5)", params![
+            ts as i64, serde_json::to_string(&ids).unwrap_or_default(), serde_json::to_string(&paths).unwrap_or_default(),
+            o.bytes as i64, serde_json::to_string(&o.refused).unwrap_or_default()])?;
+        Ok(())
+    }
+
+    pub fn recent_trash_moves(&self, limit: usize) -> rusqlite::Result<Vec<TrashMoveRow>> {
+        let mut st = self.0.prepare("SELECT ts,ids,paths,bytes,refused FROM trash_moves ORDER BY id DESC LIMIT ?1")?;
+        let rows = st.query_map(params![limit as i64], |r| Ok(TrashMoveRow {
+            ts: r.get::<_, i64>(0)? as u64, ids: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or_default(),
+            paths: serde_json::from_str(&r.get::<_, String>(2)?).unwrap_or_default(), bytes: r.get::<_, i64>(3)? as u64,
+            refused: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or(serde_json::Value::Null) }))?;
+        rows.collect()
     }
 
     /// Audit trail of every mark or unmark as expected. The actions table holds only pids, so it cannot say this.
@@ -1484,5 +1510,21 @@ mod tests {
         assert!((-12 * 3600..=14 * 3600).contains(&off), "{off}");
         assert_eq!(off % 900, 0, "every zone is a whole number of quarter hours from UTC");
         assert_eq!(local_day(now, off), local_day(now + 1, off) - if (now as i64 + off + 1) % 86_400 == 0 { 1 } else { 0 });
+    }
+
+    #[test]
+    fn trash_moves_are_recorded_with_paths_sizes_and_refusals() {
+        use crate::storage::{trash::{Entry, Outcome, Refusal}, Label};
+        let dir = std::env::temp_dir().join(format!("ml-trash-hist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let h = History::at(&dir.join("h.db")).unwrap();
+        let o = Outcome { dry_run: false, bytes: 42,
+            moved: vec![Entry { id: "a".into(), path: "/Users/x/Library/Caches/a".into(), bytes: 42, label: Label::Safe }],
+            refused: vec![Refusal { id: "b".into(), path: "/Users/x/b".into(), reason: "changed since the scan; rescan".into() }] };
+        h.record_trash_move(7, &o).unwrap();
+        let rows = h.recent_trash_moves(10).unwrap();
+        assert_eq!((rows[0].ts, rows[0].bytes, rows[0].ids.clone(), rows[0].paths.clone()), (7, 42, vec!["a".to_string()], vec!["/Users/x/Library/Caches/a".to_string()]));
+        assert_eq!(rows[0].refused[0]["reason"], "changed since the scan; rescan");
     }
 }

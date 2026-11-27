@@ -9,6 +9,7 @@ You can expect an acknowledgement within a few days. Say in the report what is a
 system-monitor can stop processes on your Mac, so these matter most:
 
 - A way for a web page or another local process to stop a process, approve an app, or read data without the per-run token (CSRF, DNS rebinding, token leakage).
+- A way to make `POST /api/trash` move anything the latest scan did not list, a symbolic link, or a path outside your home folder and `/Applications`, or to skip the second confirmation for an item labelled yours.
 - A way to make it signal processes it refuses: root-owned, launchd, itself, or another user's.
 - The server listening on anything other than 127.0.0.1.
 - Injection through process names, command lines, or other attacker-controlled strings shown in the dashboard.
@@ -18,6 +19,8 @@ system-monitor can stop processes on your Mac, so these matter most:
 Loopback only, Host and Origin checks on every request, a random per-run token on every write, own-user processes only, an audit log of every action, no telemetry. Tests need no credentials and make no network calls.
 
 ## What `/api/storage` exposes
+
+`POST /api/trash` is the one way the app removes files, and it only moves them to your Trash. It needs the Origin check and the per-run token, and it takes ids from the latest scan, never paths. The server checks each item again against the disk: not a symbolic link, no symbolic link above it, inside your home folder or `/Applications`, size, entry count and modification time unchanged since the scan, and fully measured. An item labelled yours also needs `confirm_yours=1`. Every request that is not a dry run writes one row to the `trash_moves` table in the history database, and if that database cannot be opened nothing moves. Two limits: a file overwritten with the same length passes the change check, and a folder swapped for a link between the check and the move is a small race the check cannot close. The Trash keeps the item either way.
 
 `GET /api/storage` lists the names of app caches, the paths of developer projects that have a `node_modules` folder, and how big each is. It needs no token, only the Host check. The Host check and the browser's cross-origin rules stop a web page you open from reading the reply. They do not stop that page from sending the request, so a page could ask for a new scan. To limit that, a request starts a scan at most once a minute. Any process on your Mac can read the reply, because it can reach `127.0.0.1`. Cloud folders such as `~/Dropbox` are not user-content folders, so an idle `node_modules` inside one can be labelled safe.
 

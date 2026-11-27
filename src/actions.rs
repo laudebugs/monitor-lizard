@@ -53,6 +53,16 @@ pub fn execute(pids: &[u32], sig: Sig) -> Outcome {
     o
 }
 
+/// Moves one path to the user's Trash through `NSFileManager`. The Finder route keeps "Put Back" but
+/// asks for an Automation permission the first time, so it is not used. The caller has already
+/// checked the path; this only does the move and returns the OS's reason when it fails.
+pub fn trash(path: &std::path::Path) -> Result<(), String> {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let mut ctx = trash::TrashContext::default();
+    ctx.set_delete_method(DeleteMethod::NsFileManager);
+    ctx.delete(path).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +77,15 @@ mod tests {
     fn refuses_launchd_and_self() {
         let o = execute(&[1, std::process::id()], Sig::Term);
         assert!(o.sent.is_empty() && o.refused.len() == 2);
+    }
+    /// Touches the real Trash, so it only runs on request: `cargo test --lib real_trash -- --ignored`.
+    #[test]
+    #[ignore = "puts a file in the real Trash"]
+    fn real_trash_takes_a_file_and_refuses_a_missing_one() {
+        let p = std::env::temp_dir().join(format!("ml-real-trash-{}.txt", std::process::id()));
+        std::fs::write(&p, "monitor-lizard trash test").unwrap();
+        trash(&p).unwrap();
+        assert!(!p.exists());
+        assert!(trash(&p).is_err());
     }
 }
