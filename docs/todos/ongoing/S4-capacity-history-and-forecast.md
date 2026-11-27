@@ -117,6 +117,7 @@ Plan status.
 
 ### Not verified
 
+- After the rebase onto S2b, the clean-ups list, Inside System Data and the Growth block rendered together in both themes. The safe subtotal showed only "Not shown until the scan is complete": the scratch home is not under /Users, so no item was labelled safe and the scan was partial. A non-zero safe subtotal beside the Growth block was not seen.
 - The "Collecting history", "Not growing", "History unavailable" and failed-read states were checked only in Node tests, not in a browser.
 - A database that is not writable was tested by a path that cannot be created, not by a read-only file on a real disk.
 - The write after local midnight, a real clock moving backwards and a daylight-saving change were tested with injected times, not by waiting or changing the system clock.
