@@ -200,7 +200,7 @@ fn path_checks(item: &Item, pol: &Policy) -> Result<(), Refuse> {
     if canonical != path || !(inside(pol.home) || inside(pol.apps)) { return Err((Code::Outside, reason::OUTSIDE)); }
     if meta.uid() != pol.uid { return Err((Code::NotOwned, reason::NOT_OWNED)); }
     // An item that is itself a mount point lives on another device than the folder holding it.
-    if path.parent().and_then(|p| std::fs::symlink_metadata(p).ok()).is_some_and(|p| p.dev() != meta.dev()) { return Err((Code::MountInside, reason::MOUNT_POINT)); }
+    if path.parent().and_then(|p| std::fs::symlink_metadata(p).ok()).is_some_and(|p| walk::crosses(p.dev(), meta.dev())) { return Err((Code::MountInside, reason::MOUNT_POINT)); }
     if item.label == Label::Yours && !pol.confirm_yours { return Err((Code::NeedsYoursConfirmation, reason::YOURS)); }
     if !matches!(item.size, Reading::Value(_)) || !item.complete { return Err((Code::Unmeasured, reason::UNMEASURED)); }
     if item.modified_ns.is_none() || modified_ns(path) != item.modified_ns { return Err((Code::Changed, reason::CHANGED)); }
@@ -645,6 +645,7 @@ pub(crate) mod tests {
     const REAP_SECS: u64 = 5;
 
     /// Runs a command and kills it after `secs`. `Ok` only for a clean exit; otherwise the error names the command and how long it ran.
+    /// A child that survives the kill is abandoned after `REAP_SECS` and left until the test binary exits.
     /// Nothing here waits without a limit: after the kill it polls for `REAP_SECS` and then abandons the child.
     pub(crate) fn run_within(cmd: &mut std::process::Command, secs: u64) -> Result<(), String> {
         let name = format!("{cmd:?}");

@@ -43,6 +43,10 @@ pub fn io_reason(e: &io::Error) -> &'static str {
     }
 }
 
+/// True when an entry is on another device than the folder being walked: a mount point, or something below one. The walker
+/// does not descend into it, and the trash refuses an item whose device differs from its parent's.
+pub(crate) fn crosses(parent_dev: u64, dev: u64) -> bool { parent_dev != dev }
+
 /// Sizes one location. `None` when it does not exist (the caller omits it, never shows 0).
 pub fn walk(root: &Path, lim: Limits) -> Option<Result<Walked, &'static str>> {
     let meta = match std::fs::symlink_metadata(root) {
@@ -74,7 +78,7 @@ pub fn walk(root: &Path, lim: Limits) -> Option<Result<Walked, &'static str>> {
             // `DirEntry::metadata` is an `lstat`: a symlink is sized as itself and never followed.
             let Ok(m) = entry.metadata() else { w.unreadable += 1; continue };
             if m.is_dir() {
-                if m.dev() != dev { w.crossed += 1; continue; }
+                if crosses(dev, m.dev()) { w.crossed += 1; continue; }
                 count(&mut w, &m);
                 pending.push(entry.path());
             } else if m.nlink() > 1 && !linked.insert((m.dev(), m.ino())) {
@@ -228,6 +232,18 @@ mod tests {
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::process::Command;
 
+    #[test]
+    fn crosses_is_true_only_for_a_different_device() {
+        assert!(!crosses(7, 7) && crosses(7, 8));
+        // A real pair without mounting anything: a folder and its child share a device; `/` and `/dev` (devfs) do not.
+        let d = temp("crosses");
+        let own = |p: &Path| fs::symlink_metadata(p).unwrap().dev();
+        fs::create_dir(d.join("sub")).unwrap();
+        assert!(!crosses(own(&d), own(&d.join("sub"))));
+        assert!(crosses(own(Path::new("/")), own(Path::new("/dev"))));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
     fn lim(max_entries: u64) -> Limits { Limits { deadline: Instant::now() + Duration::from_secs(30), max_entries } }
 
     fn now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() }
@@ -346,7 +362,11 @@ mod tests {
         let mount = dir.join("root/mnt");
         fs::create_dir_all(&mount).unwrap();
         let image = dir.join("v.dmg");
-        run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "4m", "-fs", "HFS+", "-volname", "t", "-ov"]).arg(&image), 30).unwrap();
+        // Nothing is attached yet, so a failed create only needs the temp folder removed before the test fails.
+        if let Err(why) = run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "4m", "-fs", "HFS+", "-volname", "t", "-ov"]).arg(&image), 30) {
+            let _ = fs::remove_dir_all(&dir);
+            panic!("hdiutil create failed: {why}");
+        }
         // The guard exists before the attach, so a timed-out attach that half mounted is still detached.
         let guard = Mounted { dir: dir.clone(), mount: mount.clone() };
         run_within(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-mountpoint"]).arg(&mount).arg(&image), 30).unwrap();

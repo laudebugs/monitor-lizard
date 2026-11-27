@@ -18,12 +18,12 @@
 Two tests in `src/storage/trash.rs` (`an_item_with_a_volume_mounted_inside_it_is_refused`, `an_item_that_is_itself_a_mount_point_is_refused`) attach a small disk image with `hdiutil` in a temp folder. A hosted macOS runner has frozen during `hdiutil detach -force`, so they skip themselves when `GITHUB_ACTIONS` or `CI` is set and print `SKIPPED IN CI` to stderr. The mount-crossing refusal is therefore verified on a developer's machine only. Run them locally with the skip lifted:
 
 ```sh
-ML_RUN_MOUNT_TESTS=1 cargo test mount                  # the two trash tests
-ML_RUN_MOUNT_TESTS=1 cargo test -- --ignored never_crosses    # the walker's own mount test (always ignored by default)
-hdiutil info                                           # afterwards: none of the test images is left attached
+ML_RUN_MOUNT_TESTS=1 cargo test mount                       # the two trash tests
+ML_RUN_MOUNT_TESTS=1 cargo test -- --ignored never_crosses  # the walker's own mount test (ignored by default)
+hdiutil info                                                # afterwards: none of the tests' own images is attached
 ```
 
-Every `hdiutil` call in them has a time limit, and a guard detaches with `-force` and deletes the image even when the test fails.
+Every `hdiutil` call in them has a time limit, and a guard detaches with `-force` and deletes the image even when the test fails. A child that survives the kill for 5 s is abandoned and lives until the test binary exits. CI still runs a unit test of the device comparison (`crosses`).
 
 ## Pin tool versions in one place
 

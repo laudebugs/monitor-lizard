@@ -241,8 +241,8 @@ pub fn in_order(action: Action, items: &[Target]) -> Vec<Target> {
     v
 }
 
-/// The signals one process gets. A stopped process holds a pending TERM until it is continued, so Stop on a
-/// frozen one also sends CONT.
+/// The signals one process gets. Stop on a frozen process also plans CONT, in case the TERM waits for it. macOS may end a
+/// stopped process on the TERM itself; then the CONT finds nothing, is recorded as `unsent CONT`, and the stop still counts.
 fn signals_for(action: Action, frozen: bool) -> Vec<&'static str> {
     match action { Action::Stop if frozen => vec!["TERM", "CONT"], a => vec![a.signal()] }
 }
@@ -511,9 +511,12 @@ fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
     }
 }
 
-/// True when the process this request targeted no longer exists: it cannot be probed, is a zombie, or the pid now has another start time.
-fn gone(w: &dyn World, t: &Target) -> bool {
-    match w.probe(t.pid) { None => true, Some(f) => f.state == 'Z' || (t.started.is_some() && f.started != t.started) }
+/// True when the process this request targeted no longer exists: it cannot be probed, is a zombie, or the pid now has a
+/// different start time. A start time that cannot be read back is NOT proof it is gone: the process may be alive.
+fn gone(w: &dyn World, t: &Target) -> bool { ended(w.probe(t.pid).as_ref(), t.started) }
+
+fn ended(now: Option<&Fresh>, was_started: Option<u64>) -> bool {
+    match now { None => true, Some(f) => f.state == 'Z' || (was_started.is_some() && f.started.is_some() && f.started != was_started) }
 }
 
 fn refused_not_previewed(t: &Target, action: Action) -> ItemResult {
@@ -681,12 +684,15 @@ mod tests {
     use std::collections::HashMap;
 
     const ME: u32 = 501;
+    /// What a TERM does to a stopped process, as seen by a probe afterwards.
+    #[derive(Clone, Copy)]
+    enum AfterTerm { Gone, Zombie, PidReused, StartUnreadable, Alive }
     struct Fake {
         procs: RefCell<HashMap<u32, Fresh>>, kids: HashMap<u32, Vec<Child>>, sent: RefCell<Vec<(u32, i32)>>, protected: Option<Vec<u32>>, fail_send: Option<u32>,
-        exit_after_send: Option<(u32, u32)>, term_ends: bool, ours: RefCell<std::collections::HashSet<u32>>, cmds: HashMap<u32, String>, child_reads: std::cell::Cell<usize>,
+        exit_after_send: Option<(u32, u32)>, after_term: Option<AfterTerm>, fail_nth: Option<usize>, ours: RefCell<std::collections::HashSet<u32>>, cmds: HashMap<u32, String>, child_reads: std::cell::Cell<usize>,
     }
     impl Fake {
-        fn new() -> Fake { Fake { procs: RefCell::new(HashMap::new()), kids: HashMap::new(), sent: RefCell::new(vec![]), protected: Some(vec![]), fail_send: None, exit_after_send: None, term_ends: false, ours: Default::default(), cmds: HashMap::new(), child_reads: Default::default() } }
+        fn new() -> Fake { Fake { procs: RefCell::new(HashMap::new()), kids: HashMap::new(), sent: RefCell::new(vec![]), protected: Some(vec![]), fail_send: None, exit_after_send: None, after_term: None, fail_nth: None, ours: Default::default(), cmds: HashMap::new(), child_reads: Default::default() } }
         fn with(self, pid: u32, uid: u32, state: char, exe: &str, started: u64) -> Fake { self.procs.borrow_mut().insert(pid, Fresh { uid, ppid: 0, state, exe: exe.into(), started: Some(started) }); self }
         /// `pids` child first: each one's parent is the next.
         fn chain(self, pids: &[u32]) -> Fake { for w in pids.windows(2) { self.procs.borrow_mut().get_mut(&w[0]).unwrap().ppid = w[1]; } self }
@@ -698,12 +704,21 @@ mod tests {
         fn children(&self, pid: u32) -> Vec<Child> { self.child_reads.set(self.child_reads.get() + 1); self.kids.get(&pid).cloned().unwrap_or_default() }
         fn send(&self, pid: u32, sig: i32) -> Result<(), String> {
             if self.fail_send == Some(pid) { return Err("Operation not permitted".into()); }
-            if !self.procs.borrow().contains_key(&pid) && self.term_ends { return Err("No such process (os error 3)".into()); }
+            if self.fail_nth == Some(self.sent.borrow().len() + 1) { return Err("No such process (os error 3)".into()); }
             self.sent.borrow_mut().push((pid, sig));
             // Behave like the kernel and the audit log, so a later check sees the effect.
             if let Some(f) = self.procs.borrow_mut().get_mut(&pid) { match sig { s if s == libc::SIGSTOP => { f.state = 'T'; self.ours.borrow_mut().insert(pid); } s if s == libc::SIGCONT => { f.state = 'S'; self.ours.borrow_mut().remove(&pid); } s if s == libc::SIGKILL => f.state = 'Z', _ => {} } }
             // macOS ends a stopped process on TERM at once.
-            if self.term_ends && sig == libc::SIGTERM { self.procs.borrow_mut().remove(&pid); }
+            if let (Some(effect), true) = (self.after_term, sig == libc::SIGTERM) {
+                let mut procs = self.procs.borrow_mut();
+                match effect {
+                    AfterTerm::Gone => { procs.remove(&pid); }
+                    AfterTerm::Zombie => { if let Some(f) = procs.get_mut(&pid) { f.state = 'Z'; } }
+                    AfterTerm::PidReused => { if let Some(f) = procs.get_mut(&pid) { f.started = f.started.map(|t| t + 1); f.state = 'S'; } }
+                    AfterTerm::StartUnreadable => { if let Some(f) = procs.get_mut(&pid) { f.started = None; } }
+                    AfterTerm::Alive => {}
+                }
+            }
             // Something else exits while the request is part way through.
             if let Some((after, gone)) = self.exit_after_send { if after == pid { self.procs.borrow_mut().remove(&gone); } }
             Ok(())
@@ -929,17 +944,58 @@ mod tests {
         assert!(rows.contains(&("TERM".to_string(), "[10]".to_string(), "[]".to_string())) && rows.contains(&("CONT".to_string(), "[10]".to_string(), String::new())), "every signal that was sent has its own row: {rows:?}");
     }
 
-    #[test]
-    fn a_stop_whose_term_already_ended_the_frozen_process_is_a_success_not_a_failed_continue() {
+    /// A frozen process is stopped; the TERM goes, the follow-up CONT fails (the second send), and `after` says what a probe then sees.
+    fn stop_frozen_with(name: &str, after: AfterTerm) -> (serde_json::Value, Fake, Rig) {
         let mut w = Fake::new().with(10, ME, 'T', EXE, 5).ours(10);
-        w.term_ends = true;
-        let rig = Rig::new("stop-frozen-ends");
+        w.after_term = Some(after);
+        w.fail_nth = Some(2);
+        let rig = Rig::new(name);
         let tok = rig.token(&w, &q("stop", "one", &[(10, 5, EXE)], ""));
         let (_, v) = rig.call(&w, &q("stop", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
-        assert_eq!((v["ok"].clone(), v["items"][0]["status"].clone(), v["items"][0]["signals"].clone()), (true.into(), "signalled".into(), serde_json::json!(["TERM"])), "{v}");
-        assert_eq!(w.sent(), vec![(10, libc::SIGTERM)], "the CONT that found nothing is not counted as sent");
-        let rows = rig.actions();
-        assert!(rows.iter().any(|r| r.0 == "unsent CONT" && r.1 == "[10]"), "the CONT that did not go is recorded as unsent: {rows:?}");
+        (v, w, rig)
+    }
+
+    #[test]
+    fn a_stop_whose_term_already_ended_the_frozen_process_is_a_success_not_a_failed_continue() {
+        for (name, after) in [("ends-gone", AfterTerm::Gone), ("ends-zombie", AfterTerm::Zombie), ("ends-reused", AfterTerm::PidReused)] {
+            let (v, w, rig) = stop_frozen_with(name, after);
+            assert_eq!((v["ok"].clone(), v["items"][0]["status"].clone(), v["items"][0]["signals"].clone()), (true.into(), "signalled".into(), serde_json::json!(["TERM"])), "{name}: {v}");
+            assert_eq!(w.sent(), vec![(10, libc::SIGTERM)], "{name}: the CONT that found nothing is not counted as sent");
+            let rows = rig.actions();
+            assert!(rows.iter().any(|r| r.0 == "unsent CONT" && r.1 == "[10]"), "{name}: the CONT that did not go is recorded as unsent: {rows:?}");
+            assert!(rows.iter().any(|r| r.0 == "TERM" && r.1 == "[10]"), "{name}: {rows:?}");
+        }
+    }
+
+    #[test]
+    fn a_failed_follow_up_signal_stays_a_failure_when_the_process_may_still_be_alive() {
+        // Alive, or its start time cannot be read back (a start of 0 reads as None): not proof it ended.
+        for (name, after) in [("alive", AfterTerm::Alive), ("unreadable-start", AfterTerm::StartUnreadable)] {
+            let (v, w, rig) = stop_frozen_with(name, after);
+            assert_eq!((v["ok"].clone(), v["items"][0]["code"].clone()), (false.into(), "signal_failed".into()), "{name}: {v}");
+            assert_eq!(w.sent(), vec![(10, libc::SIGTERM)]);
+            assert!(rig.actions().iter().any(|r| r.0 == "unsent CONT"), "{name}");
+        }
+    }
+
+    #[test]
+    fn ended_is_true_only_for_gone_zombie_or_a_different_known_start() {
+        let f = |state, started| Fresh { uid: ME, ppid: 0, state, exe: EXE.into(), started };
+        assert!(ended(None, Some(5)));
+        assert!(ended(Some(&f('Z', Some(5))), Some(5)));
+        assert!(ended(Some(&f('S', Some(6))), Some(5)), "the pid was reused");
+        assert!(!ended(Some(&f('S', Some(5))), Some(5)));
+        assert!(!ended(Some(&f('S', None)), Some(5)), "an unreadable start is not proof");
+        assert!(!ended(Some(&f('T', None)), None));
+    }
+
+    #[test]
+    fn after_a_term_ended_the_process_it_is_gone_and_its_pid_is_not_ours_to_continue() {
+        let (_, w, rig) = stop_frozen_with("ends-then-again", AfterTerm::Gone);
+        let (_, v) = rig.call(&w, &q("stop", "one", &[(10, 5, EXE)], ""));
+        assert_eq!(v["items"][0]["code"], "gone", "{v}");
+        // The STOP row still stands, but a process that started after it (a reused pid) is not ours.
+        assert!(!froze_by_log(&log_of(&rig), 10, 100_000_000_000), "a later process with this pid is not the one that was frozen");
     }
 
     #[test]
@@ -1381,6 +1437,11 @@ mod tests {
         let signals = v["items"][0]["signals"].clone();
         assert!(v["ok"] == true && (signals == serde_json::json!(["TERM", "CONT"]) || signals == serde_json::json!(["TERM"])), "{v}");
         b.expect_gone("the frozen process ended after stop");
+        // Whichever outcome it was, the audit log says so: the CONT was either sent, or recorded as unsent.
+        let rows = rig.actions();
+        let term_only = signals == serde_json::json!(["TERM"]);
+        assert!(rows.iter().any(|r| r.0 == "TERM"), "{rows:?}");
+        assert_eq!(rows.iter().any(|r| r.0 == "unsent CONT"), term_only, "an `unsent CONT` row exactly when the result is [\"TERM\"]: {rows:?}");
         // A gone process is refused now, and the other is force stopped.
         let (_, v) = rig.rcall(&q("stop", "one", &one, ""));
         assert_eq!(v["items"][0]["code"], "gone");
