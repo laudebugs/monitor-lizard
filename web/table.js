@@ -311,6 +311,27 @@ function setHidden(key, list) {
   HIDDEN[key] = list;
   try { localStorage.setItem(COLS_STORE + key, JSON.stringify(list)); } catch (e) { /* the choice then lasts until reload */ }
 }
+const WIDTHS = {};
+const COLW_STORE = 'table-colw:';
+// Column id -> px, for columns a person has dragged wider or narrower. Missing or stale (a since-renamed or
+// removed column id) just means that column uses its default track; applyColumnWidths ignores an id it no longer has.
+function widthsOf(key) {
+  if (!hasOwn(WIDTHS, key)) {
+    let parsed = {};
+    try {
+      const raw = localStorage.getItem(COLW_STORE + key);
+      if (raw) { const o = JSON.parse(raw); if (o && typeof o === 'object') parsed = o; }
+    } catch (e) { /* storage blocked or corrupt; use default widths */ }
+    WIDTHS[key] = parsed;
+  }
+  return WIDTHS[key];
+}
+function setWidth(key, id, px) {
+  const cur = Object.assign({}, widthsOf(key));
+  if (px == null) delete cur[id]; else cur[id] = px;
+  WIDTHS[key] = cur;
+  try { localStorage.setItem(COLW_STORE + key, JSON.stringify(cur)); } catch (e) { /* the choice then lasts until reload */ }
+}
 // An action column (buttons, not data) is part of the drawn table but is never exported or offered in the column chooser.
 const exportCols = (key, header) => header.filter((c) => !c.action).map((c) => {
   const id = colId(c);
@@ -350,15 +371,19 @@ function exportBar(key, header) {
 // Hidden columns and the row buttons are applied to the drawn table after each render, so every table gets
 // both from its sortHeader call and no page draws them itself.
 const GRID_DEFAULT = 'minmax(120px,1.6fr) 56px 56px minmax(80px,1.4fr) minmax(80px,1.2fr) 96px 96px';
-// The first call keeps the row's original grid, so a later pass (a window resize) never trims it twice.
-function tracksOf(el) {
-  if (el.dataset.grid == null) { const m = /grid-template-columns:\s*([^;]+)/.exec(el.getAttribute('style') || ''); el.dataset.grid = m ? m[1].trim() : GRID_DEFAULT; }
+// Splits a grid-template-columns string on top-level spaces only, so a track's own parentheses (minmax(...)) stay whole.
+function splitTracks(str) {
   const out = []; let depth = 0, cur = '';
-  for (const ch of el.dataset.grid) {
+  for (const ch of str) {
     if (ch === '(') depth++; else if (ch === ')') depth--;
     if (ch === ' ' && !depth) { if (cur) out.push(cur); cur = ''; } else cur += ch;
   }
   return cur ? out.concat(cur) : out;
+}
+// The first call keeps the row's original grid, so a later pass (a window resize) never trims it twice.
+function tracksOf(el) {
+  if (el.dataset.grid == null) { const m = /grid-template-columns:\s*([^;]+)/.exec(el.getAttribute('style') || ''); el.dataset.grid = m ? m[1].trim() : GRID_DEFAULT; }
+  return splitTracks(el.dataset.grid);
 }
 /* floor:begin */
 // A track's smallest width: a fixed width, or the first argument of minmax(). The row's minimum width is the sum
@@ -382,6 +407,20 @@ function setFloor(sec, head, tracks, name, viewportW) {
 // The name cell is cut with an ellipsis in a narrow column, so its full text is also the tooltip.
 const nameAttrs = (text, style) => ({ style: 'font-weight:500' + (style ? ';' + style : ''), title: String(text) });
 /* floor:end */
+/* colresize:begin */
+// Only a flexible (fr) track is resizable by hand; a fixed-width track (an icon or action column) stays put.
+const isFlexTrack = (t) => t.includes('fr');
+// Replaces a flexible track with a fixed px width from `widths` (column id -> px), clamped to that track's own
+// minimum. A fixed track, or an id missing from `widths` (never dragged, or a stale id from a renamed column), is
+// returned unchanged. The override itself then becomes that column's new minimum for setFloor.
+function applyColumnWidths(tracks, ids, widths) {
+  return tracks.map((t, i) => {
+    const w = widths[ids[i]];
+    if (w == null || !isFlexTrack(t)) return t;
+    return Math.max(trackMin(t), Math.round(w)) + 'px';
+  });
+}
+/* colresize:end */
 const warned = new Set();
 const TABLE_NAME = { sudo: 'sudo and su launches', auth: 'Authorization requests', apps: 'Apps', listen: 'Listeners', pers: 'Persistence startup items', net: 'Network connections', hist: 'New hosts', act: 'Actions', trash: 'Moves to the Trash', store: 'Storage folders' };
 function decorateTables() {
@@ -389,7 +428,8 @@ function decorateTables() {
     const key = head.dataset.table, sec = head.parentElement, ids = head.dataset.cols.split(',');
     const rows = [...sec.querySelectorAll(':scope > .tr:not(.h)')], slice = TABLES[key] ? TABLES[key].page : [];
     for (const old of sec.querySelectorAll(':scope > .rowcopy-layer')) old.remove();
-    setFloor(sec, head, tracksOf(head), TABLE_NAME[key] || key, window.innerWidth);
+    const headTracks = applyColumnWidths(tracksOf(head), ids, widthsOf(key));
+    setFloor(sec, head, headTracks, TABLE_NAME[key] || key, window.innerWidth);
     // Position decides which cell is hidden and which record a button copies, so a table that does not line up is left alone.
     if (head.children.length !== ids.length || !tableAligned(ids.length, rows.map((r) => r.children.length), slice.length)) {
       if (!warned.has(key)) { warned.add(key); console.warn('table "' + key + '": drawn rows do not match its data; column hiding and row copy are off'); }
@@ -397,12 +437,12 @@ function decorateTables() {
     }
     const shown = visibleCols(ids.map((id) => ({ id })), hiddenOf(key)).map((c) => c.id);
     for (const r of [head, ...rows]) {
-      const tracks = tracksOf(r);
+      const tracks = applyColumnWidths(tracksOf(r), ids, widthsOf(key));
       [...r.children].forEach((c, i) => { c.style.display = shown.includes(ids[i]) ? '' : 'none'; });
       r.style.gridTemplateColumns = tracks.filter((_, i) => shown.includes(ids[i])).join(' ');
     }
     sec.classList.add('has-copy');
-    setFloor(sec, head, tracksOf(head).filter((_, i) => shown.includes(ids[i])), TABLE_NAME[key] || key, window.innerWidth);
+    setFloor(sec, head, headTracks.filter((_, i) => shown.includes(ids[i])), TABLE_NAME[key] || key, window.innerWidth);
     sec.append(h('div', { class: 'rowcopy-layer', style: 'width:' + sec.scrollWidth + 'px' }, rows.map((r, i) =>
       h('button', { class: 'rowcopy', type: 'button', style: 'top:' + (r.offsetTop + Math.max(0, (r.offsetHeight - 24) / 2)) + 'px', title: 'Copy this row as JSON', 'aria-label': 'Copy row ' + (i + 1) + ' as JSON', onClick: () => copyRow(key, slice[i]) }, 'Copy'))));
   }
@@ -424,13 +464,66 @@ function sortHeader(key, cols, style, extra) {
   HEADERS[key] = cols;
   // An export-only column is in the export and the column chooser but is not drawn.
   const drawn = cols.filter((c) => !c.exportOnly);
-  const head = h('div', { class: 'tr h ' + (extra || ''), style: style || '', 'data-table': key, 'data-cols': drawn.map(colId).join(',') }, drawn.map((c) => {
-    if (!c.sort) return h('span', { class: c.cls || '' }, c.label);
+  const rowTracks = splitTracks((style && (/grid-template-columns:\s*([^;]+)/.exec(style) || [])[1] || GRID_DEFAULT).trim());
+  const head = h('div', { class: 'tr h ' + (extra || ''), style: style || '', 'data-table': key, 'data-cols': drawn.map(colId).join(',') }, drawn.map((c, i) => {
+    const id = colId(c), grip = colGrip(key, id, c.label, rowTracks[i]);
+    if (!c.sort) return h('span', { class: 'cwrap ' + (c.cls || '') }, c.label, grip);
     const on = !!s && s.col === c.sort;
-    return h('span', { class: c.cls || '' }, h('button', { class: 'th' + (on ? ' on' : ''), type: 'button', title: c.title || 'Sort by ' + c.label, onClick: () => rec({ sorts: nextSort(key, c.sort), page: {} }) },
-      c.label, h('span', { class: 'arrow', 'aria-hidden': 'true' }, on ? (s.dir === 'asc' ? '\u25B2' : '\u25BC') : '')));
+    return h('span', { class: 'cwrap ' + (c.cls || '') }, h('button', { class: 'th' + (on ? ' on' : ''), type: 'button', title: c.title || 'Sort by ' + c.label, onClick: () => rec({ sorts: nextSort(key, c.sort), page: {} }) },
+      c.label, h('span', { class: 'arrow', 'aria-hidden': 'true' }, on ? (s.dir === 'asc' ? '\u25B2' : '\u25BC') : '')), grip);
   }));
   return [exportBar(key, cols), head];
+}
+// A drag/keyboard handle on a flexible column's right edge; a fixed-width column (an icon or action column) gets none.
+function colGrip(key, id, label, track) {
+  if (!track || !isFlexTrack(track)) return null;
+  return h('span', { class: 'colgrip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the ' + label + ' column', tabindex: '0',
+    onMousedown: (e) => startColResize(e, key, id),
+    onKeydown: (e) => colHandleKeys(e, key, id),
+    onDblclick: (e) => { e.stopPropagation(); setWidth(key, id, null); render(); } });
+}
+const COL_STEP = 16;
+let endColDrag = null; // the in-progress column drag's cleanup, so a second mousedown or a missed mouseup can't leak listeners
+// Drag a column's right edge; mirrors startDrawerResize (live DOM patch per frame, one render() on release). Every
+// row of the table is patched at once, from each row's own tracks (tracksOf caches per node, same as decorateTables).
+function startColResize(e, key, id) {
+  e.preventDefault(); e.stopPropagation();
+  if (endColDrag) endColDrag();
+  const handleEl = e.currentTarget, headEl = handleEl.closest('.tr.h'); if (!headEl) return;
+  const sec = headEl.parentElement, ids = headEl.dataset.cols.split(','), i = ids.indexOf(id);
+  if (i < 0) return;
+  const rows = [headEl, ...sec.querySelectorAll(':scope > .tr:not(.h)')];
+  const startX = e.clientX, startW = headEl.children[i].getBoundingClientRect().width, minW = trackMin(tracksOf(headEl)[i]);
+  const shown = visibleCols(ids.map((cid) => ({ id: cid })), hiddenOf(key)).map((c) => c.id);
+  let raf = 0, pending = startW;
+  const paint = () => {
+    raf = 0;
+    const widths = Object.assign({}, widthsOf(key), { [id]: pending });
+    for (const r of rows) {
+      const joined = applyColumnWidths(tracksOf(r), ids, widths).filter((_, k) => shown.includes(ids[k])).join(' ');
+      r.style.gridTemplateColumns = joined;
+    }
+    handleEl.setAttribute('aria-valuenow', Math.round(pending));
+  };
+  const onMove = (ev) => { pending = Math.max(minW, startW + (ev.clientX - startX)); if (!raf) raf = requestAnimationFrame(paint); };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); window.removeEventListener('blur', onUp);
+    if (raf) cancelAnimationFrame(raf);
+    endColDrag = null;
+    setWidth(key, id, Math.round(pending));
+    render();
+  };
+  endColDrag = onUp;
+  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); window.addEventListener('blur', onUp);
+}
+function colHandleKeys(e, key, id) {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+  const headEl = e.currentTarget.closest('.tr.h'); if (!headEl) return;
+  const ids = headEl.dataset.cols.split(','), i = ids.indexOf(id); if (i < 0) return;
+  const cur = Math.round(headEl.children[i].getBoundingClientRect().width), minW = trackMin(tracksOf(headEl)[i]);
+  setWidth(key, id, Math.max(minW, cur + (e.key === 'ArrowLeft' ? -COL_STEP : COL_STEP)));
+  render();
 }
 const sigKind = (g) => (!g.signing ? 'unchecked' : g.signing.apple ? 'apple' : g.signing.signed ? 'signed' : 'unsigned');
 const listenText = (g) => [...new Set(g.conns.filter((c) => c.direction === 'listen').map((c) => c.local_port + (c.exposed ? '*' : '')))].join(', ') || '-';

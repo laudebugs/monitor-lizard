@@ -118,6 +118,11 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .th{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer}
 .th:hover,.th.on{color:var(--fg)}
 .th .arrow{display:inline-block;width:10px;font-size:9px}
+.cwrap{position:relative;display:inline-flex;align-items:center;gap:4px;max-width:100%;min-width:0}
+.colgrip{position:absolute;top:-10px;bottom:-10px;right:-9px;width:14px;cursor:col-resize;touch-action:none;z-index:1}
+.colgrip:after{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:transparent}
+.colgrip:hover:after,.colgrip:focus-visible:after{background:var(--acc)}
+.colgrip:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
 .theme-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* Wide screens: tables scroll with the page, so column headers can stick under the page header. */
