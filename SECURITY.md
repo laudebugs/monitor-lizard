@@ -11,6 +11,7 @@ system-monitor can stop processes on your Mac, so these matter most:
 - A way for a web page or another local process to stop a process, approve an app, or read data without the per-run token (CSRF, DNS rebinding, token leakage).
 - A way to make `POST /api/trash` move anything the latest scan did not list, a symbolic link, or a path outside your home folder and `/Applications`, or to skip the second confirmation for an item labelled yours.
 - A way to make it signal processes it refuses: root-owned, launchd, itself, or another user's.
+- A way to make `POST /api/requester/signal` signal a process it refuses (root-owned, another user's, launchd, Monitor Lizard or its parents and children), a pid that is no longer the process that was captured, or anything without a preview token and an audit row.
 - The server listening on anything other than 127.0.0.1.
 - Injection through process names, command lines, or other attacker-controlled strings shown in the dashboard.
 
@@ -19,6 +20,12 @@ system-monitor can stop processes on your Mac, so these matter most:
 Loopback only, Host and Origin checks on every request, a random per-run token on every write, own-user processes only, an audit log of every action, no telemetry. Tests need no credentials and make no network calls.
 
 `POST /api/kill` requires a `start=<unix-seconds>` for every pid in `pids=`, read moments earlier from `GET /api/processes`. Before signalling, the server re-reads that pid's start time fresh and refuses if it no longer matches, so a pid recycled by a new, unrelated process between the read and the click is never signalled. A request missing `start`, or with a different count of `start` values than `pids`, is refused outright rather than falling back to the old pid-only check.
+
+## What `/api/requester/signal` does
+
+The Privilege page can freeze (SIGSTOP), resume (SIGCONT), stop (SIGTERM) or force stop (SIGKILL) the processes that led to a `sudo` or `su`, one process or the whole chain from a chosen hop down to the one that ran `sudo`. The route needs the Origin check and the per-run token, and each process is named with the pid, start time and executable path the collector captured. Only `dry=0` signals: no `dry` or `dry=1` is a preview, and any other value is rejected. A preview returns a confirmation that is good for ten minutes and one use, in memory only, and tied to the action, the scope and those exact items. At most 12 processes are named per request.
+
+Every pid is read fresh three times: in the preview, before the audit row is written, and immediately before its own signal. A pid is signalled only if all of these hold. It still exists and has the captured start time and executable (otherwise the reply says `pid_reused`). It belongs to your user (otherwise `root_owned` or `not_yours`). It is not pid 1 (`launchd`), and not Monitor Lizard or one of its parents or descendants (`monitor_lizard`; the menu-bar shell is a parent). The action also fits its state from `ps -o state=`: a second freeze is `already_frozen`, and resuming a running process is `not_frozen`. Freeze and resume go parent first, stop and force stop child first. Stop on a frozen process also sends SIGCONT, because a stopped process holds a pending SIGTERM. The audit row (STOP, CONT, TERM or KILL in the `actions` table, with the planned pids and anything refused) is written before the first signal; if it cannot be written nothing is signalled. A second row records anything that was refused or failed after that. The address hash holds nothing about a request. Two limits remain. A process swapped for another in the instant between the last check and the signal is a race no check can close. And the second confirmation for a shell, `login`, the terminal app or `claude` is enforced by the page, not the server.
 
 ## What `/api/storage` exposes
 

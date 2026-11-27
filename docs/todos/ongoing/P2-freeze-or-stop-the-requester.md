@@ -52,10 +52,10 @@ P1 shows every process between the person and `sudo`. The owner asked to act on 
 
 ## Steps
 
-- [ ] Tests first: Rust unit tests with fake and real `sleep` children; Node tests for the state machine and classifier.
-- [ ] Server module, then the route.
-- [ ] Page: buttons, dialogs, polling of the status.
-- [ ] Look at every dialog state in Chrome in both themes on a scratch server.
+- [x] Tests first: Rust unit tests with fake and real `sleep` children; Node tests for the state machine and classifier.
+- [x] Server module, then the route.
+- [x] Page: buttons, dialogs, polling of the status.
+- [x] Look at the dialog states in Chrome in both themes on a scratch server (scripted replies).
 
 ## Edge cases (must be covered)
 

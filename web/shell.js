@@ -88,12 +88,14 @@ function render() {
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
   const trash = trashLayer();
   if (trash) layer.push(trash);
+  const sig = sigLayer();
+  if (sig) layer.push(sig);
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   if (S.copyText) layer.push(h('div', { class: 'copybox', role: 'dialog', 'aria-label': 'Copy blocked' }, h('p', { class: 'small', style: 'margin:0' }, 'The browser did not allow copying. The text is selected: press Cmd+C.'),
     h('textarea', { readonly: true, rows: 8, 'aria-label': 'Row as JSON' }, S.copyText), h('button', { class: 'btn sm', onClick: () => rec({ copyText: null }) }, 'Close')));
   $('layer').replaceChildren(...layer);
   decorateTables();
-  const af = (trash || document).querySelector('[data-autofocus]'); if (af) af.focus();
+  const af = (trash || sig || document).querySelector('[data-autofocus]'); if (af) af.focus();
   else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
@@ -112,7 +114,7 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
 applyTheme(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
-setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
+setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000); setInterval(loadReqLive, 5000);
 setInterval(loadVolume, 30000);
 setInterval(loadProcesses, 5000); // matches the server's own 5 s procusage sampler interval
 setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that checks S.perfLive, document.hidden and the active view

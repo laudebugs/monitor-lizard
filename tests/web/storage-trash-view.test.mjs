@@ -12,7 +12,7 @@ const block = (name) => {
 };
 const code = ['url-state', 'requester', 'disk-net', 'page-shell', 'storage-page', 'storage-trash', 'storage-trash-view'].map(block).join('\n');
 const exported = 'trashOpen trashApply trashDispatch trashRequest trashSync trashClose closeTopLayer trashKeys trashDialog trashLayer trashFocusBack trashIdle trashSelection trashSummary openTrash'.split(' ');
-const make = new Function('env', 'const { S, h, $, render, announce, api, loadStorage, labelTag, rec, document, setTimeout } = env;\n' + code + '\nreturn { ' + exported.join(', ') + ' };');
+const make = new Function('env', 'const { S, h, $, render, announce, api, loadStorage, labelTag, rec, document, setTimeout } = env;\nconst sigOpen = () => false, sigClose = () => {};\n' + code + '\nreturn { ' + exported.join(', ') + ' };');
 
 // ---- the stand-in DOM
 class El {
@@ -109,7 +109,7 @@ test('background polls are held only while a dialog is open (the quiet() guard)'
   assert.equal(w.P.trashOpen(), true);
   w.S.trash = w.P.trashIdle();
   assert.equal(w.P.trashOpen(), false);
-  assert.match(html, /const quiet = \(m\) => \{ Object\.assign\(S, m\); if \(!S\.menu && !S\.modal && !trashOpen\(\)\) render\(\); \};/);
+  assert.match(html, /const quiet = \(m\) => \{ Object\.assign\(S, m\); if \(!S\.menu && !S\.modal && !trashOpen\(\) && !sigOpen\(\)\) render\(\); \};/);
 });
 
 test('a dialog that cannot be drawn is closed with a message instead of freezing the page', () => {
@@ -200,7 +200,7 @@ test('one Escape closes one layer: the Trash dialog first, then the Stop dialog'
 });
 
 test('the shell looks for autofocus inside the dialog first, never in the inert page', () => {
-  assert.match(html, /const af = \(trash \|\| document\)\.querySelector\('\[data-autofocus\]'\)/);
+  assert.match(html, /const af = \(trash \|\| sig \|\| document\)\.querySelector\('\[data-autofocus\]'\)/);
 });
 
 function reqWorld(result) {

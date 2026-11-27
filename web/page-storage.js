@@ -424,6 +424,7 @@ const trashClose = () => trashDispatch({ type: 'close' });
 // One Escape closes one layer: the Trash dialog if it is open, otherwise the Stop dialog.
 function closeTopLayer() {
   if (trashOpen()) { trashClose(); return 'trash'; }
+  if (sigOpen()) { sigClose(); return 'signal'; }
   if (S.modal) { rec({ modal: null }); return 'stop'; }
   return null;
 }
