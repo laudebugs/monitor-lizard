@@ -24,7 +24,7 @@ async function loadStorage(fresh) {
     if (staleReply(mine, stSeq)) return;
     stFails++;
     after = { data: S.stData, failed: true };
-    quiet({ stFailed: true });
+    quiet({ stFailed: true, stNote: null });
   }
   const say = storageAnnouncement(before, after, Date.now() / 1000) || note;
   if (say) announce(say);
@@ -150,7 +150,7 @@ function stItemFacts(sel) {
   const gone = sel.kind === 'pending', sparse = sel.apparent != null && sel.bytes != null && sel.apparent > sel.bytes;
   return stKv(['Path', sel.path], ['Size', sizeText(sel)],
     sparse && ['Apparent', formatBytes(sel.apparent) + ' (sparse: the files claim more than they use)'],
-    !gone && ['Section', ST_CATEGORIES[sel.category] || sel.category], !gone && ['Files', String(sel.entries)],
+    !gone && ['Section', ST_CATEGORIES[sel.category] || sel.category], !gone && ['Files', (Number.isFinite(sel.entries) ? String(sel.entries) : 'not reported')],
     !gone && ['Measured', timeCell(sel.at, 'mut')],
     sel.unreadable > 0 && ['Unreadable', plural(sel.unreadable, 'subfolder',
       'subfolders') + ' could not be read, so the size is at least this']);
@@ -158,7 +158,7 @@ function stItemFacts(sel) {
 function stItemInspector(sel) {
   const gone = sel.kind === 'pending', yours = sel.label === ST_LABEL.yours;
   const why = gone ? stPart('Not yet scanned', h('p', { style: 'margin:0;font-size:13px' },
-    'The scan ran out of time before this location. Rescan reads it again.'))
+    'The scan ran out of time before this folder. Rescan reads it again.'))
     : stPart('Why ' + sel.label.toUpperCase(), h('p', { style: 'margin:0;font-size:13px' },
       ST_RULE_TEXT[sel.rule] || 'Not on the safe list, so it needs a look first.'));
   const copy = gone ? null : h('button', { class: 'btn sm', type: 'button', onClick: () => copyRow('store', sel) },
@@ -263,8 +263,8 @@ function stBanner(d, state) {
     style: 'padding:12px 16px;margin-bottom:14px;border-color:var(--warn)' },
     h('span', { class: 'tag warn' }, 'Partial'),
     ' This scan did not finish every folder (' + coverageText(d)
-      + '). Sizes marked "at least" can only grow, the treemap is not final'
-    + ' and no safe-to-remove total is shown until a scan completes.');
+      + '). Sizes marked "at least" can only grow. The treemap is not final,'
+    + ' and no safe-to-remove total appears until a scan completes.');
 }
 function stActions(d, now) {
   const info = rescanInfo(d, now), busy = !!(d && d.scanning);
@@ -338,7 +338,7 @@ function systemDataCard(d) {
 function stExportPanel(d, rows, shown, now, filterText) {
   if (!S.stAsk) return null;
   return h('section', { class: 'card', id: 'st-export', role: 'group', 'aria-label': 'Export HTML report', style: 'padding:12px 16px;margin-bottom:14px' },
-    h('p', { style: 'margin:0 0 8px' }, 'The report lists folder paths, with your home folder shown as ~. It is one file with no network use, saved to your Downloads folder. Share it with care.'),
+    h('p', { style: 'margin:0 0 8px' }, 'The report lists folder paths, with your home folder shown as ~. It is one file with no network use, saved to your Downloads folder. It names your folders, so share it only with people you trust.'),
     h('div', { style: 'display:flex;gap:8px' },
       h('button', { class: 'btn btn-acc sm', id: 'st-export-go', type: 'button', onClick: () => exportReport(d, rows, shown, now, filterText) }, 'Download report'),
       h('button', { class: 'btn sm', type: 'button', onClick: () => stFocus('st-export-btn', { stAsk: false }) }, 'Cancel')));
@@ -462,14 +462,14 @@ function trashBody(t) {
   const lines = [p(trashHeadline(sum, !done), 'tr-head')];
   if (sum.warning) lines.push(p(sum.warning, 'tr-warn'));
   if (done) lines.push(p(trashCounts(sum.counts), 'small mut'));
-  if (done && sum.counts.failed + sum.counts.not_attempted > 0) lines.push(p('Check your Trash for the failed and not attempted folders.', 'small'));
+  if (done && sum.counts.failed + sum.counts.not_attempted > 0) lines.push(p('Check your Trash for folders that failed or were not attempted.', 'small'));
   if (sum.auditError) lines.push(p('History could not be written: ' + sum.auditError, 'small'));
   if (!done && sum.counts.refused) lines.push(p(plural(sum.counts.refused, 'folder is', 'folders are') + ' refused and stays where it is. The rest can still move.', 'small'));
   if (!done && t.yours.length && !t.confirmYours) lines.push(p('Your own folder ' + trashNames(t.yours) + ' needs a separate confirmation on the next step.', 'small'));
   lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per folder' : 'What would move' }, [...moved, ...rest].map(trashItemRow)));
   lines.push(p(sum.note, 'small mut'));
   if (done) {
-    lines.push(p('Moved folders may stay listed for up to a minute. Wait, then press Rescan.', 'small'));
+    lines.push(p('The scan result is cached for a minute, so moved folders may stay listed. Press Rescan after it expires.', 'small'));
     lines.push(p(sum.historyId == null ? 'The server did not report a History entry for this request.' : 'Recorded as request ' + sum.historyId + ' in History.', 'small'));
     lines.push(h('a', { class: 'small', href: writeHash({ view: 'history' }) }, 'Open History'));
   }

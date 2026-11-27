@@ -107,12 +107,12 @@ make check-docs
 
 ## Implementation Record
 
-2026-11-26. Status: left in `ongoing/`; two acceptance items are open.
+2026-11-26. Status: left in `ongoing/`; three acceptance items are open.
 
 - **Built:** a "Disk and network" tab in the Performance tab bar, like the CPU and GPU tab, with no new sidebar entry. It has a capacity card, a throughput chart, an operations chart and a network chart. The Overview Disk and Network tiles open it.
 - **Reusable bar:** `capacityBar(args)` takes `{ used, purgeable, free, unavailable }`: bytes, or `null` for a part that could not be read, plus the reason. Its sizing is `capacitySegments`, in the `disk-net` block.
 - **Reused from the storage scanner:** `split_capacity`, `boot_volume_capacity` and `available_and_important`. `GET /api/volume` returns that capacity without a folder scan, and answers 500 with a short error if the reply cannot be written.
-- **Network rule:** `interfaces_up` counts interfaces that are not loopback, are up and running, and hold a routable address. Link-local-only interfaces such as utun, awdl, llw and anpi do not count. On the build Mac it counted en0 and skipped the other 27, loopback included.
+- **Network rule:** `interfaces_up` counts interfaces that are not loopback, are up and running, and hold a routable address. Link-local-only interfaces such as VPN tunnels and Apple peer-to-peer links do not count. On the build Mac, only en0 counted and the other 27 were skipped, loopback included.
 - **Failed reads:** a failed `/api/volume` read shows "Could not read capacity. Retrying." and retries on the next poll; the first paint says "Reading capacity...".
 - **Tests:** Node cases for bar sizing, bad numbers, whole-number percentages, capacity status, rate formatting, the network rule and the `tab` key; Rust tests for `netif` and the reply.
 - **Browser:** Chrome with a scratch HOME, own tab. Seen in dark and light: the live tab with real capacity, purgeable unavailable, no connection (page state set, not a real outage) and a 400 px frame without overflow.
