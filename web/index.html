@@ -19,7 +19,7 @@
 <div id="theme" style="padding:0 8px"></div>
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>
 <main class="main" id="main" tabindex="-1">
-<header class="top"><button class="navtoggle" id="navtoggle" type="button" aria-expanded="false" aria-controls="side" aria-label="Open navigation">&#9776;</button><nav id="crumb" class="crumb" aria-label="Breadcrumb"></nav><input id="q" class="search" type="search" placeholder="Search apps, ports" aria-label="Search apps and ports"></header>
+<header class="top"><button class="navtoggle" id="navtoggle" type="button" aria-expanded="false" aria-controls="side" aria-label="Open navigation">&#9776;</button><nav id="crumb" class="crumb" aria-label="Breadcrumb"></nav><div class="searchwrap"><input id="q" class="search" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="smenu" autocomplete="off" placeholder="Search apps, ports (/)" aria-label="Search apps, ports, hosts, startup items and the Guide"><div id="smenu" class="smenu" role="listbox" aria-label="Search results" hidden></div></div></header>
 <div id="content"></div>
 </main>
 </div>
@@ -39,6 +39,7 @@
 <script src="/js/page-performance.js"></script>
 <script src="/js/page-storage.js"></script>
 <script src="/js/page-guide.js"></script>
+<script src="/js/search.js"></script>
 <script src="/js/helpers.js"></script>
 <script src="/js/page-storage-logic.js"></script>
 <script src="/js/shell.js"></script>

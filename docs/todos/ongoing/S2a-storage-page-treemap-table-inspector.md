@@ -111,7 +111,7 @@ Built and checked in a real browser on a synthetic home. The todo stays in `ongo
 - [ ] A scan of a real developer home has not been looked at.
 - [ ] A physical keyboard has not been used; arrow keys were sent as synthetic events.
 - [ ] The owner's window is 1352 px wide, so 1360 px is not available; the widest check is recorded in the PR.
-- [ ] The Performance page does not filter by the search box; typing there still jumps to Apps. This is a known gap.
+- [x] The Performance page does not filter by the search box; typing there no longer jumps to Apps (closed by the global search, N2).
 
 ## Notes
 
