@@ -49,7 +49,7 @@ function verdictTitle(view, f) {
   if (view === 'apps') return n ? plural(n, 'app needs', 'apps need') + ' review' : 'Nothing needs review';
   if (view === 'priv') return n ? plural(n, 'failed authorization request', 'failed authorization requests') : 'No failed authorization requests';
   if (view === 'listeners') return n ? plural(n, 'listening socket is', 'listening sockets are') + ' open to your network' : 'No listening socket is open to your network';
-  if (view === 'persist') return n ? plural(n, 'new startup item', 'new startup items') : 'No new startup items';
+  if (view === 'persist') return n ? plural(n, 'new startup item', 'new startup items') + ' since your baseline' : 'No changes since your baseline';
   return n ? plural(n, 'new host', 'new hosts') + ' in the last hour' : 'No new hosts in the last hour';
 }
 // "5m ago" for a time in epoch seconds; `long` gives "5 minutes ago" for a screen reader. The cell carries the exact time as well.

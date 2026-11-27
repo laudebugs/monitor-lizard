@@ -429,3 +429,13 @@ test('storage: a not-yet-scanned location id survives the address, a hostile one
   assert.equal(L.parseHash('#storage?q=deriveddata').q, 'deriveddata', 'the folder search is in the address');
   assert.equal(L.writeHash({ ...stBase, q: 'cache' }), '#storage?q=cache');
 });
+
+test('persistence: the filter, Apple toggle and selected item round-trip through the address', () => {
+  const pBase = { view: 'persist', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: { pApple: '0', pItem: null } };
+  const s = { ...pBase, filter: 'unsigned', ex: { pApple: '1', pItem: '/Users/me/Library/LaunchAgents/a.plist' } };
+  const h = L.writeHash(s);
+  assert.deepEqual(L.parseHash(h), s);
+  assert.equal(L.writeHash(pBase), '#persist', 'defaults write nothing');
+  for (const bad of ['relative.plist', '', '/a\u0001b', '/' + 'x'.repeat(400)]) assert.equal(L.parseHash('#persist?item=' + encodeURIComponent(bad)).ex.pItem, null, bad);
+  assert.equal(L.parseHash('#persist?apple=yes').ex.pApple, '0');
+});
