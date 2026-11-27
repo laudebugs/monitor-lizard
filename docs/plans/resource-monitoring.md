@@ -5,7 +5,7 @@
 - **Baseline:** `main` after the scaffold adoption PR, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [resource monitoring research](../research/resource-monitoring/README.md), [system-monitor plan](system-monitor.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md), [B2](../todos/done/B2-gpu-and-disk-metrics.md), [B3](../todos/done/B3-per-process-usage-table.md), [B4](../todos/done/B4-performance-overview-page.md), [B5](../todos/done/B5-cpu-gpu-detail-page.md), [B6](../todos/done/B6-memory-detail-page.md), [B7](../todos/ongoing/B7-disk-network-detail-page.md), [B8](../todos/done/B8-top-consumers-and-guarded-stop.md), [B9](../todos/done/B9-metrics-history-sqlite.md), [B10](../todos/ready/B10-interactive-performance-charts.md)
+- **Todos:** [B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md), [B2](../todos/done/B2-gpu-and-disk-metrics.md), [B3](../todos/done/B3-per-process-usage-table.md), [B4](../todos/done/B4-performance-overview-page.md), [B5](../todos/done/B5-cpu-gpu-detail-page.md), [B6](../todos/done/B6-memory-detail-page.md), [B7](../todos/ongoing/B7-disk-network-detail-page.md), [B8](../todos/done/B8-top-consumers-and-guarded-stop.md), [B9](../todos/done/B9-metrics-history-sqlite.md), [B10](../todos/ongoing/B10-interactive-performance-charts.md)
 
 ## 1. Goal
 

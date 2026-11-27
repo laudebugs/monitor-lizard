@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `B10` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [resource-monitoring](../../plans/resource-monitoring.md) |
 | Depends on | B5, B6, B7, B8 |
 | ADRs | None |
@@ -83,7 +83,7 @@ make test
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [ ] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
