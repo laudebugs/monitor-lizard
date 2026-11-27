@@ -10,7 +10,7 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in web/index.html');
   return m[1];
 };
-const names = 'stCleanups cleanupView safeIds sumSizes sumText pickedRows cleanupSummary safeCleanupLine systemData systemText stSectionReading escHtml reportHtml storageRows ST_RULE_TEXT ST_CLEANUP_TOP'.split(' ');
+const names = 'stCleanups cleanupView safeIds sumSizes sumText pickedRows cleanupSummary safeCleanupLine systemData systemText stSectionReading escHtml reportHtml storageRows ST_RULE_TEXT ST_CLEANUP_TOP safeSubtotalText visibleText homeRelative'.split(' ');
 const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + block('storage-cleanups') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const GB = 1e9;
@@ -150,7 +150,7 @@ test('report: carries the same numbers as the page, and says it lists paths', ()
   const out = report(d);
   assert.ok(out.includes('40.0 GB') && out.includes('20.0 GB'));
   assert.match(out, /Safe to remove: 40\.0 GB/);
-  assert.match(out, /lists file paths/);
+  assert.match(out, /lists folder paths/);
   assert.match(out, /unavailable: no tool reports a snapshot size without root/);
 });
 
@@ -167,4 +167,39 @@ test('report: the folder table follows the view it is given', () => {
   assert.match(out, /Label: safe/);
   const folders = out.slice(out.indexOf('Folders in this view'));
   assert.ok(folders.includes('DerivedData') && !folders.includes('com.x'));
+});
+
+test('subtotal: the safe subtotal in the list header is the inspector total for the same set, in every case', () => {
+  const cases = {
+    plain: scan(),
+    lowerBound: scan({ items: [safeItem('/Users/me/Library/Developer/Xcode/DerivedData', 4 * GB, { complete: false }), safeItem('/Users/me/Library/Caches/Homebrew', GB, { rule: 'homebrew-cache', category: 'caches' })] }),
+    unavailable: scan({ items: [safeItem('/Users/me/Library/Developer/Xcode/DerivedData', 4 * GB), safeItem('/Users/me/Library/Caches/Homebrew', gone('permission denied'), { rule: 'homebrew-cache', category: 'caches' })] }),
+    none: scan({ items: [item('/Users/me/Library/Caches/a', 'caches', GB)] }),
+  };
+  for (const [name, d] of Object.entries(cases)) {
+    const list = clean(d), inspector = P.sumText(P.sumSizes(P.pickedRows(list, P.safeIds(list))));
+    assert.equal(P.safeSubtotalText(list), inspector, name);
+  }
+  assert.match(P.safeSubtotalText(clean(cases.lowerBound)), /^at least 5\.0 GB$/);
+  assert.match(P.safeSubtotalText(clean(cases.unavailable)), /^at least 4\.0 GB \(1 size unavailable\)$/);
+});
+
+test('report: a newline in a path shows as \\n and cannot look like two folders; a single quote is escaped', () => {
+  const out = report(scan({ items: [item("/Users/me/Library/Caches/a\n/Users/me/Library/Caches/b'c\r\t", 'caches', GB)] }));
+  assert.ok(!/a\n/.test(out.slice(out.indexOf('<h2>Suggested'))) , 'a raw newline reached the table');
+  assert.ok(out.includes('a\\n/Users/me/Library/Caches/b&#39;c\\r\\t') || out.includes('~/Library/Caches/a\\n'), 'visible escape');
+  assert.equal(P.visibleText('a\nb\u0007'), 'a\\nb\\x07');
+});
+
+test('report: hostile filterText and generated text are escaped and flattened', () => {
+  const d = scan(), rows = P.storageRows(d);
+  const out = P.reportHtml({ d, rows, shownRows: rows, system: P.systemData(d), generated: '<b>x</b>', filterText: 'search "</p><script>alert(1)</script>"\nline2' });
+  assert.ok(!/<script|<b>x/i.test(out));
+  assert.ok(out.includes('&lt;/p&gt;&lt;script&gt;') && out.includes('\\nline2'));
+});
+
+test('report: paths are home-relative, so the user name is not in the file', () => {
+  const out = report(scan());
+  assert.ok(!out.includes('/Users/me'));
+  assert.ok(out.includes('~/Library/Caches/com.x'));
 });

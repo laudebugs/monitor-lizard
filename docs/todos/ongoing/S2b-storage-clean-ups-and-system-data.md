@@ -100,10 +100,18 @@ Built:
 
 Checked in a real browser (Chrome, scratch HOME, window not resized): list ranking and chips, Review all safe sum (34.0 MB = the two safe rows), system data rows with the snapshot reason, the export prompt, and `reportHtml` run in the page (escaped name, no script, no remote address).
 
+Review round 1 (fixed in the second work commit):
+
+- Spec: the list header now shows the safe subtotal beside the total; `safeSubtotalText` and the inspector both use `sumText(sumSizes(...))`, with a test over plain, lower-bound, unavailable and no-safe sets.
+- Focus moves into the export panel when it opens and back to the Export button on Cancel or Download; "Review all safe" is announced. Review all safe resets the section, label and search filters so the picked rows are in the table; changing any of them, or leaving the page, drops the selection, "Show all" and the export prompt.
+- Both lists are `ul`/`li` with a visible column header row and a full `aria-label` on each Review button (name, label, size).
+- The report shows paths as `~/...`, flattens newlines and control characters to `\n`, `\t`, `\xNN`, and the prompt says so. Tests cover a newline, a single quote and hostile filter text.
+
+Also checked in Chrome on a scratch HOME: focus order, announcement text, 10,000 rows (50 shown, Show all draws all 10,000), and the report (built from the same scan with Node, viewed over http) matches the page's numbers.
+
 Pending:
 
-- [ ] The downloaded file was not opened offline; only its generated text was checked.
-- [ ] "Show all" with 10,000 rows was tested in Node only, not drawn in the browser.
+- [ ] The browser's own download did not land on disk in the automated session and `file://` is blocked for the extension, so the file was viewed over local http, not opened offline from disk.
 - [ ] A scan of a real developer home was not looked at.
-- [ ] `/code-review` and `/writing-review` not run.
+- [ ] `/code-review` (second round) and `/writing-review` not run.
 - [ ] Narrow-window layout of the new lists not checked.
