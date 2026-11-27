@@ -265,7 +265,7 @@ const EXPORT = {
   auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => authRequester(e), app: (e) => requesterApp(e.source === 'captured' ? e.chain : []).hint, requester_detail: (e) => (e.source === 'captured' ? chainText(e.chain, fmtWhen) : authNote(e)), requester_note: (e) => authNote(e) },
   listen: { port: (r) => r.c.local_port, proto: (r) => r.c.proto, bind: (r) => r.c.local_addr, app: (r) => r.g.label, pid: (r) => r.c.pid, reach: (r) => reachOf(r) },
   pers: { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen },
-  net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(', '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
+  net: { app: (r) => (r.apps ? r.apps.map((g) => g.label).join(', ') : r.g.label), remote: (r) => r.remote, ports: (r) => r.ports.join(', '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
   hist: { when: (s) => s.first_seen, app: (s) => labelOf(s.group_key), host: (s) => s.remote, hits: (s) => s.hits },
   store: { folder: (r) => r.path, section: (r) => r.category || '', label: (r) => r.label || '', size: (r) => sizeText(r), share: (r) => noDash(shareText(r)), measured: (r) => r.measuredText },
   act: { when: (a) => a.ts, signal: (a) => a.sig, sent: (a) => jsonOr(a.sent, []).join(' '), refused: (a) => noDash(refusedText(a)) },
