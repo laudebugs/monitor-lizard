@@ -268,7 +268,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -1523,16 +1523,6 @@ function performanceView_() {
 
 // ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
 // page can say how long it has taken and show the result the moment it lands. A failed read is retried with a growing pause.
-const ST_RULE_TEXT = {
-  'user-content': 'Your own files', mail: 'Mail data', 'xcode-derived-data': 'Xcode rebuilds this build cache',
-  'homebrew-cache': 'Homebrew downloads this again',
-    'package-manager-cache': 'A package manager downloads this again',
-  'app-cache': 'An app cache; some apps keep offline data here', 'docker-data': 'Docker images and containers',
-  simulators: 'Simulator runtimes and devices', logs: 'Log files',
-    'idle-node-modules': 'node_modules of a project untouched for 90 days',
-  'node-modules': 'node_modules of a project that is in use or has no lockfile', applications: 'An installed app',
-  'outside-home': 'Outside your home folder', 'unclear-path': 'The path could not be checked',
-};
 const ST_TRASH_WHY = 'Available after the removal route ships';
 let stTimer = 0, stSeq = 0, stFails = 0;
 async function loadStorage(fresh) {
@@ -1718,7 +1708,7 @@ function stRow(r, sel) {
     : h('span', { class: 'bar', style: 'flex:1 1 auto;min-width:30px' }, h('i', { style: 'width:' + Math.min(100,
       r.share).toFixed(1) + '%' }));
   return h('button', { class: 'tr ell' + (on ? ' on' : ''), type: 'button', style: ST_COLS,
-    'aria-pressed': String(on), onClick: () => rec({ stItem: r.id }) },
+    'aria-pressed': String(on), onClick: () => rec({ stItem: r.id, stMulti: [] }) },
     // decorateTables resets each cell's display, so the flex row is an inner element.
     h('span', nameAttrs(r.path), h('span', { style: 'display:flex;min-width:0' }, r.head ? h('span', ST_HEAD, r.head) : null, h('span', ST_TAIL, r.tail))), h('span', { class: 'mut small' }, ST_CATEGORIES[r.category] || '-'),
       h('span', {}, labelTag(r.label)),
@@ -1769,7 +1759,79 @@ function stActions(d, now) {
     : info.text;
   return [busy ? h('span', { class: 'small mut' }, scanningText(d, now)) : null,
     h('button', { class: 'btn sm', type: 'button', disabled: busy, title: hint, onClick: rescanNow },
-      busy ? 'Scanning...' : 'Rescan')];
+      busy ? 'Scanning...' : 'Rescan'),
+    d && typeof d.scanned_at === 'number' ? h('button', { class: 'btn sm', id: 'st-export-btn', type: 'button', 'aria-expanded': String(S.stAsk),
+      'aria-controls': 'st-export', onClick: () => stFocus(S.stAsk ? 'st-export-btn' : 'st-export-go', { stAsk: !S.stAsk }) }, 'Export HTML report') : null];
+}
+// Clean-ups list: the folders the scan labelled, largest first, top ST_CLEANUP_TOP unless "Show all" is on.
+const CLEAN_COLS = 'grid-template-columns:minmax(120px,2fr) minmax(120px,2fr) 74px minmax(90px,.7fr) 84px';
+const listReset = 'list-style:none;margin:0;padding:0';
+// Focus goes back to the control that opened a panel when it closes: render() rebuilds every control.
+const stFocus = (id, m) => { rec(m); const el = $(id); if (el) el.focus(); };
+function cleanupRow(r, on) {
+  return h('li', { class: 'tr' + (on ? ' on' : ''), style: CLEAN_COLS + ';min-width:0' },
+    h('span', nameAttrs(r.path), h('span', { style: 'display:flex;min-width:0' }, r.head ? h('span', ST_HEAD, r.head) : null, h('span', ST_TAIL, r.tail))),
+    h('span', { class: 'small mut' }, r.why), h('span', {}, labelTag(r.label)),
+    h('span', { class: 'num' + (r.bytes == null ? ' mut small' : '') }, sizeText(r)),
+    h('button', { class: 'btn sm', type: 'button', 'aria-pressed': String(on), 'aria-label': 'Review ' + r.name + ', ' + r.label + ', ' + sizeText(r),
+      onClick: () => rec({ stItem: r.id, stMulti: [] }) }, 'Review'));
+}
+const stPickSig = () => [S.stTile, S.stfilter, S.q].join('|');
+function storageCleanups(list, sel, picked) {
+  const v = cleanupView(list, S.stAll), safe = safeIds(list), none = !safe.length;
+  const reviewAll = h('button', { class: 'btn sm', type: 'button', disabled: none, title: none ? 'Nothing safe to remove' : 'Select every safe folder in the inspector',
+    onClick: () => {
+      // Every safe folder must be in the table the selection is tied to, so the filters go back to all.
+      S.q = ''; $('q').value = ''; S.stTile = ST_ALL; S.stfilter = ST_ALL; S.stMultiSig = stPickSig();
+      rec({ stMulti: safe, stItem: null, page: {} });
+      announce(plural(safe.length, 'safe folder', 'safe folders') + ' selected: ' + safeSubtotalText(list) + '. Details are in the inspector.');
+    } }, 'Review all safe');
+  const pickedIds = new Set(picked.map((r) => r.id));
+  const colHead = h('div', { class: 'small mut', 'aria-hidden': 'true', style: CLEAN_COLS + ';display:grid;gap:12px;padding:0 0 6px' },
+    h('span', {}, 'Folder'), h('span', {}, 'Why'), h('span', {}, 'Label'), h('span', {}, 'Size'), h('span', {}));
+  return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-label': 'Suggested clean-ups' },
+    h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px' },
+      h('h2', { class: 'sec', style: 'margin:0' }, 'Suggested clean-ups'), h('span', { class: 'grow' }), reviewAll),
+    h('p', { class: 'small mut', style: 'margin:0 0 10px' }, cleanupSummary(list) + '. ' + safeCleanupLine(list)
+      + (safe.length ? ', ' + safeSubtotalText(list) : '') + '.'),
+    list.length ? [colHead, h('ul', { style: listReset, 'aria-label': 'Folders, largest first' }, v.shown.map((r) => cleanupRow(r, (!!sel && sel.id === r.id) || pickedIds.has(r.id)))),
+      v.hidden ? h('div', { style: 'padding-top:10px;display:flex;gap:10px;align-items:center' },
+        h('span', { class: 'small mut' }, 'Showing the largest ' + v.shown.length + '; ' + v.hidden + ' more.'),
+        h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stAll: true }) }, 'Show all')) : null,
+      S.stAll && list.length > ST_CLEANUP_TOP ? h('div', { style: 'padding-top:10px' },
+        h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stAll: false }) }, 'Show the top ' + ST_CLEANUP_TOP)) : null]
+      : h('p', { class: 'mut', style: 'margin:0' }, 'No labelled folder has been measured yet.'));
+}
+function systemDataCard(d) {
+  const rows = systemData(d);
+  return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-label': 'Inside System Data' },
+    h('h2', { class: 'sec', style: 'margin:0 0 10px' }, 'Inside System Data'),
+    h('ul', { style: listReset, 'aria-label': 'Parts of System Data' }, rows.map((r) => h('li', { class: 'tr', style: 'grid-template-columns:minmax(110px,1fr) minmax(80px,2fr) minmax(150px,1fr);min-width:0;align-items:center' },
+      h('span', {}, h('div', {}, r.name), r.detail ? h('div', { class: 'small mut' }, r.detail) : null),
+      r.share == null ? h('span', { class: 'small mut', 'aria-hidden': 'true' }, 'No bar')
+        : h('span', { class: 'bar', role: 'img', 'aria-label': r.name + ': ' + shareText({ share: r.share }) + ' of what is shown here' }, h('i', { style: 'width:' + Math.min(100, r.share).toFixed(1) + '%' })),
+      h('span', { class: 'num' + (r.bytes == null ? ' mut small' : '') }, h('span', { class: 'sr-only' }, r.name + ': '), systemText(r))))));
+}
+function stExportPanel(d, rows, shown, now, filterText) {
+  if (!S.stAsk) return null;
+  return h('section', { class: 'card', id: 'st-export', role: 'group', 'aria-label': 'Export HTML report', style: 'padding:12px 16px;margin-bottom:14px' },
+    h('p', { style: 'margin:0 0 8px' }, 'The report lists folder paths, with your home folder shown as ~. It is one file with no network use, saved to your Downloads folder. Share it with care.'),
+    h('div', { style: 'display:flex;gap:8px' },
+      h('button', { class: 'btn btn-acc sm', id: 'st-export-go', type: 'button', onClick: () => exportReport(d, rows, shown, now, filterText) }, 'Download report'),
+      h('button', { class: 'btn sm', type: 'button', onClick: () => stFocus('st-export-btn', { stAsk: false }) }, 'Cancel')));
+}
+function exportReport(d, rows, shown, now, filterText) {
+  const html = reportHtml({ d, rows, shownRows: shown, system: systemData(d), generated: new Date(now * 1000).toLocaleString(), filterText });
+  download(fileName('storage-report', 'html', new Date(now * 1000)), 'text/html', html);
+  stFocus('st-export-btn', { stAsk: false, toast: 'Report downloaded.' });
+}
+function stMultiInspector(picked, total) {
+  return h('aside', { class: 'drawer card', 'aria-label': 'Selected folders' },
+    h('div', { class: 'insp-head' }, h('h2', { class: 'grow', style: 'font-size:16px;font-weight:600;margin:0' }, plural(picked.length, 'safe folder', 'safe folders') + ' selected'),
+      h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stMulti: [] }) }, 'Clear')),
+    stKv(['Total', sumText(total)]),
+    stPart('Folders', h('ul', { style: 'margin:0;padding:0;list-style:none;font-size:13px' }, picked.map((r) => h('li', { style: 'display:flex;gap:8px;justify-content:space-between;word-break:break-all' }, h('span', {}, r.name), h('span', { class: 'mut', style: 'flex:none' }, sizeText(r)))))),
+    h('div', { style: 'padding:0 16px 14px' }, stTrashButton()));
 }
 function storage() {
   const d = S.stData, now = Date.now() / 1000, state = storageState({ data: d, failed: S.stFailed && !S.stData });
@@ -1785,12 +1847,16 @@ function storage() {
   const shown = sortRows(list, 'store', { folder: (r) => r.path, section: (r) => r.category, label: (r) => r.label,
     size: (r) => r.bytes, share: (r) => r.share });
   const sel = rows.find((r) => r.id === S.stItem) || null;
+  // A selection belongs to the filters it was made under: changing the section, label or search drops it.
+  if (S.stMulti.length && S.stMultiSig !== stPickSig()) S.stMulti = [];
+  const cleanList = stCleanups(rows), picked = sel ? [] : pickedRows(cleanList, S.stMulti);
+  const filterText = (tile === ST_ALL ? 'All sections' : 'Section: ' + tile) + ', ' + (S.stfilter === ST_ALL ? 'all labels' : 'label ' + S.stfilter) + (S.q.trim() ? ', search "' + S.q.trim() + '"' : '');
   return pageShell({ title, subtitle: coverageText(d) + ', ' + measuredText(d.scanned_at, now), actions,
     filters: stFilterChips(labelCounts(found)),
     body: h('div', { style: 'flex:999 1 640px;min-width:0' }, note, failed, stStrip(d, state, now), stBanner(d,
-      state), stTreemap(tiles, tile, state),
-      stTable(shown, sel, tile)),
-    inspector: sel ? stItemInspector(sel) : stSectionInspector(d, state, rows, tiles, tile) });
+      state), stExportPanel(d, rows, shown, now, filterText), stTreemap(tiles, tile, state),
+      storageCleanups(cleanList, sel, picked), systemDataCard(d), stTable(shown, sel, tile)),
+    inspector: sel ? stItemInspector(sel) : picked.length ? stMultiInspector(picked, sumSizes(picked)) : stSectionInspector(d, state, rows, tiles, tile) });
 }
 
 const SAFETY_TAG = { 'read-only': 'ok', 'changes files': 'warn', 'needs sudo': 'bad' };
@@ -2122,6 +2188,114 @@ function nextTile(ids, current, key) {
   return ids[Math.min(ids.length - 1, Math.max(0, i + (key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : key === 'ArrowRight' || key === 'ArrowDown' ? 1 : 0)))];
 }
 /* storage-page:end */
+/* storage-cleanups:begin */
+// Pure logic for the Storage page's suggested clean-ups, the Inside System Data breakdown and the exported report.
+// No DOM or storage access, so a test loads it with url-state, disk-net, page-shell and storage-page.
+const ST_RULE_TEXT = {
+  'user-content': 'Your own files', mail: 'Mail data', 'xcode-derived-data': 'Xcode rebuilds this build cache',
+  'homebrew-cache': 'Homebrew downloads this again',
+  'package-manager-cache': 'A package manager downloads this again',
+  'app-cache': 'An app cache; some apps keep offline data here', 'docker-data': 'Docker images and containers',
+  simulators: 'Simulator runtimes and devices', logs: 'Log files',
+  'idle-node-modules': 'node_modules of a project untouched for 90 days',
+  'node-modules': 'node_modules of a project that is in use or has no lockfile', applications: 'An installed app',
+  'outside-home': 'Outside your home folder', 'unclear-path': 'The path could not be checked',
+};
+const ST_RULE_FALLBACK = 'Not on the safe list, so it needs a look first.';
+const ST_CLEANUP_TOP = 50;
+const stRuleText = (rule) => (hasOwn(ST_RULE_TEXT, rule) ? ST_RULE_TEXT[rule] : ST_RULE_FALLBACK);
+// Every measured folder with a label, biggest first; a size that could not be read goes last and keeps its reason.
+// A location the scan did not reach has no label and is not listed.
+function stCleanups(rows) {
+  return rows.filter((r) => r.kind === 'item' && ST_LABELS.includes(r.label)).sort(bySize)
+    .map((r) => Object.assign({}, r, { why: stRuleText(r.rule) }));
+}
+// The list the page draws: the top ST_CLEANUP_TOP, or everything once "Show all" is on. `hidden` says how many are left out.
+function cleanupView(list, showAll) {
+  const shown = showAll ? list : list.slice(0, ST_CLEANUP_TOP);
+  return { shown, hidden: list.length - shown.length };
+}
+const safeIds = (list) => list.filter((r) => r.label === ST_LABEL.safe).map((r) => r.id);
+// The sum of some folders. `lowerBound` is true when any size is a floor, `unreadable` counts sizes that could not be read
+// (they add nothing and the text says so, instead of pretending to be 0).
+function sumSizes(list) {
+  return { count: list.length, bytes: list.reduce((n, r) => n + (r.bytes || 0), 0), lowerBound: list.some((r) => r.lowerBound),
+    unreadable: list.filter((r) => r.bytes == null).length };
+}
+function sumText(s) {
+  const base = atLeast(s.bytes, s.lowerBound || s.unreadable > 0);
+  return s.unreadable ? base + ' (' + s.unreadable + ' ' + (s.unreadable === 1 ? 'size' : 'sizes') + ' unavailable)' : base;
+}
+// A picked set only keeps ids that are still safe folders in the latest scan: a rescan can drop or relabel one.
+const pickedRows = (list, ids) => { const want = new Set(ids || []); return list.filter((r) => want.has(r.id) && r.label === ST_LABEL.safe); };
+const cleanupSummary = (list) => (list.length ? plural(list.length, 'folder', 'folders') + ', ' + sumText(sumSizes(list)) : 'Nothing to list');
+// The safe subtotal and the inspector's total for "Review all safe" both come from sumText over the same rows, so the
+// wording ("at least", unavailable sizes) cannot differ between them.
+const safeSubtotalText = (list) => sumText(sumSizes(pickedRows(list, safeIds(list))));
+const safeCleanupLine = (list) => { const ids = safeIds(list); return ids.length ? plural(ids.length, 'safe folder', 'safe folders') : 'Nothing safe to remove'; };
+
+// One reading of a section for Inside System Data: a size, or the reason there is none. Never 0 for a section that could not be read.
+function stSectionReading(d, category) {
+  const cats = d && Array.isArray(d.categories) ? d.categories : [], items = d && Array.isArray(d.items) ? d.items : [];
+  const c = cats.find((x) => x.category === category), mine = items.filter((it) => it.category === category);
+  if (!c && !mine.length) return { bytes: null, reason: 'not yet scanned', lowerBound: false, count: 0 };
+  const bytes = c ? goodBytes(c.bytes) : null;
+  if (mine.length && mine.every((it) => stNum(it.size) == null)) return { bytes: null, reason: stReason(mine[0].size), lowerBound: false, count: mine.length };
+  if (!mine.length && c && (c.unmeasured | 0) > 0 && bytes === 0) return { bytes: null, reason: 'not yet scanned', lowerBound: false, count: 0 };
+  if (bytes == null) return { bytes: null, reason: 'bad reading', lowerBound: false, count: mine.length };
+  return { bytes, reason: null, lowerBound: !!(c && c.lower_bound === true) || mine.some((it) => it.complete === false), count: mine.length };
+}
+const ST_SYSTEM_OWN = ['caches', 'logs', 'downloads', 'mail', 'applications'];
+// Caches, local snapshots, indexes, logs and everything else this scan measures that macOS counts as System Data. The scan reads
+// no Spotlight index, so that row always shows why. `share` is the part of the rows that could be read, for the bar.
+function systemData(d) {
+  const cats = d && Array.isArray(d.categories) ? d.categories : [];
+  const row = (id, name, r, extra) => Object.assign({ id, name, bytes: r.bytes, reason: r.reason, lowerBound: r.lowerBound, detail: null, share: null }, extra);
+  const snap = d && d.snapshots ? d.snapshots : {}, n = stNum(snap.count);
+  const snapSize = stNum(snap.size);
+  const snapRow = row('snapshots', 'Local snapshots', { bytes: snapSize, reason: snapSize == null ? stReason(snap.size) : null, lowerBound: false },
+    { detail: n == null ? 'count unavailable: ' + stReason(snap.count) : n + (n === 1 ? ' snapshot' : ' snapshots') });
+  const others = cats.filter((c) => !ST_SYSTEM_OWN.includes(c.category)).map((c) => stSectionReading(d, c.category));
+  const readable = others.filter((r) => r.bytes != null);
+  const otherRow = row('other', 'Other', readable.length ? { bytes: readable.reduce((a, r) => a + r.bytes, 0), reason: null, lowerBound: readable.some((r) => r.lowerBound) || others.some((r) => r.bytes == null) }
+    : { bytes: null, reason: others.length ? others[0].reason : 'not yet scanned', lowerBound: false }, { detail: 'Developer tools and any other section this scan measures' });
+  const rows = [row('caches', 'Caches', stSectionReading(d, 'caches')), snapRow,
+    row('indexes', 'Indexes', { bytes: null, reason: 'this scan does not read Spotlight indexes', lowerBound: false }),
+    row('logs', 'Logs', stSectionReading(d, 'logs')), otherRow];
+  const total = rows.reduce((a, r) => a + (r.bytes || 0), 0);
+  return rows.map((r) => Object.assign(r, { share: r.bytes != null && total > 0 ? r.bytes / total * 100 : r.bytes != null ? 0 : null }));
+}
+const systemText = (r) => (r.bytes == null ? 'unavailable: ' + r.reason : atLeast(r.bytes, r.lowerBound));
+
+// ---- The exported report: one HTML file, inline styles only, no script, no remote address of any kind.
+const escHtml = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const REPORT_CSS = 'body{font:14px/1.45 -apple-system,system-ui,sans-serif;margin:32px auto;max-width:960px;padding:0 16px;color:#1a1a1f}'
+  + 'h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}p{margin:4px 0}.mut{color:#5b5b66}.note{border:1px solid #c9a227;padding:8px 12px;margin:12px 0}'
+  + 'table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #d8d8e0;vertical-align:top}'
+  + 'td.n,th.n{text-align:right;white-space:nowrap}.p{word-break:break-all}.tag{border:1px solid #5b5b66;padding:0 6px;font-size:12px;text-transform:uppercase}';
+// Newlines and other control characters in a name show as \n, \t or \xNN, so a path cannot pass as two folders.
+const visibleText = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, (c) => (c === '\n' ? '\\n' : c === '\r' ? '\\r' : c === '\t' ? '\\t' : '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')));
+function reportHtml({ d, rows, shownRows, system, generated, filterText }) {
+  const state = storageState({ data: d }), list = stCleanups(rows), safe = list.filter((r) => r.label === ST_LABEL.safe);
+  const td = (v, cls) => '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + escHtml(visibleText(v)) + '</td>';
+  const rel = (r) => homeRelative(r.path);
+  const folderRow = (r) => '<tr>' + td(rel(r), 'p') + td(ST_CATEGORIES[r.category] || r.category || '-') + '<td><span class="tag">' + escHtml(r.label || '-') + '</span></td>' + td(sizeText(r), 'n') + '</tr>';
+  const cleanRow = (r) => '<tr>' + td(rel(r), 'p') + td(r.why) + '<td><span class="tag">' + escHtml(r.label) + '</span></td>' + td(sizeText(r), 'n') + '</tr>';
+  const head = (cols) => '<tr>' + cols.map((c, i) => '<th' + (i === cols.length - 1 ? ' class="n"' : '') + '>' + escHtml(c) + '</th>').join('') + '</tr>';
+  const partial = state === 'complete' ? '' : '<p class="note"><strong>Partial scan.</strong> ' + escHtml(coverageText(d)) + '. Sizes marked "at least" can only grow, and no safe-to-remove total is shown.</p>';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Storage report</title><style>' + REPORT_CSS + '</style></head><body>'
+    + '<h1>Storage report</h1><p class="mut">' + escHtml(visibleText('Made ' + generated + '. Scan ' + (typeof d.scanned_at === 'number' ? 'finished at ' + new Date(d.scanned_at * 1000).toISOString() : 'not finished') + '. ' + coverageText(d))) + '.</p>'
+    + '<p class="mut">This file lists folder paths, with your home folder shown as ~. It makes no network requests and has no script.</p>' + partial
+    + '<h2>Suggested clean-ups</h2><p>' + escHtml(state === 'complete' ? 'Safe to remove: ' + safeTotalText(d, rows) + ' (' + safeCleanupLine(list) + '). ' : 'No safe-to-remove total until a scan completes. ') + escHtml(cleanupSummary(list)) + '.</p>'
+    + (list.length ? '<table>' + head(['Folder', 'Why', 'Label', 'Size']) + list.map(cleanRow).join('') + '</table>' : '')
+    + '<h2>Inside System Data</h2><table>' + head(['Part', 'Detail', 'Size'])
+    + system.map((r) => '<tr>' + td(r.name) + td(r.detail || '') + td(systemText(r), 'n') + '</tr>').join('') + '</table>'
+    + '<h2>Folders in this view</h2><p class="mut">' + escHtml(visibleText(filterText)) + '</p>'
+    + '<table>' + head(['Folder', 'Section', 'Label', 'Size']) + shownRows.map(folderRow).join('') + '</table></body></html>';
+}
+/* storage-cleanups:end */
 // The cell stays one element: the short text for the eye, the exact time as visible-on-hover title, and a
 // full sentence for a screen reader and for touch, where there is no hover.
 function timeCell(sec, cls) {
@@ -2178,6 +2352,7 @@ function render() {
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
   if (S.view !== 'guide') S.gsig = null;
+  if (S.view !== 'storage') { S.stMulti = []; S.stAll = false; S.stAsk = false; }
   let page = null;
   if (!S.snap && S.view !== 'guide' && S.view !== 'storage') page = pageShell({ title: TITLES[S.view] || '', body: h('p', { class: 'mut' }, 'Collecting the first snapshot...') }); // the Guide needs no snapshot
   else if (S.view === 'overview') page = overview();
