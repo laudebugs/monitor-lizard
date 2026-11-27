@@ -4,7 +4,7 @@ Resolution: [resolution.md](resolution.md)
 
 ## One run passed in 14 s and another sat for over 11 minutes
 
-Two runs of the `code` job on the same code behaved differently in `make test`. One finished it in 14 s. The other was still in it after 11 minutes and was cancelled at the job's 35-minute limit. An earlier stall had a cause that was fixed first: see [ci-test-job-stalls-after-the-requester-tests](../ci-test-job-stalls-after-the-requester-tests/detail.md). This stall came after that fix.
+In November 2026, two runs of the `code` job on the same code behaved differently in `make test`. One finished it in 14 s. The other was still in it after 11 minutes and was cancelled at the job's 35-minute limit. An earlier stall had a cause that was fixed first: see [ci-test-job-stalls-after-the-requester-tests](../ci-test-job-stalls-after-the-requester-tests/detail.md). This stall came after that fix.
 
 ## It does not reproduce on a local Mac
 

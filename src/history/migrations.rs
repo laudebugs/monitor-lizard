@@ -239,19 +239,24 @@ mod tests {
     }
 
     // Each opener opens the lock file itself, and a flock belongs to the open file, so threads here
-    // exclude each other exactly as separate processes would. That is why this test needs no child
-    // processes, and so has no wait on another process that could last forever.
+    // exclude each other as separate processes would. The test therefore needs no child process,
+    // and it waits for the threads with a time limit, so a stuck opener fails instead of hanging.
     #[test]
     fn four_threads_opening_at_once_all_succeed_apply_the_schema_once_and_make_one_backup_of_the_old_database() {
         use std::os::unix::fs::PermissionsExt;
         let dir = scratch("race");
         let db = dir.join("h.db");
         write_unversioned_database(&db);
-        let threads: Vec<_> = (0..4).map(|_| { let db = db.clone(); std::thread::spawn(move || History::at(&db).map(drop)) }).collect();
-        for t in threads { t.join().unwrap().expect("every opener succeeds"); }
+        let (done, finished) = std::sync::mpsc::channel();
+        for _ in 0..4 { let (db, done) = (db.clone(), done.clone()); std::thread::spawn(move || { let _ = done.send(History::at(&db).map(drop)); }); }
+        drop(done);
+        // Without the open lock an opener fails here: threads share a pid, so two of them collide on
+        // the temporary backup name, and a backup of an already-migrated file fails its version check.
+        for _ in 0..4 {
+            let opened = finished.recv_timeout(std::time::Duration::from_secs(30)).expect("an opener did not finish within 30 s, or its thread panicked");
+            opened.expect("every opener succeeds");
+        }
         assert_eq!(version_of(&db), MIGRATIONS.len());
-        // A backup taken after another opener had migrated would be at the new version, or would
-        // fail its own check and make that opener fail above.
         let bak = Connection::open(backup_path(&db)).unwrap();
         assert_eq!(user_version(&bak).unwrap(), 0, "the backup is the pre-migration file");
         assert_eq!(bak.query_row("SELECT hits FROM seen", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
@@ -270,15 +275,7 @@ mod tests {
         let second = std::fs::OpenOptions::new().write(true).open(dir.join("h.db.lock")).unwrap();
         assert!(matches!(second.try_lock(), Err(std::fs::TryLockError::WouldBlock)), "a second open of the lock file must wait");
         drop(first);
-        // Retried for the reason given in the baseline's lock test: a process another test starts
-        // at this moment can hold an inherited copy of the descriptor for about a millisecond.
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let released = loop {
-            if second.try_lock().is_ok() { break true; }
-            if std::time::Instant::now() >= until { break false; }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        };
-        assert!(released, "the open lock was not released within 5 s of its holder being dropped");
+        assert!(crate::paths::try_lock_within(&second, std::time::Duration::from_secs(5)), "the open lock was not released within 5 s of its holder being dropped");
         let _ = std::fs::remove_dir_all(dir);
     }
 
