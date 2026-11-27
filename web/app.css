@@ -68,9 +68,8 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .btn:focus-visible{outline:none;--edge:var(--focus-edge);--bw:3px}
 .btn.sm{min-height:28px;padding:4px 12px;font-size:11px}
 .btn[disabled],.btn[aria-disabled=true]{opacity:.55;cursor:not-allowed}.btn[disabled]:hover,.btn[aria-disabled=true]:hover{--edge:var(--edge-rest)}
-@media(forced-colors:active){.btn[aria-disabled=true]{--edge-rest:GrayText;--ink:GrayText}}
 /* Windows High Contrast and other forced-colors modes recolor backgrounds, so name the edge and fill explicitly. */
-@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge-rest:ButtonText;--hover-edge:Highlight;--focus-edge:Highlight;--fill:ButtonFace;--ink:ButtonText}.btn.btn-danger.quiet:hover{--fill:ButtonFace;--ink:ButtonText}.btn[disabled],.btn.btn-acc[disabled],.btn.btn-danger[disabled],.btn.btn-danger.quiet[disabled]{--edge-rest:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
+@media(forced-colors:active){.btn,.btn.btn-acc,.btn.btn-danger,.btn.btn-danger.quiet{--edge-rest:ButtonText;--hover-edge:Highlight;--focus-edge:Highlight;--fill:ButtonFace;--ink:ButtonText}.btn.btn-danger.quiet:hover{--fill:ButtonFace;--ink:ButtonText}.btn[disabled],.btn.btn-acc[disabled],.btn.btn-danger[disabled],.btn.btn-danger.quiet[disabled],.btn[aria-disabled=true],.btn.btn-acc[aria-disabled=true],.btn.btn-danger[aria-disabled=true],.btn.btn-danger.quiet[aria-disabled=true]{--edge-rest:GrayText;--ink:GrayText}.chip,.tag,.badge,.sel-btn{border-color:ButtonText}.chip.on{border-color:Highlight;outline:2px solid Highlight;outline-offset:-3px}}
 .sec{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 8px;font-weight:500}
 .sev{width:9px;height:9px;flex:none;margin-top:5px}.sev.high{background:var(--bad)}.sev.medium{background:var(--warn)}.sev.low{background:var(--mut)}
 .item{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
