@@ -10,7 +10,7 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in web/index.html');
   return m[1];
 };
-const names = 'pathDisplay retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES weekText capacityOutlook capacityChart capacityChartLabel'.split(' ');
+const names = 'pathDisplay retryDelay staleReply refreshFailure storageAnnouncement searchRows pathId tileSizeText safeTotalText ST_LABEL ST_SAFE_RULES isItemId storageState atLeast staleScan measuredText coverageText storageFacts scanElapsed scanningText rescanInfo shownLabel storageRows sizeText shareText bySize storageTiles treemapColumns resolveTile tileCategories visibleRows labelCounts nextTile verdictTitle ST_CATEGORIES ST_TILES weekText lastSampleText capacityOutlook capacityChart capacityChartLabel'.split(' ');
 const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const GB = 1e9;
@@ -415,6 +415,7 @@ test('week text: grew, shrank, none, and collecting', () => {
   assert.equal(P.weekText(hist(growing(), { week_change_bytes: -3 * GB })), 'Shrank 3.0 GB this week');
   assert.equal(P.weekText(hist(growing(), { week_change_bytes: 0 })), 'No change in used space this week');
   assert.equal(P.weekText(hist(growing(), { week_change_bytes: null })), 'Weekly change: collecting history');
+  assert.equal(P.weekText(hist(growing(), { stale: true })), 'Weekly change: no recent samples', 'an old sample is not "this week"');
   assert.equal(P.weekText(null), null);
   assert.equal(P.weekText({ available: false }), null);
 });
@@ -425,7 +426,9 @@ test('outlook: a growing disk says about, gives a range, and says what the line 
   assert.equal(o.headline, 'Full in about 33 days');
   assert.equal(o.detail, 'Range 29 to 38 days');
   assert.match(o.note, /straight line/);
-  assert.match(o.note, /last 8 days/);
+  assert.match(o.note, /over the last 14 days/);
+  assert.match(o.note, /one standard error/);
+  assert.match(o.note, /two chances in three/);
 });
 
 test('outlook: no upper end, a one-figure range and a far-off date are worded honestly', () => {
@@ -480,4 +483,25 @@ test('chart: bad samples are dropped instead of drawn', () => {
   const h2 = hist(growing());
   h2.samples[3] = { day: 96, ts: 1, used: 'x', purgeable: 0, free: 0 };
   assert.equal(P.capacityChart(h2).count, 7);
+});
+
+test('stale: an old last sample says the forecast is out of date, with the date, and keeps "about" and the range', () => {
+  const fmt = () => 'Nov 20';
+  const o = P.capacityOutlook(hist(growing(), { stale: true, last_sample_ts: 1, days_since_last_sample: 6 }), false, fmt);
+  assert.equal(o.kind, 'stale');
+  assert.equal(o.headline, 'Forecast out of date: last sample Nov 20');
+  assert.ok(!/^Full in/.test(o.headline), 'the headline does not promise a date');
+  assert.match(o.detail, /about 33 days \(range 29 to 38 days\)/);
+  assert.match(o.detail, /monitor was not running/);
+  assert.equal(P.capacityOutlook(hist(growing(), { stale: false }), false, fmt).kind, 'growing');
+});
+
+test('last sample text: the date and how old it is', () => {
+  const fmt = () => 'Nov 26';
+  assert.equal(P.lastSampleText(hist(growing(), { last_sample_ts: 5, days_since_last_sample: 0 }), fmt), 'Nov 26, today');
+  assert.equal(P.lastSampleText(hist(growing(), { last_sample_ts: 5, days_since_last_sample: 1 }), fmt), 'Nov 26, yesterday');
+  assert.equal(P.lastSampleText(hist(growing(), { last_sample_ts: 5, days_since_last_sample: 6 }), fmt), 'Nov 26, 6 days ago');
+  assert.equal(P.lastSampleText({ available: false }, fmt), null);
+  assert.equal(P.lastSampleText(hist(growing()), fmt), null, 'no timestamp, no claim');
+  assert.equal(P.lastSampleText(hist(growing(), { last_sample_ts: 86400 * 3, days_since_last_sample: 0 })), '1970-01-04, today', 'the default format is a plain date');
 });

@@ -100,6 +100,17 @@ Plan status.
 - `GET /api/storage/history` in `src/server.rs`: read-only, behind the Host check, no token.
 - `web/index.html`: a Growth block in the Storage page's startup-disk card (this week, disk full, the basis of the line) with an inline SVG chart, and 7 Node tests in `tests/web/storage-page.test.mjs`.
 
+### Review fixes (PR #57)
+
+- `GET /api/storage/history` is now read-only in fact: a read-only SQLite connection (`read_capacity_series`), no table creation, no migration, no write lock. The table is made when the database is opened. A missing file or table is an empty series; an unreadable database is `available: false`. Tests: the route leaves the database file byte-identical, a reader is not blocked by a writer mid-transaction, the reader creates nothing.
+- A row dated more than a day ahead is deleted, so one wrong clock cannot stop sampling for good; a row slightly ahead skips the sample. Pruning runs on every call. The writer logs a skipped sample once a day, an unreadable capacity once a day, and every open or store failure.
+- The writer keeps one connection, drops it after a failure, and catches a panic in a tick.
+- The reply says how old the last sample is and `stale` after 2 days. The page then says "Forecast out of date: last sample <date>", still gives "about N days" and the range as counted from then, shows a "Last sample" row, and no longer calls an old weekly change "this week".
+- The growing note says "over the last 14 days" and that the range is about one standard error, roughly two chances in three.
+- Tests split and fixture-tied; `local_utc_offset` has a range test; the unsafe block stays in `history.rs` with a note on why it is not in `iokit.rs`.
+- Not tested at server level: a full `serve_on` round trip. It starts the sampler, watcher and writers against the real data folder, so the route's reply function and the Host check are tested as functions instead.
+- A clock far ahead can prune up to 30 days of valid old rows early (the prune cutoff follows the clock). Rows older than 60 days are the only ones at risk.
+
 ### Deviations
 
 - The forecast is in `src/storage/forecast.rs`, not `src/storage.rs`: `storage` is a folder.
@@ -117,6 +128,8 @@ Plan status.
 
 ### Not verified
 
+- Looked at in Chrome (scratch home, both themes, no resize): Collecting history, Not growing, History unavailable (the database path replaced by a folder) and the out-of-date forecast. A "Full in ... more than 2 years" result from tiny noisy growth was also seen and reads correctly.
+- The safe subtotal beside Growth could not be shown: it needs a home under /Users/<name>, which cannot be created without administrator rights, and the real home must not be scanned.
 - After the rebase onto S2b, the clean-ups list, Inside System Data and the Growth block rendered together in both themes. The safe subtotal showed only "Not shown until the scan is complete": the scratch home is not under /Users, so no item was labelled safe and the scan was partial. A non-zero safe subtotal beside the Growth block was not seen.
 - The "Collecting history", "Not growing", "History unavailable" and failed-read states were checked only in Node tests, not in a browser.
 - A database that is not writable was tested by a path that cannot be created, not by a read-only file on a real disk.

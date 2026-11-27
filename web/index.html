@@ -1600,7 +1600,7 @@ async function loadStorageHistory() {
   } catch (e) { quiet({ stHistFailed: true }); }
 }
 function stHistory() {
-  const hist = S.stHist, out = capacityOutlook(hist, S.stHistFailed && !hist), week = weekText(hist), chart = capacityChart(hist);
+  const hist = S.stHist, fmt = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), out = capacityOutlook(hist, S.stHistFailed && !hist, fmt), week = weekText(hist), chart = capacityChart(hist), last = lastSampleText(hist, fmt);
   const label = capacityChartLabel(chart, out);
   const svg = chart ? h('svg', { class: 'cap-chart', viewBox: '0 0 ' + chart.w + ' ' + chart.h, role: 'img', 'aria-label': label, style: 'width:100%;height:auto;max-height:160px;display:block;margin-top:8px' }) : null;
   if (svg) svg.innerHTML = (chart.topY == null ? '' : '<line x1="0" x2="' + chart.w + '" y1="' + chart.topY + '" y2="' + chart.topY + '" stroke="var(--mut)" stroke-width="1" vector-effect="non-scaling-stroke"></line>')
@@ -1610,11 +1610,12 @@ function stHistory() {
   return h('div', { class: 'cap-history', style: 'margin-top:14px;border-top:1px solid var(--line);padding-top:12px' },
     h('h3', { class: 'sec', style: 'margin:0 0 6px' }, 'Growth'),
     h('dl', { class: 'kv', style: 'margin:0;padding:0;border-top:0' },
-      h('dt', {}, 'This week'), h('dd', { id: 'cap-week' }, week || 'Not available'),
-      h('dt', {}, 'Disk full'), h('dd', { id: 'cap-forecast' }, out.headline + (out.detail ? '. ' + out.detail : ''))),
+      h('dt', {}, 'This week'), h('dd', { id: 'cap-week', style: 'word-break:normal' }, week || 'Not available'),
+      h('dt', {}, 'Disk full'), h('dd', { id: 'cap-forecast', style: 'word-break:normal' }, out.headline + (out.detail ? '. ' + out.detail : '')),
+      last ? [h('dt', {}, 'Last sample'), h('dd', { id: 'cap-last', style: 'word-break:normal' }, last)] : null),
     out.note ? h('p', { class: 'small mut', style: 'margin:6px 0 0' }, out.note) : null,
-    svg, svg ? h('p', { class: 'small mut', style: 'margin:4px 0 0', 'aria-hidden': 'true' }, 'Used space, ' + when(chart.from) + ' to ' + when(chart.to)
-      + (chart.dash ? '. Dashed line: the forecast.' : '') + ' Top line: the disk size.') : null);
+    svg, svg ? h('p', { class: 'small mut', style: 'margin:4px 0 0', 'aria-hidden': 'true' }, 'Used space, ' + when(chart.from) + ' to ' + when(chart.to) + '.'
+      + (chart.dash ? ' Dashed line: the forecast.' : '') + ' Top line: the disk size.') : null);
 }
 function stStrip(d, state, now) {
   const snaps = d.snapshots || {}, n = rv(snaps.count);
@@ -2227,6 +2228,7 @@ const chCount = (d) => (d < 1 ? 'less than a day' : Math.round(d) + (Math.round(
 // "Grew 14.2 GB this week". The server sends null until the samples span six days.
 function weekText(history) {
   if (!history || history.available !== true) return null;
+  if (history.stale === true) return 'Weekly change: no recent samples';
   const b = history.week_change_bytes;
   if (typeof b !== 'number' || !Number.isFinite(b)) return 'Weekly change: collecting history';
   if (b === 0) return 'No change in used space this week';
@@ -2234,7 +2236,15 @@ function weekText(history) {
 }
 // What the strip says about the disk filling. kind: loading, failed, unavailable, collecting, flat, growing.
 // `headline` is the field, `detail` the range or the reason, `note` what the number rests on.
-function capacityOutlook(history, failed) {
+// `fmt` turns a unix time into a date for display; the page passes the local format, a test passes its own.
+const chDate = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
+// "2026-11-26, today" / "2026-11-20, 6 days ago": when the newest sample was taken, so a forecast never hides its age.
+function lastSampleText(history, fmt) {
+  if (!history || history.available !== true || typeof history.last_sample_ts !== 'number') return null;
+  const n = history.days_since_last_sample, when = (fmt || chDate)(history.last_sample_ts);
+  return Number.isFinite(n) ? when + (n <= 0 ? ', today' : n === 1 ? ', yesterday' : ', ' + n + ' days ago') : when;
+}
+function capacityOutlook(history, failed, fmt) {
   if (!history) return failed ? { kind: 'failed', headline: 'Capacity history could not be read', detail: 'The current capacity above is not affected.', note: '' } : { kind: 'loading', headline: 'Reading capacity history', detail: '', note: '' };
   if (history.available !== true) return { kind: 'unavailable', headline: 'History unavailable', detail: 'The history database could not be opened, so there is no forecast. The current capacity above is not affected.', note: '' };
   const f = history.forecast || {}, win = Number.isFinite(history.window_days) ? history.window_days : 14;
@@ -2245,8 +2255,14 @@ function capacityOutlook(history, failed) {
   const far = f.days_until_full >= CH_FAR_DAYS;
   const same = Number.isFinite(lo) && typeof hi === 'number' && Math.round(lo) === Math.round(hi);
   const range = far || same || !Number.isFinite(lo) ? '' : typeof hi === 'number' ? 'Range ' + chCount(lo).replace(/ days?$/, '') + ' to ' + chCount(hi) : 'Range ' + chCount(lo) + ' or more';
-  const note = 'A straight line through the last ' + (f.fit_days | 0) + ' days of used space, purgeable included. A change in habits changes it.';
-  return { kind: 'growing', headline: 'Full in ' + (far ? '' : f.days_until_full < 1 ? '' : 'about ') + days, detail: range, note };
+  const note = 'A straight line over the last ' + win + ' days of used space, purgeable included. The range is about one standard error of the daily growth: roughly two chances in three that the real date falls inside it, if growth stays steady. A change in habits changes it.';
+  const lead = f.days_until_full < 1 || far ? '' : 'about ';
+  if (history.stale === true) {
+    const when = typeof history.last_sample_ts === 'number' ? (fmt || chDate)(history.last_sample_ts) : 'an earlier day';
+    return { kind: 'stale', headline: 'Forecast out of date: last sample ' + when,
+      detail: 'Counted from then, the disk would have filled in ' + lead + days + (range ? ' (' + range.toLowerCase() + ')' : '') + '. It may be full sooner now. The monitor was not running; the forecast updates after new daily samples.', note };
+  }
+  return { kind: 'growing', headline: 'Full in ' + lead + days, detail: range, note };
 }
 // The chart: used space (purgeable included) as a solid line, the fitted line ahead as a dashed one, the disk size as the top rule.
 // Returns null with fewer than two samples. All numbers are plain, so a test can check them.

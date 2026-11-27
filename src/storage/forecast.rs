@@ -12,6 +12,8 @@ pub const WINDOW_DAYS: i64 = 14;
 pub const MIN_DAYS: usize = 7;
 /// A one-day fall in used space bigger than this share of the disk is a clean-up, not a trend.
 const DROP_SHARE: f64 = 0.05;
+/// A forecast counted from a sample older than this many days is out of date.
+pub const STALE_DAYS: i64 = 2;
 
 /// One day's sample. `day` counts local calendar days since 1970-01-01; `ts` is unix seconds.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,11 +86,14 @@ pub fn week_change(days: &[Day], today: i64) -> Option<i64> {
 /// `available: false`, so the page keeps showing the current capacity and says the history is missing.
 pub fn reply(series: Result<Vec<Day>, String>, today: i64) -> Value {
     match series {
-        Err(reason) => json!({ "available": false, "reason": reason, "retention_days": RETENTION_DAYS, "window_days": WINDOW_DAYS, "samples": [], "total": null, "week_change_bytes": null, "forecast": { "status": "unavailable" } }),
+        Err(reason) => json!({ "available": false, "reason": reason, "last_sample_ts": null, "days_since_last_sample": null, "stale": false, "retention_days": RETENTION_DAYS, "window_days": WINDOW_DAYS, "samples": [], "total": null, "week_change_bytes": null, "forecast": { "status": "unavailable" } }),
         Ok(mut days) => {
             days.sort_by_key(|d| d.day);
-            let total = days.iter().rev().find(|d| d.day <= today).map(Day::total);
-            json!({ "available": true, "reason": null, "retention_days": RETENTION_DAYS, "window_days": WINDOW_DAYS, "today": today, "samples": days,
+            let last = days.iter().rev().find(|d| d.day <= today);
+            let total = last.map(Day::total);
+            // Days are counted from the last sample, so a monitor that was not running makes the forecast old.
+            let since = last.map(|d| today - d.day);
+            json!({ "available": true, "reason": null, "last_sample_ts": last.map(|d| d.ts), "days_since_last_sample": since, "stale": since.is_some_and(|n| n > STALE_DAYS), "retention_days": RETENTION_DAYS, "window_days": WINDOW_DAYS, "today": today, "samples": days,
                 "total": total, "week_change_bytes": week_change(&days, today), "forecast": forecast(&days, today) })
         }
     }
@@ -232,5 +237,17 @@ mod tests {
         let v = reply(Err("history unavailable: disk I/O error".into()), 100);
         assert_eq!((v["available"].clone(), v["forecast"]["status"].clone(), v["samples"].clone()), (false.into(), "unavailable".into(), json!([])));
         assert!(v["reason"].as_str().unwrap().contains("unavailable"));
+    }
+
+    #[test]
+    fn a_forecast_from_old_samples_is_marked_stale_with_the_age_of_the_last_one() {
+        let s = series(100, 10, 700.0, 10.0);
+        let v = reply(Ok(s.clone()), 100);
+        assert_eq!((v["stale"].clone(), v["days_since_last_sample"].clone()), (false.into(), 0.into()));
+        assert_eq!(reply(Ok(s.clone()), 102)["stale"], false, "two days is still current");
+        let v = reply(Ok(s), 103);
+        assert_eq!((v["stale"].clone(), v["days_since_last_sample"].clone()), (true.into(), 3.into()));
+        assert_eq!(v["last_sample_ts"], day(100, 0.0).ts);
+        assert_eq!(reply(Ok(vec![]), 100)["stale"], false, "no samples is collecting, not stale");
     }
 }
