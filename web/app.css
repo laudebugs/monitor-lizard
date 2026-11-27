@@ -22,6 +22,18 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(-
 .side{flex:1 1 220px;max-width:236px;min-width:200px;background:var(--panel);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:18px}
 @media(min-width:861px){.side{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}} /* nav stays put while the page scrolls */
 .main{flex:999 1 560px;min-width:0;padding:20px 28px 60px;display:flex;flex-direction:column;gap:20px}
+.navtoggle{display:none;height:36px;width:36px;align-items:center;justify-content:center;flex:none;border:1px solid var(--line);background:var(--panel);color:inherit;font-size:18px;cursor:pointer}
+.navtoggle:hover{color:var(--fg)}
+.navbackdrop{position:fixed;inset:0;background:var(--scrim);z-index:55}
+/* Below this width the sidebar used to sit beside the page, squeezed by flex-wrap's own min-width floor, before
+   wrapping to a full-width block a visitor had to scroll past to reach any page content; now it collapses behind
+   the toggle button instead, as a fixed off-canvas drawer. */
+@media(max-width:860px){
+  .navtoggle{display:inline-flex}
+  .side{position:fixed;top:0;left:0;height:100vh;width:min(280px,85vw);z-index:60;transform:translateX(-100%);transition:transform .2s ease;box-shadow:2px 0 16px rgba(0,0,0,.3)}
+  .shell.nav-open .side{transform:translateX(0)}
+}
+@media(prefers-reduced-motion:reduce){.side{transition:none!important}}
 .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;padding:0 8px}
 .logo{width:18px;height:18px;color:var(--acc)}
 .logo svg{width:100%;height:100%;display:block}
