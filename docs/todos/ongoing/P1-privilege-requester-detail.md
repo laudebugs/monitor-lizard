@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `P1` |
-| Status | `done` |
+| Status | `ongoing` |
 | Plan | [system-monitor](../../plans/system-monitor.md), section 2 (`src/privilege.rs`, `src/watcher.rs`) and D3 (read-only) |
 | Depends on | None |
 | ADRs | None |

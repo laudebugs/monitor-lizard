@@ -218,3 +218,24 @@ test('a column with structured JSON writes text to the CSV and data to the JSON 
   assert.deepEqual(JSON.parse(X.toJson(cols, [{}]))[0].chain, chain);
   assert.deepEqual(X.rowObject(cols, {}).chain, chain);
 });
+
+// CSV, JSON and the copied row are built from the same columns, so an unmatched authorization says the same thing in all three.
+test('an authorization without a chain carries its statement and app in CSV, JSON and Copy alike', () => {
+  const req = html.match(/\/\* requester:begin \*\/([\s\S]*?)\/\* requester:end \*\//)[1];
+  const json = html.match(/^const EXPORT_JSON = \{[\s\S]*?\n\};/m)[0];
+  const F = new Function('base', 'status', 'reachOf', 'psig', 'labelOf',
+    [req, helper(/^const fmtWhen = .*$/m), helper(/^const listenText = .*$/m), helper(/^const signText = .*$/m), helper(/^function jsonOr.*$/m), helper(/function refusedText[\s\S]*?\n}\n/), region, json].join('\n') + '\nreturn { EXPORT, EXPORT_JSON, UNKNOWN_REQUESTER };')(
+    (p) => String(p).split('/').pop(), () => 'idle', () => 'local', () => null, (k) => k);
+  const cols = ['time', 'requester', 'app', 'requester_detail', 'requester_note'].map((id) => col(id, F.EXPORT.auth[id], { getJson: (F.EXPORT_JSON.auth || {})[id] || null }));
+  const gone = { time: 't', client: '/usr/bin/sudo', source: 'none', chain: [], parent: null };
+  const ps = { ...gone, source: 'ps', parent: '77 bash ‮-c x' };
+  for (const [row, statement] of [[gone, F.UNKNOWN_REQUESTER], [ps, 'process still running']]) {
+    const asCsv = csv(cols, [row]), asJson = JSON.stringify(JSON.parse(X.toJson(cols, [row]))), asCopy = JSON.stringify(X.rowObject(cols, row));
+    for (const out of [asCsv, asJson, asCopy]) {
+      assert.ok(out.includes(statement), statement + ' in ' + out);
+      assert.ok(out.includes('unknown'), 'the app value is there');
+      assert.ok(!out.includes('‮'), 'no raw bidi override');
+    }
+    assert.deepEqual(JSON.parse(asJson).length === undefined ? null : JSON.parse(X.toJson(cols, [row]))[0].requester_detail, []);
+  }
+});

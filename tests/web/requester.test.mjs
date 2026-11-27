@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8');
 const m = html.match(/\/\* requester:begin \*\/([\s\S]*?)\/\* requester:end \*\//);
 assert.ok(m, 'requester block not found in web/index.html');
-const R = new Function(m[1] + '\nreturn { hopLabel, chainLabel, requesterApp, terminalNote, hopFacts, chainText, chainJson, authRequester, UNKNOWN_REQUESTER, NO_PARENT };')();
+const R = new Function(m[1] + '\nreturn { hopLabel, chainLabel, requesterApp, terminalNote, hopFacts, chainText, chainJson, authRequester, authNote, visible, cutText, chainCutNote, UNKNOWN_REQUESTER, NO_PARENT };')();
 const fmt = (s) => 'T' + s;
 const hop = (command, exe = '', extra = {}) => ({ pid: 10, exe, command, ...extra });
 
@@ -89,6 +89,7 @@ test('facts: nothing is blank; an old row and an unreadable field read different
 test('facts: a command at the collector limit says it was cut', () => {
   const f = Object.fromEntries(R.hopFacts(hop('x'.repeat(300)), fmt));
   assert.match(f.command, /cut at 300 characters/);
+  assert.doesNotMatch(Object.fromEntries(R.hopFacts(hop('x'.repeat(299)), fmt)).command, /cut at/);
 });
 
 test('text and JSON of a chain hold every hop, and keep hostile text as it is', () => {
@@ -129,4 +130,95 @@ test('the expanded state and command lines never reach the address', () => {
 test('the page draws details as text, never as markup', () => {
   const body = html.slice(html.indexOf('function requesterDetail('), html.indexOf('function priv()'));
   assert.doesNotMatch(body, /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+const ro = (o) => ({ pid: 4, exe: '/bin/x', command: 'x', detail: true, ...o });
+
+test('visible: the shared cases, and the page and the collector agree', () => {
+  const cases = JSON.parse(readFileSync(new URL('../fixtures/visible.json', import.meta.url), 'utf8'));
+  assert.ok(cases.length >= 6);
+  for (const c of cases) assert.equal(R.visible(c.in), c.out);
+  assert.equal(R.visible(null), '');
+});
+
+test('hostile text is escaped in the facts, the labels, the chain text and the JSON, never passed through', () => {
+  const evil = 'run \u202egpj.sh\u200b\u2066x\u2069\u0007\n';
+  const chain = [ro({ command: 'node ' + evil, cwd: '/tmp/\u202edir', exe: '/bin/\u202ex', tty: 'tty\u202e1' })];
+  const bidi = /[\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff\u0000-\u001f\u007f]/;
+  const all = [R.chainText(chain, fmt), JSON.stringify(R.chainJson(chain)), R.chainLabel(chain), R.terminalNote(chain), JSON.stringify(R.hopFacts(chain[0], fmt))];
+  for (const t of all) assert.doesNotMatch(t.replace(/\n/g, ''), /[\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]/, t);
+  assert.doesNotMatch(R.chainText(chain, fmt).replace(/\n/g, ''), bidi);
+  assert.match(R.chainText(chain, fmt), /\\u\{202e\}/);
+  assert.equal(R.chainText(chain, fmt).split('\n').length, 1, 'a newline in a command cannot start a fake hop line');
+  assert.match(R.chainJson(chain)[0].cwd, /^\/tmp\/\\u\{202e\}dir$/);
+});
+
+test('hostile parent text and client names are escaped in the authorization requester and note', () => {
+  const e = { client: '/usr/bin/su\u202edo', source: 'ps', parent: '77 bash \u202e-c evil', chain: [] };
+  assert.doesNotMatch(R.authRequester(e) + R.authNote(e), /\u202e/);
+  assert.match(R.authNote(e), /\\u\{202e\}/);
+});
+
+test('a chain that stopped at the hop limit says so in the text and the JSON', () => {
+  const chain = Array.from({ length: 12 }, (_, i) => ro({ pid: i + 1, more: i === 11 }));
+  assert.match(R.chainCutNote(chain), /chain cut at 12 hops/);
+  assert.match(R.chainText(chain, fmt), /chain cut at 12 hops/);
+  const j = R.chainJson(chain);
+  assert.deepEqual([j[10].more_parents_not_recorded, j[11].more_parents_not_recorded], [false, true]);
+  assert.equal(R.chainCutNote(chain.slice(0, 3)), '');
+  assert.equal(R.chainCutNote([]), '');
+});
+
+test('a cut is judged in code points, like the collector, not in UTF-16 units', () => {
+  const emoji = '\u{1F600}'.repeat(200); // 200 code points, 400 UTF-16 units
+  assert.doesNotMatch(R.cutText(emoji), /cut at/);
+  assert.match(R.cutText('\u{1F600}'.repeat(300)), /cut at 300 characters/);
+  assert.match(R.cutText('a'.repeat(300)), /cut at 300 characters/);
+});
+
+test('app: names match whole bundle names, not prefixes, and read as a guess', () => {
+  const app = (name, exe) => R.requesterApp([hop('x', exe || '/Applications/' + name + '.app/Contents/MacOS/x')]);
+  for (const n of ['Hyperion', 'Zedboard', 'Warpaint', 'Novacaine', 'Kittyhawk', 'Terminal Notes', 'Claude Helper', 'Cursor Pro Tools']) {
+    const a = app(n);
+    assert.deepEqual(a.apps, [n], n + ' is its own app, not a known one');
+  }
+  assert.equal(app('Terminal').hint, 'probably Terminal');
+  assert.equal(app('Claude').name, 'Claude (desktop app)');
+  assert.equal(app('Zed').name, 'Zed');
+  assert.equal(R.requesterApp([hop('bash')]).hint, 'unknown (no known app in the chain)', 'an unknown stays plain');
+  assert.equal(R.requesterApp([]).known, false);
+});
+
+test('authorization note and requester say the same thing in every case', () => {
+  const none = { client: '/usr/bin/sudo', source: 'none', chain: [], parent: null };
+  const ps = { ...none, source: 'ps', parent: '77 bash -c x' };
+  const cap = { ...none, source: 'captured', chain: [hop('bash')] };
+  assert.equal(R.authNote(none), R.UNKNOWN_REQUESTER);
+  assert.match(R.authNote(ps), /still running.*77 bash -c x/);
+  assert.match(R.authNote(cap), /matched to a sudo or su launch/);
+});
+
+test('the toggle has its own name, points at the detail only while it exists, and an element id cannot collide', () => {
+  const body = html.slice(html.indexOf('function reqToggle('), html.indexOf('function priv()'));
+  assert.match(body, /'aria-label': \(open \? 'Hide who ran this, ' : 'Show who ran this, '\) \+ when/);
+  assert.match(body, /'aria-controls': open \? reqDomId\(id\) : null/);
+  assert.match(body, /'data-req': id/);
+  const dom = new Function(html.match(/^const reqDomId = .*$/m)[0] + '\nreturn reqDomId;')();
+  const ids = ['sudo:1:2', 'sudo_1_2', 'sudo-1-2', 'sudo:1_2', 'a_5f_b', 'a_b', 'x y', 'x_y'];
+  assert.equal(new Set(ids.map(dom)).size, ids.length);
+  assert.match(dom('sudo:1:2'), /^req-[A-Za-z0-9_-]+$/);
+});
+
+test('render gives focus back to the toggle after a redraw, and the open state is pruned to the page', () => {
+  const r = html.slice(html.indexOf('function render()'), html.indexOf('// A button, not a #link'));
+  assert.match(r, /dataset\.req/);
+  assert.match(r, /el\.focus\(\)/);
+  const p = html.slice(html.indexOf('function priv()'), html.indexOf('// Where a listening socket'));
+  assert.match(p, /S\.reqOpen = Object\.fromEntries/);
+});
+
+test('every place a command or parent is drawn goes through the escaping helpers', () => {
+  const p = html.slice(html.indexOf('function priv()'), html.indexOf('// Where a listening socket'));
+  assert.doesNotMatch(p, /\}, e\.args\)|\}, e\.parent\)|authNote\(e\) \+ e\./, 'the raw command and parent are not drawn');
+  assert.match(html.match(/const EXPORT = \{[\s\S]*?\n\};/)[0], /command: \(e\) => cutText\(e\.args\)/);
 });

@@ -10,7 +10,7 @@ fn main() {
             for e in privilege::recent(args.next().and_then(|m| m.parse().ok()).unwrap_or(60), &live) {
                 let who = match e.source {
                     privilege::Source::Captured => e.chain.iter().map(|h| watcher::hop_label(&h.command, &h.exe)).collect::<Vec<_>>().join(" < "),
-                    privilege::Source::Ps => e.parent.unwrap_or_default(),
+                    privilege::Source::Ps => watcher::visible(&e.parent.unwrap_or_default()),
                     privilege::Source::None => privilege::UNKNOWN_REQUESTER.to_string(),
                 };
                 println!("{} {} {} right={} {} parent={}", e.time, if e.ok { "OK  " } else { "FAIL" }, e.client, e.right, e.error.unwrap_or_default(), who);
@@ -20,14 +20,14 @@ fn main() {
             let h = history::open_or_report();
             println!("watching for sudo/su (Ctrl-C to stop)...");
             watcher::watch(|e| {
-                println!("[{}] {} pid={} {}", e.ts, e.tool, e.pid, e.args);
-                for (i, hop) in e.chain.iter().enumerate() { println!("  {}{} {} {}", "  ".repeat(i), if i == 0 { "parent" } else { "└" }, hop.pid, if hop.command.is_empty() { &hop.exe } else { &hop.command }); if let Some(d) = &hop.cwd { println!("  {}  in {}", "  ".repeat(i), d); } }
+                println!("[{}] {} pid={} {}", e.ts, e.tool, e.pid, watcher::visible(&e.args));
+                for (i, hop) in e.chain.iter().enumerate() { println!("  {}{} {} {}", "  ".repeat(i), if i == 0 { "parent" } else { "└" }, hop.pid, watcher::visible(if hop.command.is_empty() { &hop.exe } else { &hop.command })); if let Some(d) = &hop.cwd { println!("  {}  in {}", "  ".repeat(i), watcher::visible(d)); } if hop.more { println!("  {}  (chain cut at {} hops)", "  ".repeat(i), watcher::MAX_HOPS); } }
                 if let Some(h) = &h { let _ = h.record_sudo(&e); }
             })
         }
         Some("sudo-log") => if let Some(h) = history::open_or_report() {
             for e in h.recent_sudo(args.next().and_then(|n| n.parse().ok()).unwrap_or(20)).unwrap_or_default() {
-                println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, e.args, e.chain.iter().map(|h| watcher::hop_label(&h.command, &h.exe)).collect::<Vec<_>>().join(" <- "));
+                println!("[{}] {} pid={} {}\n   via {}", e.ts, e.tool, e.pid, watcher::visible(&e.args), e.chain.iter().map(|h| watcher::hop_label(&h.command, &h.exe)).collect::<Vec<_>>().join(" <- "));
             }
         },
         Some("persistence") => for i in persistence::take().items {

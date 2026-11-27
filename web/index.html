@@ -591,20 +591,43 @@ function nextSort(key, col) {
 }
 /* requester:begin */
 /* Pure helpers for the Privilege page's requester detail (no DOM, no storage: the tests load this block alone).
-   A hop is { pid, exe, command, started?, tty?, cwd?, detail? }; rows saved by an older build lack the last four,
-   and `detail: true` is what separates "could not be read" from "was not recorded". */
+   A hop is { pid, exe, command, started?, tty?, cwd?, detail?, more? }; rows saved by an older build lack the last
+   five, and `detail: true` is what separates "could not be read" from "was not recorded". */
 const UNKNOWN_REQUESTER = 'launched before Monitor Lizard was running or exited before capture';
 const NO_PARENT = '(parent not captured)';
-const COMMAND_CUT = 300; // the collector keeps this many characters of a command line
-const INTERPRETERS = ['node', 'bun', 'deno', 'ruby', 'perl', 'php', 'bash', 'zsh', 'sh', 'dash', 'fish', 'ksh', 'tcsh', 'csh', 'lua', 'Rscript', 'osascript'];
-const VALUE_OPTIONS = ['-r', '--require', '--loader', '--import', '--experimental-loader', '--conditions', '-C', '-W', '-X', '-I', '-o', '-O', '--rcfile', '--init-file'];
+const COMMAND_CUT = 300; // the collector keeps this many characters (code points) of a command line
+const MAX_HOPS = 12;     // and this many hops of a chain
+// Text a stranger can choose (a command line, a folder) is shown and exported with control and format characters
+// (bidi overrides, zero-width characters) as visible escapes, so it cannot reorder or hide what a person reads.
+// The Rust side has the same function (watcher::visible); tests/fixtures/visible.json is checked by both.
+const visible = (s) => String(s == null ? '' : s).replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c) => '\\u{' + c.codePointAt(0).toString(16) + '}');
+const codePoints = (s) => [...String(s || '')].length;
+// A command at the collector's limit was cut; the text says so wherever it is shown or exported.
+const cutText = (s) => visible(s) + (codePoints(s) >= COMMAND_CUT ? '  (cut at ' + COMMAND_CUT + ' characters)' : '');
+const INTERPRETERS = ['node', 'bun', 'deno', 'ruby', 'perl', 'php', 'bash', 'zsh', 'sh', 'dash', 'fish', 'ksh', 'tcsh', 'csh', 'lua', 'Rscript', 'osascript',
+  'npm', 'npx', 'pnpm', 'yarn', 'tsx', 'ts-node', 'vite-node', 'nodemon', 'uv', 'java'];
+const VALUE_OPTIONS = ['-r', '--require', '--loader', '--import', '--experimental-loader', '--conditions', '-C', '-W', '-X', '-I', '-o', '-O', '--rcfile', '--init-file',
+  '--max-old-space-size', '--stack-size', '--env-file', '--with', '--python', '-cp', '-classpath', '--class-path'];
 const INLINE_OPTIONS = ['-c', '-e', '-p', '-E'];
+const SUBCOMMAND_TOOLS = ['npm', 'pnpm', 'yarn', 'bun', 'deno', 'uv'];
+const RUN_WORDS = ['run', 'exec', 'dlx', 'x', 'run-script'];
+const WRAPPERS = ['tsx', 'ts-node', 'ts-node-esm', 'vite-node', 'nodemon', 'npx', 'npm', 'pnpm', 'yarn'];
 const baseName = (p) => String(p).split('/').pop();
 const isInterpreter = (n) => INTERPRETERS.includes(n) || /^python[0-9.]*$/.test(n);
-// A short name for one hop: the program and, when it is an interpreter, the script or module it runs. The Rust side
-// has the same function (hop_label); tests/fixtures/hop-labels.json is checked by both.
-function hopLabel(hop) {
-  const command = String((hop && hop.command) || '').trim(), exe = String((hop && hop.exe) || '');
+// Index of the first word that is not an option or an option's value, from `from`.
+function firstOperand(words, from) {
+  let i = from;
+  while (i < words.length) {
+    const w = words[i];
+    if (VALUE_OPTIONS.includes(w)) { i += 2; continue; }
+    if (w.startsWith('--') && !w.includes('=') && /^\d+$/.test(words[i + 1] || '')) { i += 2; continue; }
+    if (w.startsWith('-')) { i++; continue; }
+    return i;
+  }
+  return -1;
+}
+function rawLabel(command, exe) {
+  command = String(command || '').trim(); exe = String(exe || '');
   let first, rest;
   if (exe && command.startsWith(exe) && (command.length === exe.length || command[exe.length] === ' ')) { first = exe; rest = command.slice(exe.length); }
   else { const m = /^(\S*)\s*([\s\S]*)$/.exec(command); first = m[1]; rest = m[2]; }
@@ -617,84 +640,110 @@ function hopLabel(hop) {
     if (skip < words.length) { name = baseName(words[skip]); words = words.slice(skip + 1); }
   }
   if (!isInterpreter(name)) return name;
-  for (let i = 0; i < words.length; i++) {
+  let i = 0;
+  while (i < words.length) {
     const w = words[i];
     if (INLINE_OPTIONS.includes(w)) return name + ' ' + w;
     if (w === '-m') return words[i + 1] ? name + ' -m ' + words[i + 1] : name + ' -m';
-    if (VALUE_OPTIONS.includes(w)) { i++; continue; }
-    if (w.startsWith('-')) continue;
+    if (w === '-jar') return words[i + 1] ? name + ' -jar ' + baseName(words[i + 1]) : name + ' -jar';
+    const k = firstOperand(words, i);
+    if (k < 0) break;
+    if (k !== i) { i = k; continue; }
+    if (SUBCOMMAND_TOOLS.includes(name) && RUN_WORDS.includes(w)) {
+      const n = firstOperand(words, i + 1);
+      return n < 0 ? name + ' ' + w : name + ' ' + w + ' ' + baseName(words[n]);
+    }
+    if (WRAPPERS.includes(baseName(w))) return rawLabel(words.slice(i).join(' '), '');
     return name + ' ' + baseName(w);
   }
   return name;
 }
+// A short name for one hop: the program and, when it is an interpreter, the script or module it runs. The Rust side
+// has the same function (hop_label); tests/fixtures/hop-labels.json is checked by both.
+const hopLabel = (hop) => visible(rawLabel(hop && hop.command, hop && hop.exe));
 // The compact chain, nearest parent first: `bash run.sh < zsh < claude`.
 const chainLabel = (chain) => (Array.isArray(chain) && chain.length ? chain.map(hopLabel).join(' < ') : NO_PARENT);
+// Said when the walk stopped at the hop limit with parents still above it.
+const chainCutNote = (chain) => (Array.isArray(chain) && chain.length && chain[chain.length - 1].more ? 'chain cut at ' + MAX_HOPS + ' hops: the parents above the last one were not recorded' : '');
 
-// Terminals, editors and agents recognised by the app bundle's name (lower case, prefix match) or by a bare program name.
-const BUNDLE_APPS = [
-  ['terminal', 'Terminal'], ['iterm', 'iTerm'], ['ghostty', 'Ghostty'], ['warp', 'Warp'], ['alacritty', 'Alacritty'], ['wezterm', 'WezTerm'], ['kitty', 'kitty'], ['hyper', 'Hyper'],
-  ['visual studio code', 'Visual Studio Code'], ['cursor', 'Cursor'], ['zed', 'Zed'], ['xcode', 'Xcode'], ['sublime text', 'Sublime Text'], ['nova', 'Nova'],
-  ['intellij idea', 'IntelliJ IDEA'], ['pycharm', 'PyCharm'], ['webstorm', 'WebStorm'], ['goland', 'GoLand'], ['clion', 'CLion'], ['rubymine', 'RubyMine'], ['phpstorm', 'PhpStorm'], ['android studio', 'Android Studio'],
-  ['claude', 'Claude (desktop app)'],
-];
+// Terminals, editors and agents, matched on the whole name of the app bundle (lower case) or of the program, never
+// on a prefix, so an unrelated app that starts with the same letters is not mislabelled. A hint, not an answer.
+const BUNDLE_APPS = {
+  'terminal': 'Terminal', 'iterm': 'iTerm', 'iterm2': 'iTerm', 'ghostty': 'Ghostty', 'warp': 'Warp', 'alacritty': 'Alacritty', 'wezterm': 'WezTerm', 'kitty': 'kitty', 'hyper': 'Hyper',
+  'visual studio code': 'Visual Studio Code', 'visual studio code - insiders': 'Visual Studio Code', 'cursor': 'Cursor', 'zed': 'Zed', 'zed preview': 'Zed', 'xcode': 'Xcode', 'xcode-beta': 'Xcode',
+  'sublime text': 'Sublime Text', 'nova': 'Nova', 'intellij idea': 'IntelliJ IDEA', 'intellij idea ce': 'IntelliJ IDEA', 'pycharm': 'PyCharm', 'pycharm ce': 'PyCharm', 'webstorm': 'WebStorm',
+  'goland': 'GoLand', 'clion': 'CLion', 'rubymine': 'RubyMine', 'phpstorm': 'PhpStorm', 'android studio': 'Android Studio', 'claude': 'Claude (desktop app)',
+};
 const TERMINAL_APPS = ['Terminal', 'iTerm', 'Ghostty', 'Warp', 'Alacritty', 'WezTerm', 'kitty', 'Hyper', 'tmux', 'screen'];
 const PROGRAM_APPS = { claude: 'Claude Code', tmux: 'tmux', screen: 'screen', sshd: 'a remote SSH session', cron: 'cron (a scheduled job)' };
+const hasOwn2 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 function appOfHop(hop) {
   const exe = String((hop && hop.exe) || ''), cmd = String((hop && hop.command) || '');
   for (const prog of [baseName(exe), baseName(cmd.split(/\s+/)[0]).replace(/^-+/, '')]) if (hasOwn2(PROGRAM_APPS, prog)) return PROGRAM_APPS[prog];
   const m = /(?:^|\/)([^/]+)\.app(?:\/|$)/.exec(exe || cmd);
   if (!m) return null;
-  const low = m[1].toLowerCase(), hit = BUNDLE_APPS.find(([k]) => low.startsWith(k));
-  return hit ? hit[1] : m[1];
+  const low = m[1].toLowerCase();
+  return hasOwn2(BUNDLE_APPS, low) ? BUNDLE_APPS[low] : m[1];
 }
-const hasOwn2 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-// Which app the request came from: every recognised app in the chain, nearest first ("Claude Code in Terminal").
+// A guess at which app the request came from: every recognised app in the chain, nearest first. `name` is the bare
+// answer and `hint` the wording to show ("probably ..."), because a name in a process list proves little.
 function requesterApp(chain) {
-  if (!Array.isArray(chain) || !chain.length) return { name: 'unknown (parent not captured)', apps: [], known: false };
+  if (!Array.isArray(chain) || !chain.length) return { name: 'unknown (parent not captured)', hint: 'unknown (parent not captured)', apps: [], known: false };
   const apps = [];
   for (const hop of chain) { const a = appOfHop(hop); if (a && !apps.includes(a)) apps.push(a); }
   const login = chain.some((hop) => baseName(hop.exe || String(hop.command || '').split(/\s+/)[0]) === 'login');
-  if (!apps.length) return { name: login ? 'a login shell (no known app in the chain)' : 'unknown (no known app in the chain)', apps, known: false };
+  if (!apps.length) { const n = login ? 'a login shell (no known app in the chain)' : 'unknown (no known app in the chain)'; return { name: n, hint: n, apps, known: false }; }
   const inTerminal = apps.some((a) => TERMINAL_APPS.includes(a));
-  return { name: apps.join(' in ') + (login && !inTerminal ? ' in a login session' : ''), apps, known: true };
+  const name = visible(apps.join(' in ') + (login && !inTerminal ? ' in a login session' : ''));
+  return { name, hint: 'probably ' + name, apps, known: true };
 }
 // Whether the nearest hop (the process that ran sudo) had a terminal: a hint of a person at the keyboard, not proof.
 function terminalNote(chain) {
   const hop = Array.isArray(chain) ? chain.find((x) => x && x.detail) : null;
   if (!hop) return 'not recorded';
-  return hop.tty ? 'terminal ' + hop.tty + ' (a person may have typed it)' : 'no terminal (a script or background job)';
+  return hop.tty ? 'terminal ' + visible(hop.tty) + ' (a person may have typed it)' : 'no terminal (a script or background job)';
 }
 const NOT_RECORDED = 'not recorded (captured by an older version)';
-// The facts shown for one hop, as [label, text] pairs. `fmt` formats epoch seconds. Nothing is ever blank.
+// The facts shown for one hop, as [label, text] pairs. `fmt` formats epoch seconds. Nothing is ever blank, and
+// nothing a stranger chose is shown without `visible`.
 function hopFacts(hop, fmt) {
   const seen = !!hop.detail, cmd = String(hop.command || '');
   return [
     ['pid', String(hop.pid)],
-    ['command', cmd ? cmd + (cmd.length >= COMMAND_CUT ? '  (cut at ' + COMMAND_CUT + ' characters)' : '') : 'not readable (the process had exited)'],
-    ['executable', hop.exe || 'not readable (the process had exited)'],
-    ['working directory', hop.cwd || (seen ? "not readable (another user's process, or it had exited)" : NOT_RECORDED)],
+    ['command', cmd ? cutText(cmd) : 'not readable (the process had exited)'],
+    ['executable', hop.exe ? visible(hop.exe) : 'not readable (the process had exited)'],
+    ['working directory', hop.cwd ? visible(hop.cwd) : (seen ? "not readable (another user's process, or it had exited)" : NOT_RECORDED)],
     ['started', typeof hop.started === 'number' ? fmt(hop.started) : (seen ? 'not readable' : NOT_RECORDED)],
-    ['terminal', hop.tty || (seen ? 'none (no controlling terminal)' : NOT_RECORDED)],
+    ['terminal', hop.tty ? visible(hop.tty) : (seen ? 'none (no controlling terminal)' : NOT_RECORDED)],
   ];
 }
 // The whole chain as plain text, one hop per line, for CSV cells and the clipboard.
 function chainText(chain, fmt) {
   if (!Array.isArray(chain) || !chain.length) return NO_PARENT;
-  return chain.map((hop, i) => (i + 1) + '. ' + hopFacts(hop, fmt).map(([k, v]) => k + ': ' + v).join(' | ')).join('\n');
+  const lines = chain.map((hop, i) => (i + 1) + '. ' + hopFacts(hop, fmt).map(([k, v]) => k + ': ' + v).join(' | '));
+  const cut = chainCutNote(chain);
+  return (cut ? lines.concat(cut) : lines).join('\n');
 }
 // The whole chain as data for the JSON export: unreadable fields are null, never invented.
 function chainJson(chain) {
   const iso = (s) => { const d = typeof s === 'number' ? new Date(s * 1000) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString() : null; };
+  const v = (x) => (x ? visible(x) : null);
   return (Array.isArray(chain) ? chain : []).map((hop) => ({
-    pid: hop.pid, label: hopLabel(hop), command: hop.command || null, exe: hop.exe || null, cwd: hop.cwd || null,
-    started: typeof hop.started === 'number' ? hop.started : null, started_iso: iso(hop.started), tty: hop.tty || null, detail_recorded: !!hop.detail,
+    pid: hop.pid, label: hopLabel(hop), command: hop.command ? cutText(hop.command) : null, exe: v(hop.exe), cwd: v(hop.cwd),
+    started: typeof hop.started === 'number' ? hop.started : null, started_iso: iso(hop.started), tty: v(hop.tty), detail_recorded: !!hop.detail, more_parents_not_recorded: !!hop.more,
   }));
+}
+// What a failed authorization knows about its requester, in words: the same text in the table, the CSV, the JSON and the copied row.
+function authNote(e) {
+  if (e.source === 'captured' && e.chain && e.chain.length) return 'matched to a sudo or su launch Monitor Lizard recorded for this process' + (chainCutNote(e.chain) ? '; ' + chainCutNote(e.chain) : '');
+  if (e.source === 'ps' && e.parent) return 'process still running; only its parent could be read: ' + visible(e.parent);
+  return UNKNOWN_REQUESTER;
 }
 // The Requester cell of a failed authorization: its program, then where the request came from.
 function authRequester(e) {
-  const who = baseName(e.client);
+  const who = visible(baseName(e.client));
   if (e.source === 'captured' && e.chain && e.chain.length) return who + ' < ' + chainLabel(e.chain);
-  if (e.source === 'ps' && e.parent) return who + ' < ' + e.parent.split(' ').slice(1).join(' ').slice(0, 60);
+  if (e.source === 'ps' && e.parent) return who + ' < ' + visible(e.parent.split(' ').slice(1).join(' ').slice(0, 60));
   return who + ' (' + UNKNOWN_REQUESTER + ')';
 }
 /* requester:end */
@@ -777,8 +826,8 @@ function pruneTables(tables, keep) {
 const noDash = (s) => (s === '-' ? '' : s);
 const EXPORT = {
   apps: { app: (g) => g.label, procs: (g) => g.procs.length, out: (g) => g.conns.filter((c) => c.direction === 'outbound').length, listening: (g) => noDash(listenText(g)), signing: (g) => noDash(signText(g)), status: (g) => status(g), label: (g) => g.trust },
-  sudo: { time: (e) => e.ts, command: (e) => e.args, app: (e) => requesterApp(e.chain).name, requester_chain: (e) => chainLabel(e.chain), requester_detail: (e) => chainText(e.chain, fmtWhen) },
-  auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => authRequester(e), app: (e) => (e.source === 'captured' ? requesterApp(e.chain).name : ''), requester_detail: (e) => (e.source === 'captured' ? chainText(e.chain, fmtWhen) : e.source === 'ps' ? 'parent (still running): ' + e.parent : UNKNOWN_REQUESTER) },
+  sudo: { time: (e) => e.ts, command: (e) => cutText(e.args), app: (e) => requesterApp(e.chain).hint, requester_chain: (e) => chainLabel(e.chain), requester_detail: (e) => chainText(e.chain, fmtWhen) },
+  auth: { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right + (e.error ? ' ' + e.error : ''), requester: (e) => authRequester(e), app: (e) => requesterApp(e.source === 'captured' ? e.chain : []).hint, requester_detail: (e) => (e.source === 'captured' ? chainText(e.chain, fmtWhen) : authNote(e)), requester_note: (e) => authNote(e) },
   listen: { port: (r) => r.c.local_port, proto: (r) => r.c.proto, bind: (r) => r.c.local_addr, app: (r) => r.g.label, pid: (r) => r.c.pid, reach: (r) => reachOf(r) },
   pers: { label: (i) => i.label, kind: (i) => i.kind, scope: (i) => i.scope, program: (i) => i.program, trust: (i) => psig(i) || '', added: (i) => i.first_seen },
   net: { app: (r) => r.g.label, remote: (r) => r.remote, ports: (r) => r.ports.join(', '), scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen },
@@ -790,7 +839,7 @@ const EXPORT = {
 // Columns whose JSON is structured data (the full chain) rather than the text the CSV holds.
 const EXPORT_JSON = {
   sudo: { requester_detail: (e) => chainJson(e.chain) },
-  auth: { requester_detail: (e) => (e.source === 'captured' ? chainJson(e.chain) : []) },
+  auth: { requester_detail: (e) => (e.source === 'captured' ? chainJson(e.chain) : []) }, // an unmatched row has no hops; requester_note says why
 };
 // A time inside an exported chain: the full local time, to the second, which stays readable in a spreadsheet.
 const fmtWhen = (sec) => new Date(sec * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
@@ -1183,20 +1232,26 @@ function drawer(g, listen, sig) {
       g.conns.length > 20 ? h('button', { class: 'pr mut small expander', onClick: () => rec({ expand: Object.assign({}, S.expand, { conns: !S.expand.conns }) }) }, S.expand.conns ? 'Show fewer' : 'Show all ' + g.conns.length) : null));
 }
 
-// The detail under a row: the app, the terminal hint and every hop with the facts the collector read. Text only.
+// The detail under a row: the app (a guess), the terminal hint and every hop with the facts the collector read.
+// Text only, and every value a stranger chose has been through `visible`; <bdi> keeps a right-to-left name from
+// reordering its neighbours.
 function requesterDetail(id, chain, note) {
-  const app = requesterApp(chain);
+  const app = requesterApp(chain), cut = chainCutNote(chain);
   return h('div', { class: 'reqdetail', id, role: 'group', 'aria-label': 'Requester detail' },
-    h('p', { class: 'sum' }, h('strong', {}, 'App: '), app.name, h('span', { class: 'mut' }, '  ·  '), h('strong', {}, 'Terminal: '), terminalNote(chain)),
-    note ? h('p', { class: 'mut sum' }, note) : null,
-    chain.length ? h('ol', {}, chain.map((hop, i) => h('li', {}, h('div', { class: 'hophead' }, h('span', { class: 'mut' }, i === 0 ? 'ran sudo' : 'started by the one above'), ' ', h('strong', { class: 'mono' }, hopLabel(hop))),
-      h('dl', {}, hopFacts(hop, fmtWhen).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]))))) : h('p', {}, NO_PARENT));
+    h('p', { class: 'sum' }, h('strong', {}, 'App: '), h('bdi', {}, app.hint), h('span', { class: 'mut' }, '  ·  '), h('strong', {}, 'Terminal: '), h('bdi', {}, terminalNote(chain))),
+    note ? h('p', { class: 'mut sum' }, h('bdi', {}, note)) : null,
+    chain.length ? h('ol', {}, chain.map((hop, i) => h('li', {}, h('div', { class: 'hophead' }, h('span', { class: 'mut' }, i === 0 ? 'ran sudo' : 'started by the one above'), ' ', h('strong', { class: 'mono' }, h('bdi', {}, hopLabel(hop)))),
+      h('dl', {}, hopFacts(hop, fmtWhen).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, h('bdi', {}, v))])))), cut ? h('li', { class: 'mut' }, cut) : null) : h('p', {}, NO_PARENT));
 }
-const reqDomId = (id) => 'req-' + id.replace(/[^A-Za-z0-9_-]/g, '_');
+// A collision-free element id for a row id: every character outside [A-Za-z0-9-] becomes _<hex>_, and `_` itself is one of them.
+const reqDomId = (id) => 'req-' + [...id].map((c) => (/[A-Za-z0-9-]/.test(c) ? c : '_' + c.codePointAt(0).toString(16) + '_')).join('');
 // The time cell with a button that opens the row's detail. `id` names the row (a time and a pid, never a command).
-function reqToggle(id, cell) {
+// The button has its own name (the time alone says nothing to a screen reader), points at the detail only while
+// it exists, and carries `data-req` so render() can give it focus back after a poll redraws the page.
+function reqToggle(id, cell, when) {
   const open = !!S.reqOpen[id];
-  return h('button', { class: 'disc', type: 'button', 'aria-expanded': String(open), 'aria-controls': reqDomId(id), title: open ? 'Hide who ran this' : 'Show every program and script that led to this',
+  return h('button', { class: 'disc', type: 'button', 'data-req': id, 'aria-expanded': String(open), 'aria-controls': open ? reqDomId(id) : null, 'aria-label': (open ? 'Hide who ran this, ' : 'Show who ran this, ') + when,
+    title: open ? 'Hide who ran this' : 'Show every program and script that led to this',
     onClick: () => rec({ reqOpen: Object.assign({}, S.reqOpen, { [id]: !open }) }) }, h('span', { 'aria-hidden': 'true', class: 'caret' }, open ? '▾' : '▸'), cell);
 }
 function priv() {
@@ -1208,24 +1263,27 @@ function priv() {
   const authRows = S.priv.filter((e) => fRes === 'all' || (fRes === 'ok' ? e.ok : !e.ok));
   const ap = paginate(sortRows(authRows, 'auth', { time: (e) => e.time, result: (e) => (e.ok ? 'ok' : 'failed'), right: (e) => e.right, requester: (e) => base(e.client) }), 'auth');
   const wrap = { style: 'min-width:0;overflow-wrap:anywhere' };
+  // Keep the open state of the rows on this page only, so it cannot grow with every row ever opened.
+  const onPage = new Set([...sp.slice.map((e) => 'sudo:' + e.ts + ':' + e.pid), ...ap.slice.map((e) => 'auth:' + e.time + ':' + e.pid + ':' + e.right)]);
+  if (Object.keys(S.reqOpen).some((k) => !onPage.has(k))) S.reqOpen = Object.fromEntries(Object.entries(S.reqOpen).filter(([k]) => onPage.has(k)));
   const sudoRow = (e) => {
     const id = 'sudo:' + e.ts + ':' + e.pid, has = Array.isArray(e.chain) && e.chain.length > 0;
-    return [h('div', { class: 'tr', style: TS + ';cursor:default' }, has ? reqToggle(id, timeCell(e.ts)) : h('span', {}, timeCell(e.ts)), h('span', { class: 'small', ...wrap }, e.args), h('span', { class: 'small', ...wrap }, requesterApp(e.chain).name), h('span', { class: 'mut small', ...wrap }, chainLabel(e.chain))),
+    return [h('div', { class: 'tr', style: TS + ';cursor:default' }, has ? reqToggle(id, timeCell(e.ts), fmtWhen(e.ts)) : h('span', {}, timeCell(e.ts)), h('span', { class: 'small', ...wrap }, h('bdi', {}, cutText(e.args))), h('span', { class: 'small', ...wrap }, h('bdi', {}, requesterApp(e.chain).hint)), h('span', { class: 'mut small', ...wrap }, h('bdi', {}, chainLabel(e.chain)))),
       has && S.reqOpen[id] ? requesterDetail(reqDomId(id), e.chain) : null];
   };
   const authRow = (e) => {
     const id = 'auth:' + e.time + ':' + e.pid + ':' + e.right, cap = e.source === 'captured' && Array.isArray(e.chain) && e.chain.length > 0, has = cap || (e.source === 'ps' && !!e.parent);
-    return [h('div', { class: 'tr', style: T + ';cursor:default' }, has ? reqToggle(id, h('span', {}, e.time.slice(11, 19))) : h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', ...wrap }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', ...wrap }, authRequester(e))),
-      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), cap ? e.chain : [], cap ? 'Matched to the sudo or su launch Monitor Lizard recorded for this process.' : 'The process was still running, so only its parent could be read: ' + e.parent) : null];
+    return [h('div', { class: 'tr', style: T + ';cursor:default' }, has ? reqToggle(id, h('span', {}, e.time.slice(11, 19)), e.time.slice(0, 19)) : h('span', {}, e.time.slice(11, 19)), h('span', {}, h('span', { class: 'tag ' + (e.ok ? 'ok' : 'bad') }, e.ok ? 'ok' : 'failed')), h('span', { class: 'mut small', ...wrap }, e.right + (e.error ? ' ' + e.error : '')), h('span', { class: 'small', ...wrap }, h('bdi', {}, authRequester(e)))),
+      has && S.reqOpen[id] ? requesterDetail(reqDomId(id), cap ? e.chain : [], authNote(e)) : null];
   };
   return pageShell({ title: verdict('priv', { failed: failedAuth() }), body: [
     failed ? h('section', { class: 'card', style: 'margin-bottom:20px' }, h('div', { class: 'item' }, h('span', { class: 'sev medium' }), h('div', { class: 'grow' }, h('h3', {}, failed + ' failed sudo authorizations in the last 2 hours'), h('p', {}, 'Rapid repeats suggest a script retrying, not a person. Open a row to see every program and script that led to it. A request with no chain was ' + UNKNOWN_REQUESTER + '.')))) : null,
     h('h2', { class: 'sec' }, 'sudo / su launches (live capture)'),
-    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'App', id: 'app' }, { label: 'Requester chain', id: 'requester_chain' }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }], TS),
+    h('div', { class: 'card tbl', style: 'margin-bottom:20px' }, sortHeader('sudo', [{ label: 'Time', sort: 'time' }, { label: 'Command', sort: 'command' }, { label: 'App (a guess)', id: 'app' }, { label: 'Requester chain', id: 'requester_chain' }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }], TS),
       S.sudo.length ? sp.slice.map(sudoRow) : h('div', { class: 'item' }, h('p', {}, 'None captured yet. Anything that runs sudo or su while Monitor Lizard is serving shows up here.')), sp.pager),
     h('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:8px' }, h('h2', { class: 'sec', style: 'margin:0' }, 'Authorization requests (system log)'), h('span', { class: 'grow' }),
       dropdown('f-auth-result', fRes, [['all', 'Any result'], ['failed', 'Failed'], ['ok', 'OK']], (v) => setFil('auth-result', v), 'Result filter', true)),
-    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }, { label: 'App', id: 'app', exportOnly: true }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }], T),
+    h('div', { class: 'card tbl' }, sortHeader('auth', [{ label: 'Time', sort: 'time' }, { label: 'Result', sort: 'result' }, { label: 'Right', sort: 'right' }, { label: 'Requester', sort: 'requester' }, { label: 'App (a guess)', id: 'app', exportOnly: true }, { label: 'Full chain', id: 'requester_detail', exportOnly: true }, { label: 'Requester note', id: 'requester_note', exportOnly: true }], T),
       ap.slice.map(authRow), ap.slice.length ? null : h('div', { class: 'item' }, h('p', {}, authRows.length ? 'No requests match the filter. ' : 'No authorization requests yet.'), authRows.length ? clearBtn() : null), ap.pager),
   ] });
 }
@@ -2601,6 +2659,7 @@ const show = (page) => { $('crumb').replaceChildren(...nodesOf(page.crumb)); $('
 function render() {
   pruneTables(TABLES, Object.keys(PAGE_SORTS[S.view] || {})); pruneTables(HEADERS, Object.keys(PAGE_SORTS[S.view] || {}));
   drawNav();
+  const hadReq = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.req : null;
   const searchHint = S.view === 'guide' ? 'Search commands and terms' : S.view === 'storage' ? 'Search folders' : 'Search apps, ports';
   $('q').placeholder = searchHint; $('q').setAttribute('aria-label', S.view === 'guide' || S.view === 'storage' ? searchHint : 'Search apps and ports');
   $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
@@ -2643,6 +2702,7 @@ function render() {
   $('layer').replaceChildren(...layer);
   decorateTables();
   const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
+  else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
 }

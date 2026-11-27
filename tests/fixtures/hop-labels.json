@@ -1,22 +1,187 @@
 [
-  { "command": "node", "exe": "/opt/homebrew/bin/node", "label": "node" },
-  { "command": "node script.js", "exe": "/opt/homebrew/bin/node", "label": "node script.js" },
-  { "command": "node /Users/me/proj/bin/deploy.js --prod", "exe": "", "label": "node deploy.js" },
-  { "command": "node --require ./setup.js app/server.js", "exe": "", "label": "node server.js" },
-  { "command": "node --require=./setup.js app/server.js", "exe": "", "label": "node server.js" },
-  { "command": "node -e console.log(1)", "exe": "", "label": "node -e" },
-  { "command": "/bin/bash /Users/me/run.sh --flag", "exe": "/bin/bash", "label": "bash run.sh" },
-  { "command": "bash -c sudo shutdown -h 0", "exe": "/bin/bash", "label": "bash -c" },
-  { "command": "-zsh", "exe": "/bin/zsh", "label": "zsh" },
-  { "command": "/bin/zsh -l", "exe": "/bin/zsh", "label": "zsh" },
-  { "command": "python3 -m http.server 8000", "exe": "", "label": "python3 -m http.server" },
-  { "command": "/usr/bin/python3.11 tools/build.py", "exe": "", "label": "python3.11 build.py" },
-  { "command": "/usr/bin/env node a.js", "exe": "/usr/bin/env", "label": "node a.js" },
-  { "command": "/usr/bin/env FOO=1 -i ruby tasks/clean.rb", "exe": "", "label": "ruby clean.rb" },
-  { "command": "perl -w /usr/local/bin/tool.pl", "exe": "", "label": "perl tool.pl" },
-  { "command": "claude", "exe": "/Users/me/.local/bin/claude", "label": "claude" },
-  { "command": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron --type=x", "exe": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "label": "Electron" },
-  { "command": "", "exe": "/usr/bin/login", "label": "login" },
-  { "command": "", "exe": "", "label": "?" },
-  { "command": "sh", "exe": "/bin/sh", "label": "sh" }
+ {
+  "command": "node",
+  "exe": "/opt/homebrew/bin/node",
+  "label": "node"
+ },
+ {
+  "command": "node script.js",
+  "exe": "/opt/homebrew/bin/node",
+  "label": "node script.js"
+ },
+ {
+  "command": "node /Users/me/proj/bin/deploy.js --prod",
+  "exe": "",
+  "label": "node deploy.js"
+ },
+ {
+  "command": "node --require ./setup.js app/server.js",
+  "exe": "",
+  "label": "node server.js"
+ },
+ {
+  "command": "node --require=./setup.js app/server.js",
+  "exe": "",
+  "label": "node server.js"
+ },
+ {
+  "command": "node -e console.log(1)",
+  "exe": "",
+  "label": "node -e"
+ },
+ {
+  "command": "/bin/bash /Users/me/run.sh --flag",
+  "exe": "/bin/bash",
+  "label": "bash run.sh"
+ },
+ {
+  "command": "bash -c sudo shutdown -h 0",
+  "exe": "/bin/bash",
+  "label": "bash -c"
+ },
+ {
+  "command": "-zsh",
+  "exe": "/bin/zsh",
+  "label": "zsh"
+ },
+ {
+  "command": "/bin/zsh -l",
+  "exe": "/bin/zsh",
+  "label": "zsh"
+ },
+ {
+  "command": "python3 -m http.server 8000",
+  "exe": "",
+  "label": "python3 -m http.server"
+ },
+ {
+  "command": "/usr/bin/python3.11 tools/build.py",
+  "exe": "",
+  "label": "python3.11 build.py"
+ },
+ {
+  "command": "/usr/bin/env node a.js",
+  "exe": "/usr/bin/env",
+  "label": "node a.js"
+ },
+ {
+  "command": "/usr/bin/env FOO=1 -i ruby tasks/clean.rb",
+  "exe": "",
+  "label": "ruby clean.rb"
+ },
+ {
+  "command": "perl -w /usr/local/bin/tool.pl",
+  "exe": "",
+  "label": "perl tool.pl"
+ },
+ {
+  "command": "claude",
+  "exe": "/Users/me/.local/bin/claude",
+  "label": "claude"
+ },
+ {
+  "command": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron --type=x",
+  "exe": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+  "label": "Electron"
+ },
+ {
+  "command": "",
+  "exe": "/usr/bin/login",
+  "label": "login"
+ },
+ {
+  "command": "",
+  "exe": "",
+  "label": "?"
+ },
+ {
+  "command": "sh",
+  "exe": "/bin/sh",
+  "label": "sh"
+ },
+ {
+  "command": "node --max-old-space-size 4096 x.js",
+  "exe": "",
+  "label": "node x.js"
+ },
+ {
+  "command": "node --max-old-space-size=4096 x.js",
+  "exe": "",
+  "label": "node x.js"
+ },
+ {
+  "command": "node --stack-size 900 x.js",
+  "exe": "",
+  "label": "node x.js"
+ },
+ {
+  "command": "node /Users/me/proj/node_modules/.bin/tsx s.ts",
+  "exe": "",
+  "label": "tsx s.ts"
+ },
+ {
+  "command": "npm run build --silent",
+  "exe": "",
+  "label": "npm run build"
+ },
+ {
+  "command": "npm install",
+  "exe": "",
+  "label": "npm install"
+ },
+ {
+  "command": "/usr/local/bin/npx vitest run",
+  "exe": "",
+  "label": "npx vitest"
+ },
+ {
+  "command": "pnpm exec eslint .",
+  "exe": "",
+  "label": "pnpm exec eslint"
+ },
+ {
+  "command": "yarn dev",
+  "exe": "",
+  "label": "yarn dev"
+ },
+ {
+  "command": "uv run --with rich tool.py",
+  "exe": "",
+  "label": "uv run tool.py"
+ },
+ {
+  "command": "java -jar /opt/app/server.jar --port 1",
+  "exe": "",
+  "label": "java -jar server.jar"
+ },
+ {
+  "command": "java -cp lib/* com.acme.Main",
+  "exe": "",
+  "label": "java com.acme.Main"
+ },
+ {
+  "command": "bun run dev",
+  "exe": "",
+  "label": "bun run dev"
+ },
+ {
+  "command": "bun x.ts",
+  "exe": "",
+  "label": "bun x.ts"
+ },
+ {
+  "command": "deno run -A main.ts",
+  "exe": "",
+  "label": "deno run main.ts"
+ },
+ {
+  "command": "tsx watch src/a.ts",
+  "exe": "",
+  "label": "tsx watch"
+ },
+ {
+  "command": "node a\u202eb.js",
+  "exe": "",
+  "label": "node a\\u{202e}b.js"
+ }
 ]

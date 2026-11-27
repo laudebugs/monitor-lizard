@@ -76,7 +76,11 @@ pub fn serve_on(server: Arc<Server>) {
     refresh(&snap, Duration::from_secs(10), snapshot::take);
     refresh(&privs, Duration::from_secs(30), || {
         // The live-capture rows explain failed authorizations whose process is already gone.
-        let live = History::open().and_then(|h| h.recent_sudo(LIVE_JOIN_LIMIT)).unwrap_or_default();
+        let live = History::open().and_then(|h| h.recent_sudo(LIVE_JOIN_LIMIT)).unwrap_or_else(|e| {
+            // Say so: otherwise every failed authorization silently reads as "no capture".
+            eprintln!("monitor-lizard: could not read the sudo history to explain authorization failures: {}", history::unavailable(&e));
+            Vec::new()
+        });
         privilege::recent(120, &live)
     });
     {

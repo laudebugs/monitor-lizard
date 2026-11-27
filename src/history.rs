@@ -995,7 +995,7 @@ mod tests {
         ] {
             h.0.execute("INSERT INTO sudo_events(ts,pid,tool,args,chain) VALUES(?1,9,'/usr/bin/sudo',?2,?3)", params![ts, args, chain]).unwrap();
         }
-        let hop = crate::watcher::Hop { pid: 6, exe: "/bin/bash".into(), command: "bash -c \"a<b&c\"".into(), started: Some(7), tty: None, cwd: Some("/tmp".into()), detail: true };
+        let hop = crate::watcher::Hop { pid: 6, exe: "/bin/bash".into(), command: "bash -c \"a<b&c\"".into(), started: Some(7), tty: None, cwd: Some("/tmp".into()), detail: true, ..Default::default() };
         h.record_sudo(&crate::watcher::SudoEvent { ts: 3, pid: 9, tool: "/usr/bin/sudo".into(), args: "sudo \"x\" <&".into(), chain: vec![hop.clone()] }).unwrap();
         let rows = h.recent_sudo(10).unwrap();
         assert_eq!(rows.len(), 3);

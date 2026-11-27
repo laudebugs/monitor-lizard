@@ -1,4 +1,5 @@
-use crate::watcher::{Hop, SudoEvent};
+use crate::watcher::{Hop, SudoEvent, COMMAND_MAX};
+use std::collections::HashMap;
 use serde::Serialize;
 use std::process::Command;
 
@@ -42,7 +43,8 @@ pub fn parse_log_time(t: &str) -> Option<u64> {
     let (hh, mm): (i64, i64) = (c.next()?.parse().ok()?, c.next()?.parse().ok()?);
     let ss: i64 = c.next()?.split('.').next()?.parse().ok()?;
     if hh > 23 || mm > 59 || ss > 60 || zone.len() != 5 { return None; }
-    let off = zone[1..3].parse::<i64>().ok()? * 3600 + zone[3..5].parse::<i64>().ok()? * 60;
+    // `get` is None on a non-ASCII character in the way, where a byte slice would panic.
+    let off = zone.get(1..3)?.parse::<i64>().ok()? * 3600 + zone.get(3..5)?.parse::<i64>().ok()? * 60;
     let off = if zone.starts_with('-') { -off } else { off };
     // days since 1970-01-01 (Howard Hinnant's civil-from-days, inverted)
     let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
@@ -67,18 +69,21 @@ pub fn match_live<'a>(epoch: u64, pid: u32, client: &str, live: &'a [SudoEvent])
         .max_by_key(|e| (e.ts <= epoch, e.ts.min(epoch + LEAD_SLACK)))
 }
 
-/// Gives each event its requester: the matched live chain, else `lookup`'s answer for a process that is still
-/// running, else nothing. `lookup` is `ps` in production and a stub in tests.
-pub fn resolve(evs: &mut [PrivEvent], live: &[SudoEvent], lookup: impl Fn(u32) -> Option<String>) {
-    for e in evs {
+/// Gives each event its requester: the matched live chain, else the parent of a process that is still running
+/// (`lookup` is asked once, for every pid left unmatched, so a refresh runs one `ps`), else nothing.
+pub fn resolve(evs: &mut [PrivEvent], live: &[SudoEvent], lookup: impl FnOnce(&[u32]) -> HashMap<u32, String>) {
+    let mut unmatched: Vec<u32> = Vec::new();
+    for e in evs.iter_mut() {
         if let Some(m) = e.epoch.and_then(|t| match_live(t, e.pid, &e.client, live)) {
             e.chain = m.chain.clone();
             e.source = Source::Captured;
             e.parent = None;
-        } else if let Some(p) = lookup(e.pid) {
-            e.parent = Some(p);
-            e.source = Source::Ps;
-        }
+        } else if !unmatched.contains(&e.pid) { unmatched.push(e.pid); }
+    }
+    if unmatched.is_empty() { return; }
+    let parents = lookup(&unmatched);
+    for e in evs.iter_mut().filter(|e| e.source != Source::Captured) {
+        if let Some(p) = parents.get(&e.pid) { e.parent = Some(p.clone()); e.source = Source::Ps; }
     }
 }
 
@@ -102,10 +107,21 @@ pub fn parse_message(time: &str, msg: &str) -> Option<PrivEvent> {
     Some(PrivEvent { time: time.into(), right, client, creator, pid, ok, error, parent: None, epoch: parse_log_time(time), source: Source::None, chain: vec![] })
 }
 
-fn parent_of(pid: u32) -> Option<String> {
-    let out = Command::new("ps").args(["-o", "ppid=,command=", "-p", &pid.to_string()]).output().ok()?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!s.is_empty()).then_some(s)
+/// `ps -o pid=,ppid=,command=` rows as pid -> "ppid command", the command cut at `COMMAND_MAX` characters like a
+/// captured chain, so the export never holds a longer command line than the chain does.
+pub fn parse_parents(text: &str) -> HashMap<u32, String> {
+    text.lines().filter_map(|l| {
+        let (pid, rest) = l.trim_start().split_once(char::is_whitespace)?;
+        let (ppid, cmd) = rest.trim_start().split_once(char::is_whitespace).unwrap_or((rest.trim(), ""));
+        ppid.parse::<u32>().ok()?;
+        Some((pid.parse().ok()?, format!("{ppid} {}", cmd.trim().chars().take(COMMAND_MAX).collect::<String>())))
+    }).collect()
+}
+
+fn parents_of(pids: &[u32]) -> HashMap<u32, String> {
+    let list = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let out = Command::new("ps").args(["-ww", "-o", "pid=,ppid=,command=", "-p", &list]).output();
+    parse_parents(&out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default())
 }
 
 /// Authorization requests (sudo, admin prompts, system settings unlocks) from the last `minutes`, each joined to
@@ -120,7 +136,7 @@ pub fn recent(minutes: u32, live: &[SudoEvent]) -> Vec<PrivEvent> {
         let v: serde_json::Value = serde_json::from_str(l).ok()?;
         parse_message(v["timestamp"].as_str()?, v["eventMessage"].as_str()?)
     }).collect();
-    resolve(&mut evs, live, parent_of);
+    resolve(&mut evs, live, parents_of);
     evs.reverse(); // newest first
     evs
 }
@@ -184,7 +200,9 @@ mod tests {
         let t = "2026-11-26 14:03:22.000000-0800";
         let at = parse_log_time(t).unwrap();
         let mut evs = vec![failed(1, t), failed(2, t), failed(3, t)];
-        resolve(&mut evs, &[live(at - 3, 1, SUDO)], |pid| (pid == 2).then(|| "77 bash -c x".to_string()));
+        let asked = std::cell::Cell::new(0);
+        resolve(&mut evs, &[live(at - 3, 1, SUDO)], |pids| { asked.set(asked.get() + 1); assert_eq!(pids, [2, 3], "only the unmatched pids, once"); HashMap::from([(2, "77 bash -c x".to_string())]) });
+        assert_eq!(asked.get(), 1);
         assert_eq!((evs[0].source, evs[0].chain.len(), evs[0].parent.clone()), (Source::Captured, 1, None));
         assert_eq!((evs[1].source, evs[1].parent.as_deref()), (Source::Ps, Some("77 bash -c x")));
         assert_eq!((evs[2].source, evs[2].parent.clone(), evs[2].chain.len()), (Source::None, None, 0));
@@ -192,8 +210,20 @@ mod tests {
     #[test]
     fn an_event_with_an_unreadable_time_is_never_matched() {
         let mut evs = vec![failed(1, "garbled")];
-        resolve(&mut evs, &[live(0, 1, SUDO)], |_| None);
+        resolve(&mut evs, &[live(0, 1, SUDO)], |_| HashMap::new());
         assert_eq!(evs[0].source, Source::None);
+    }
+    #[test]
+    fn a_log_time_with_a_non_ascii_zone_is_none_not_a_panic() {
+        for t in ["2026-11-26 14:03:22-0\u{e9}0", "2026-11-26 14:03:22+\u{e9}\u{e9}0", "2026-11-26 14:03:22-08\u{e9}"] { assert_eq!(parse_log_time(t), None, "{t}"); }
+    }
+    #[test]
+    fn parent_rows_keep_the_command_up_to_the_same_limit_as_a_chain() {
+        let long = "y".repeat(COMMAND_MAX + 40);
+        let m = parse_parents(&format!("  900  77 bash -c \"a<b\"\n901 78 {long}\nnot a row\n902 x y\n"));
+        assert_eq!(m[&900], "77 bash -c \"a<b\"");
+        assert_eq!(m[&901].chars().count(), "78 ".len() + COMMAND_MAX);
+        assert_eq!(m.len(), 2);
     }
     #[test]
     fn ignores_noise() { assert!(parse_message("t", "copy_rights: authorization failed").is_none()); }
