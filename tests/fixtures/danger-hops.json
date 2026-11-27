@@ -1,22 +1,242 @@
 {
-  "programs": ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "login", "su", "nu", "pwsh", "xonsh", "elvish", "ssh", "sshd", "mosh-server", "tmux", "screen", "zellij", "claude"],
-  "bundles": ["terminal", "iterm", "iterm2", "ghostty", "warp", "alacritty", "wezterm", "kitty", "hyper", "visual studio code", "visual studio code - insiders", "cursor", "zed", "zed preview", "claude"],
-  "interpreters": ["node", "bun", "deno", "python", "python3", "ruby", "perl"],
-  "cases": [
-    { "exe": "/bin/zsh", "command": "-zsh", "danger": true },
-    { "exe": "/usr/bin/login", "command": "login -pf me", "danger": true },
-    { "exe": "/opt/homebrew/bin/tmux", "command": "tmux new", "danger": true },
-    { "exe": "/usr/bin/ssh", "command": "ssh host", "danger": true },
-    { "exe": "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", "command": "Terminal", "danger": true },
-    { "exe": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "command": "Electron", "danger": true },
-    { "exe": "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper", "command": "Cursor Helper", "danger": true },
-    { "exe": "/Users/me/.local/bin/claude", "command": "claude --resume", "danger": true },
-    { "exe": "/opt/homebrew/bin/node", "command": "node /usr/lib/claude/cli.js", "danger": true },
-    { "exe": "/opt/homebrew/bin/node", "command": "node /x/node_modules/@anthropic-ai/claude-code/cli.js", "danger": true },
-    { "exe": "/opt/homebrew/bin/node", "command": "node build.js", "danger": false },
-    { "exe": "/usr/bin/git", "command": "git status", "danger": false },
-    { "exe": "/Applications/Terminalizer.app/Contents/MacOS/x", "command": "x", "danger": false },
-    { "exe": "/usr/local/bin/claudette", "command": "claudette --go", "danger": false },
-    { "exe": "/bin/sleep", "command": "sleep 300", "danger": false }
-  ]
+ "programs": [
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "dash",
+  "ksh",
+  "tcsh",
+  "csh",
+  "login",
+  "su",
+  "nu",
+  "pwsh",
+  "xonsh",
+  "elvish",
+  "ssh",
+  "sshd",
+  "mosh-server",
+  "tmux",
+  "screen",
+  "zellij",
+  "claude",
+  "npx",
+  "bunx",
+  "tsx",
+  "ts-node",
+  "electron"
+ ],
+ "bundles": [
+  "terminal",
+  "iterm",
+  "iterm2",
+  "ghostty",
+  "warp",
+  "alacritty",
+  "wezterm",
+  "kitty",
+  "hyper",
+  "tabby",
+  "rio",
+  "visual studio code",
+  "visual studio code - insiders",
+  "cursor",
+  "windsurf",
+  "zed",
+  "zed preview",
+  "sublime text",
+  "nova",
+  "xcode",
+  "intellij idea",
+  "intellij idea ce",
+  "pycharm",
+  "pycharm ce",
+  "webstorm",
+  "goland",
+  "clion",
+  "rubymine",
+  "phpstorm",
+  "rider",
+  "datagrip",
+  "android studio",
+  "claude",
+  "claudecode"
+ ],
+ "interpreters": [
+  "node",
+  "bun",
+  "deno",
+  "python",
+  "python3",
+  "ruby",
+  "perl"
+ ],
+ "cases": [
+  {
+   "exe": "/bin/zsh",
+   "command": "-zsh",
+   "danger": true
+  },
+  {
+   "exe": "/usr/bin/login",
+   "command": "login -pf me",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/tmux",
+   "command": "tmux new",
+   "danger": true
+  },
+  {
+   "exe": "/usr/bin/ssh",
+   "command": "ssh host",
+   "danger": true
+  },
+  {
+   "exe": "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+   "command": "Terminal",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+   "command": "Electron",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper",
+   "command": "Cursor Helper",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Tabby.app/Contents/MacOS/Tabby",
+   "command": "Tabby",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Rio.app/Contents/MacOS/rio",
+   "command": "rio",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/IntelliJ IDEA.app/Contents/MacOS/idea",
+   "command": "idea",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Sublime Text.app/Contents/MacOS/sublime_text",
+   "command": "sublime_text",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Nova.app/Contents/MacOS/Nova",
+   "command": "Nova",
+   "danger": true
+  },
+  {
+   "exe": "/Applications/Windsurf.app/Contents/MacOS/Electron",
+   "command": "Electron",
+   "danger": true
+  },
+  {
+   "exe": "/Users/me/.local/bin/claude",
+   "command": "claude --resume",
+   "danger": true
+  },
+  {
+   "exe": "/Users/me/.local/share/claude/versions/2.1.332",
+   "command": "claude --resume",
+   "danger": true
+  },
+  {
+   "exe": "/Users/me/.local/share/claude/versions/2.1.332",
+   "command": "2.1.332",
+   "danger": true
+  },
+  {
+   "exe": "/Users/me/.local/share/claude/ClaudeCode.app/Contents/MacOS/ClaudeCode",
+   "command": "ClaudeCode",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "node /usr/lib/claude/cli.js",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "node /x/node_modules/@anthropic-ai/claude-code/cli.js",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "node /x/claude.js",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "node /x/claude.mjs --flag",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "",
+   "danger": true
+  },
+  {
+   "exe": "/usr/bin/python3",
+   "command": "",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/npx",
+   "command": "npx something",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/tsx",
+   "command": "tsx run.ts",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "tsx run.ts",
+   "danger": true
+  },
+  {
+   "exe": "/Users/me/x/node_modules/electron/dist/Electron",
+   "command": "electron .",
+   "danger": true
+  },
+  {
+   "exe": "/opt/homebrew/bin/node",
+   "command": "node build.js",
+   "danger": false
+  },
+  {
+   "exe": "/usr/bin/git",
+   "command": "git status",
+   "danger": false
+  },
+  {
+   "exe": "/Applications/Terminalizer.app/Contents/MacOS/x",
+   "command": "x",
+   "danger": false
+  },
+  {
+   "exe": "/usr/local/bin/claudette",
+   "command": "claudette --go",
+   "danger": false
+  },
+  {
+   "exe": "/usr/local/bin/tool",
+   "command": "tool /x/claude-tools/run.js",
+   "danger": false
+  },
+  {
+   "exe": "/bin/sleep",
+   "command": "sleep 300",
+   "danger": false
+  }
+ ]
 }

@@ -32,6 +32,9 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+/// The prefix of an audit row that says planned signals were not sent (`unsent TERM`, with the pids they did not reach).
+pub const UNSENT: &str = "unsent ";
+
 /// Processes one request may name. A chain holds at most this many hops.
 pub const MAX_ITEMS: usize = MAX_HOPS;
 /// Children listed per process; the count is always exact.
@@ -51,23 +54,36 @@ impl Action {
     fn verb(self) -> &'static str { match self { Action::Freeze => "freeze", Action::Resume => "resume", Action::Stop => "stop", Action::ForceStop => "force stop" } }
 }
 
-/// Programs that are the owner's own session, matched on the executable's file name (`tests/fixtures/danger-hops.json`
-/// holds the same lists, and the page's classifier is tested against it). Interpreters running `claude` count too.
-pub const DANGER_PROGRAMS: &[&str] = &["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "login", "su", "nu", "pwsh", "xonsh", "elvish", "ssh", "sshd", "mosh-server", "tmux", "screen", "zellij", "claude"];
-/// App bundles (lower case) that are a terminal, an editor with a terminal, or Claude.
-pub const DANGER_BUNDLES: &[&str] = &["terminal", "iterm", "iterm2", "ghostty", "warp", "alacritty", "wezterm", "kitty", "hyper", "visual studio code", "visual studio code - insiders", "cursor", "zed", "zed preview", "claude"];
+/// Programs that are the owner's own session or launch one, matched on the file name of the executable and of the first
+/// word of the command line (`tests/fixtures/danger-hops.json` holds the same lists, and the page's classifier is tested
+/// against it).
+pub const DANGER_PROGRAMS: &[&str] = &["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "login", "su", "nu", "pwsh", "xonsh", "elvish", "ssh", "sshd", "mosh-server", "tmux", "screen", "zellij", "claude", "npx", "bunx", "tsx", "ts-node", "electron"];
+/// App bundles (lower case, any `.app` folder on the path) that are a terminal, an editor or IDE with a terminal, or Claude.
+pub const DANGER_BUNDLES: &[&str] = &["terminal", "iterm", "iterm2", "ghostty", "warp", "alacritty", "wezterm", "kitty", "hyper", "tabby", "rio", "visual studio code", "visual studio code - insiders", "cursor", "windsurf", "zed", "zed preview", "sublime text", "nova", "xcode", "intellij idea", "intellij idea ce", "pycharm", "pycharm ce", "webstorm", "goland", "clion", "rubymine", "phpstorm", "rider", "datagrip", "android studio", "claude", "claudecode"];
 pub const INTERPRETERS: &[&str] = &["node", "bun", "deno", "python", "python3", "ruby", "perl"];
 
 fn base_name(p: &str) -> &str { p.rsplit('/').next().unwrap_or(p) }
 
-/// Why this process is the owner's own session, or None. `command` is the fresh command line, read only for an interpreter.
+/// A word that names Claude Code: `claude`, `claude-code`, or a file such as `claude.js`. A folder called `claude` counts
+/// too, which is how a native install looks (`.../claude/versions/<version>` behind a `claude` link).
+fn is_claude_word(w: &str) -> bool { w == "claude" || w == "claude-code" || w.starts_with("claude.") }
+
+fn is_bundle(seg: &str) -> bool { seg.strip_suffix(".app").is_some_and(|b| DANGER_BUNDLES.contains(&b.to_lowercase().as_str())) }
+
+/// Why this process is the owner's own session, or None. `command` is the command line read now; for an interpreter, a
+/// command line that could not be read (None or empty) is itself a reason, because what it runs is then unknown.
 pub fn danger_reason(exe: &str, command: Option<&str>) -> Option<&'static str> {
-    let name = base_name(exe).trim_start_matches('-');
-    if DANGER_PROGRAMS.contains(&name) { return Some("a shell, login, multiplexer or Claude session"); }
-    // Any `.app` folder on the path, not only the last: a helper inside a terminal app's bundle is still that app.
-    for seg in exe.split('/') { if let Some(b) = seg.strip_suffix(".app") { if DANGER_BUNDLES.contains(&b.to_lowercase().as_str()) { return Some("a terminal app, an editor with a terminal, or Claude"); } } }
-    let interp = INTERPRETERS.contains(&name) || name.strip_prefix("python").is_some_and(|v| v.chars().all(|c| c.is_ascii_digit() || c == '.'));
-    if interp && command.is_some_and(|c| c.split(|ch: char| ch.is_whitespace() || ch == '/').any(|w| w == "claude" || w == "claude-code")) { return Some("a Claude session run by an interpreter"); }
+    // An executable that could not be read is unknown, and unknown is treated as your own session.
+    if exe.is_empty() { return Some("its program is not known"); }
+    let cmd = command.map(str::trim).filter(|c| !c.is_empty());
+    let argv0 = cmd.and_then(|c| c.split_whitespace().next()).unwrap_or("");
+    for name in [base_name(exe), base_name(argv0)] {
+        if DANGER_PROGRAMS.contains(&name.trim_start_matches('-')) { return Some("a shell, login, multiplexer, launcher or Claude session"); }
+    }
+    // Every folder on the path, of the executable and of the command: a helper inside a terminal app's bundle is that app.
+    if exe.split('/').chain(cmd.unwrap_or("").split('/')).any(is_bundle) { return Some("a terminal app, an editor or IDE with a terminal, or Claude"); }
+    if exe.split('/').chain(cmd.unwrap_or("").split(|ch: char| ch.is_whitespace() || ch == '/')).any(is_claude_word) { return Some("a Claude session"); }
+    if is_interpreter(exe) && cmd.is_none() { return Some("its command line could not be read, so what it runs is unknown"); }
     None
 }
 
@@ -76,7 +92,7 @@ fn signo(name: &str) -> i32 { match name { "STOP" => libc::SIGSTOP, "CONT" => li
 /// Machine-readable reason a process was not (or would not be) signalled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Code { Gone, PidReused, RootOwned, NotYours, Launchd, MonitorLizard, AlreadyFrozen, NotFrozen, NotFrozenByUs, NotAChain, NeedsDangerConfirmation, Unverifiable, NotPreviewed, SignalFailed }
+pub enum Code { Gone, PidReused, RootOwned, NotYours, Launchd, MonitorLizard, AlreadyFrozen, NotFrozen, NotFrozenByUs, NotAChain, ChainExited, NeedsDangerConfirmation, Unverifiable, NotPreviewed, SignalFailed }
 
 impl Code {
     fn reason(self, action: Option<Action>) -> String {
@@ -90,7 +106,8 @@ impl Code {
             Code::AlreadyFrozen => "Already frozen: resume it instead".into(),
             Code::NotFrozen => "Not frozen, so there is nothing to resume".into(),
             Code::NotFrozenByUs => "It was stopped by something other than Monitor Lizard (job control or a debugger), so it will not be continued from here".into(),
-            Code::NotAChain => "This process is not the parent of the one below it, so it is not part of this chain any more".into(),
+            Code::NotAChain => "This process is no longer the parent of the one below it, so it is not part of this chain any more".into(),
+            Code::ChainExited => "A process below it in this chain has exited, so the chain cannot be checked. Use one process at a time".into(),
             Code::NeedsDangerConfirmation => "This is your own session, so it needs the second confirmation".into(),
             Code::Unverifiable => "This process cannot be checked: no start time or executable was recorded, or the machine could not be read".into(),
             Code::NotPreviewed => "This process was not in the preview that was confirmed".into(),
@@ -112,7 +129,7 @@ pub struct Target { pub pid: u32, pub started: Option<u64>, pub exe: String }
 pub enum Mode { Preview, Commit { token: Option<String> } }
 
 #[derive(Debug, PartialEq)]
-pub struct Request { pub action: Action, pub scope: Scope, pub items: Vec<Target>, pub confirm_danger: bool, pub mode: Mode }
+pub struct Request { pub action: Action, pub scope: Scope, pub items: Vec<Target>, pub confirm_danger: bool, pub replaces: Option<String>, pub mode: Mode }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope { One, Chain }
@@ -164,7 +181,8 @@ pub fn parse(query: &str) -> Result<Request, ApiError> {
         Some("0") => Mode::Commit { token: one(query, "confirm_token")? },
         Some(_) => return Err(fail(400, "bad_dry", "dry must be 1 (preview) or 0 (signal); leave it out for a preview")),
     };
-    Ok(Request { action, scope, items, confirm_danger, mode })
+    let replaces = one(query, "replaces")?.filter(|t| !t.is_empty());
+    Ok(Request { action, scope, items, confirm_danger, replaces, mode })
 }
 
 /// What the machine says about one pid right now.
@@ -246,6 +264,8 @@ pub struct ItemResult {
     pub state: Option<&'static str>,
     /// For a frozen process: whether the audit log says this app froze it. Only then is it ever continued.
     pub frozen_by_us: Option<bool>,
+    /// Status route only: why this process could not be part of a chain with the one before it in the list (None when it can).
+    pub chain_code: Option<Code>,
     pub signals: Vec<&'static str>,
     pub children: Vec<ChildOut>,
     pub children_total: usize,
@@ -264,7 +284,7 @@ fn refused(w: &dyn World, t: &Target, code: Code, action: Option<Action>) -> Ite
     // The state of a refused process is still worth showing (a reused pid or a root-owned one is running).
     let fresh = match code { Code::Gone | Code::Launchd | Code::MonitorLizard | Code::Unverifiable => None, _ => w.probe(t.pid) };
     let frozen_by_us = fresh.as_ref().filter(|f| is_frozen(f)).and_then(|_| t.started.map(|s| w.froze_by_us(t.pid, s)));
-    ItemResult { pid: t.pid, status: Status::Refused, code: Some(code), reason: Some(code.reason(action)), state: fresh.as_ref().map(state_of), frozen_by_us, signals: vec![], children: vec![], children_total: 0 }
+    ItemResult { pid: t.pid, status: Status::Refused, code: Some(code), reason: Some(code.reason(action)), state: fresh.as_ref().map(state_of), frozen_by_us, chain_code: None, signals: vec![], children: vec![], children_total: 0 }
 }
 
 /// What a check also asks beyond the process itself: `danger_ok` is the second confirmation for the owner's own session
@@ -282,18 +302,20 @@ fn is_interpreter(exe: &str) -> bool {
 fn check(w: &dyn World, t: &Target, action: Option<Action>, with_kids: bool, gate: Gate) -> Result<ItemResult, ItemResult> {
     let f = verify(w, t, action).map_err(|code| refused(w, t, code, action))?;
     if let Some(child) = gate.child {
-        let linked = match w.probe(child) { Some(c) if c.state != 'Z' => c.ppid == t.pid, _ => gate.late };
-        if !linked { return Err(refused(w, t, Code::NotAChain, action)); }
+        match w.probe(child) {
+            Some(c) if c.state != 'Z' => if c.ppid != t.pid { return Err(refused(w, t, Code::NotAChain, action)); },
+            // Gone: before anything was sent the link cannot be shown; just before a signal it is the child this request already signalled.
+            _ => if !gate.late { return Err(refused(w, t, Code::ChainExited, action)); },
+        }
     }
-    if !gate.danger_ok && action.is_some_and(|a| a != Action::Resume) {
-        let cmd = is_interpreter(&f.exe).then(|| w.command(t.pid)).flatten();
-        if danger_reason(&f.exe, cmd.as_deref()).is_some() { return Err(refused(w, t, Code::NeedsDangerConfirmation, action)); }
+    if !gate.danger_ok && action.is_some_and(|a| a != Action::Resume) && danger_reason(&f.exe, w.command(t.pid).as_deref()).is_some() {
+        return Err(refused(w, t, Code::NeedsDangerConfirmation, action));
     }
     // Children are listed only for a process that verified in full.
     let (children, children_total) = if with_kids { kids(w, t.pid) } else { (vec![], 0) };
     let signals = action.map(|a| signals_for(a, is_frozen(&f))).unwrap_or_default();
     let frozen_by_us = is_frozen(&f).then(|| w.froze_by_us(t.pid, t.started.unwrap_or(0)));
-    Ok(ItemResult { pid: t.pid, status: Status::WouldSignal, code: None, reason: None, state: Some(state_of(&f)), frozen_by_us, signals, children, children_total })
+    Ok(ItemResult { pid: t.pid, status: Status::WouldSignal, code: None, reason: None, state: Some(state_of(&f)), frozen_by_us, chain_code: None, signals, children, children_total })
 }
 
 /// What a confirmation is bound to: the action, the scope, the danger flag and every item with its captured start and
@@ -386,6 +408,9 @@ fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
     let gate = |t: &Target, late: bool| Gate { danger_ok: req.confirm_danger, child: links.get(&t.pid).copied(), late };
     match &req.mode {
         Mode::Preview => {
+            // A confirmation the page is replacing (the flagged preview supersedes the first one) is used up, so it cannot
+            // be spent later and does not count toward the limit of waiting previews. An unknown token is ignored.
+            if let Some(old) = &req.replaces { let _ = ctx.tokens.redeem(Some(old), "", ctx.now); }
             let items: Vec<ItemResult> = ordered.iter().map(|t| check(w, t, Some(req.action), true, gate(t, false)).unwrap_or_else(|r| r)).collect();
             let movable: Vec<String> = items.iter().filter(|i| i.status == Status::WouldSignal).map(|i| i.pid.to_string()).collect();
             let token = if movable.is_empty() { None } else {
@@ -421,46 +446,61 @@ fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
                     .map_err(|e| fail(500, "audit_unavailable", format!("the audit log could not be written, so nothing was signalled: {}", history::unavailable(&e))))?;
             }
             // Second pass: each process is checked again immediately before its own signal, and gets only the signals that were recorded.
-            let mut late: Vec<serde_json::Value> = Vec::new();
+            // Whatever was planned and not sent is collected, so History can say so (a planned row alone reads as a signal that went).
+            let mut unsent: Vec<(&'static str, u32, serde_json::Value)> = Vec::new();
             let mut items: Vec<ItemResult> = Vec::new();
             for (t, first) in results.drain(..) {
                 let item = match first {
                     Err(e) => e,
-                    Ok(recorded) => match check(w, &t, Some(req.action), false, gate(&t, true)) {
-                        Err(e) => { late.push(refusal_json(t.pid, &e)); e }
-                        // The state moved since the audit rows were written (it froze meanwhile): it would need signals nobody recorded.
-                        Ok(ok) if ok.signals != recorded.signals => { let e = refused_not_previewed(&t, req.action); late.push(refusal_json(t.pid, &e)); drop(ok); e }
-                        Ok(mut ok) => {
-                            let mut sent = Vec::new();
-                            let mut failure = None;
-                            for name in recorded.signals.clone() {
-                                match w.send(t.pid, signo(name)) { Ok(()) => sent.push(name), Err(m) => { failure = Some(m); break; } }
+                    Ok(recorded) => {
+                        let late = check(w, &t, Some(req.action), false, gate(&t, true));
+                        match late {
+                            Err(e) => { for n in &recorded.signals { unsent.push((n, t.pid, refusal_json(t.pid, &e))); } e }
+                            // The state moved since the audit rows were written (it froze meanwhile): it would need signals nobody recorded.
+                            Ok(ok) if ok.signals != recorded.signals => {
+                                let e = refused_not_previewed(&t, req.action);
+                                for n in &recorded.signals { unsent.push((n, t.pid, refusal_json(t.pid, &e))); }
+                                drop(ok); e
                             }
-                            ok.signals = sent;
-                            match failure {
-                                None => { ok.status = Status::Signalled; ok }
-                                Some(m) => {
-                                    ok.status = Status::Failed; ok.code = Some(Code::SignalFailed); ok.reason = Some(format!("{}: {m}", Code::SignalFailed.reason(None)));
-                                    late.push(serde_json::json!({ "pid": t.pid, "reason": ok.reason }));
-                                    ok
+                            Ok(mut ok) => {
+                                let mut sent: Vec<&'static str> = Vec::new();
+                                let mut failure = None;
+                                for name in recorded.signals.clone() {
+                                    match w.send(t.pid, signo(name)) { Ok(()) => sent.push(name), Err(m) => { failure = Some(m); break; } }
+                                }
+                                ok.signals = sent.clone();
+                                match failure {
+                                    None => { ok.status = Status::Signalled; ok }
+                                    Some(m) => {
+                                        ok.status = Status::Failed; ok.code = Some(Code::SignalFailed); ok.reason = Some(format!("{}: {m}", Code::SignalFailed.reason(None)));
+                                        for n in recorded.signals.iter().filter(|n| !sent.contains(n)) { unsent.push((n, t.pid, serde_json::json!({ "pid": t.pid, "reason": ok.reason, "code": ok.code }))); }
+                                        ok
+                                    }
                                 }
                             }
                         }
-                    },
+                    }
                 };
                 items.push(item);
             }
-            let audit_error = if late.is_empty() { None } else {
-                h.record_action(ctx.unix_now, req.action.signal(), &[], &serde_json::to_string(&late).unwrap_or_default()).err()
-                    .map(|e| format!("a signal was refused or failed, and History could not record it: {}", history::unavailable(&e)))
-            };
+            // One compensating row per signal name, with the pids it did not reach: `froze_by_log` skips the planned row it cancels.
+            let mut audit_error = None;
+            let mut cancelled: Vec<&'static str> = Vec::new();
+            for (name, _, _) in &unsent { if !cancelled.contains(name) { cancelled.push(name); } }
+            for name in cancelled {
+                let pids: Vec<u32> = unsent.iter().filter(|(n, _, _)| *n == name).map(|(_, p, _)| *p).collect();
+                let why: Vec<&serde_json::Value> = unsent.iter().filter(|(n, _, _)| *n == name).map(|(_, _, j)| j).collect();
+                if let Err(e) = h.record_action(ctx.unix_now, &format!("{UNSENT}{name}"), &pids, &serde_json::to_string(&why).unwrap_or_default()) {
+                    audit_error = Some(format!("a signal was not sent, and History could not record that: {}", history::unavailable(&e)));
+                }
+            }
             Ok(render(&req, &items, false, None, audit_error))
         }
     }
 }
 
 fn refused_not_previewed(t: &Target, action: Action) -> ItemResult {
-    ItemResult { pid: t.pid, status: Status::Refused, code: Some(Code::NotPreviewed), reason: Some(Code::NotPreviewed.reason(Some(action))), state: None, frozen_by_us: None, signals: vec![], children: vec![], children_total: 0 }
+    ItemResult { pid: t.pid, status: Status::Refused, code: Some(Code::NotPreviewed), reason: Some(Code::NotPreviewed.reason(Some(action))), state: None, frozen_by_us: None, chain_code: None, signals: vec![], children: vec![], children_total: 0 }
 }
 
 /// The shape the History page already reads in the `refused` column: `{ pid, reason }`.
@@ -474,7 +514,14 @@ pub fn status_reply(query: &str, w: &dyn World) -> (u16, String) {
         let items = parse_items(query)?;
         let action = match one(query, "action")?.as_deref() { None | Some("") => None, Some(a) => Some(Action::parse(a).ok_or_else(|| fail(400, "bad_action", "action must be freeze, resume, stop or force_stop"))?) };
         // The danger flag is a question for a real request; here it would only hide a process the page wants to show.
-        let out: Vec<ItemResult> = items.iter().map(|t| check(w, t, action, true, Gate { danger_ok: true, child: None, late: false }).unwrap_or_else(|r| r)).collect();
+        let mut out: Vec<ItemResult> = items.iter().map(|t| check(w, t, action, true, Gate { danger_ok: true, child: None, late: false }).unwrap_or_else(|r| r)).collect();
+        // Items are a chain, child first: say for each one whether the chain from the first item up to it holds together, so
+        // the page can disable the chain buttons the same way the preview would refuse them.
+        for j in 1..items.len() {
+            let link = check(w, &items[j], None, false, Gate { danger_ok: true, child: Some(items[j - 1].pid), late: false });
+            let itself_gone = matches!(out[j].code, Some(Code::Gone | Code::PidReused));
+            out[j].chain_code = if itself_gone { Some(Code::ChainExited) } else { link.err().and_then(|e| e.code).filter(|c| matches!(c, Code::NotAChain | Code::ChainExited)) };
+        }
         Ok((200, serde_json::to_string(&serde_json::json!({ "items": out })).unwrap_or_default()))
     };
     go().unwrap_or_else(|e| error_reply(&e))
@@ -489,6 +536,13 @@ pub struct Real { protected: Option<Vec<u32>>, db: std::path::PathBuf, table: On
 type ChildRow = (u32, u32, char, String);
 
 impl Real {
+    /// The command line of every process, from one `ps` (the second one a request can run; the first builds the table of Monitor Lizard's own tree).
+    fn rows(&self) -> &Vec<ChildRow> {
+        self.table.get_or_init(|| {
+            let out = Command::new("ps").args(["-axww", "-o", "pid=,ppid=,state=,command="]).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+            parse_rows(&out)
+        })
+    }
     pub fn new(db: &Path) -> Real {
         Real { protected: process_table().map(|t| related_to(std::process::id(), &t)), db: db.to_path_buf(), table: OnceCell::new(), log: OnceCell::new() }
     }
@@ -527,10 +581,24 @@ pub fn parse_rows(text: &str) -> Vec<ChildRow> {
     }).collect()
 }
 
-/// Whether the newest audit row that names `pid` as signalled is a freeze made after the process started.
+/// Whether the audit log shows this app froze `pid` (started at `started`) and nothing since. Rows are newest first. A row
+/// is written before its signal goes, so a later `unsent <signal>` row cancels the planned row it names; only signals that
+/// really went count. A CONT or KILL newer than the freeze means whatever stops the process now is not our freeze.
 pub fn froze_by_log(rows: &[(u64, String, Vec<u32>)], pid: u32, started: u64) -> bool {
-    // Newest first. A CONT or KILL newer than the freeze means whatever stops it now is not our freeze.
-    rows.iter().find(|(_, sig, pids)| pids.contains(&pid) && matches!(sig.as_str(), "STOP" | "CONT" | "KILL")).is_some_and(|(ts, sig, _)| sig == "STOP" && *ts >= started)
+    let mut cancelled: std::collections::HashMap<&str, u32> = Default::default();
+    for (ts, sig, pids) in rows {
+        if !pids.contains(&pid) { continue; }
+        if let Some(name) = sig.strip_prefix(UNSENT) { *cancelled.entry(name).or_insert(0) += 1; continue; }
+        if !matches!(sig.as_str(), "STOP" | "CONT" | "KILL") { continue; }
+        if let Some(n) = cancelled.get_mut(sig.as_str()).filter(|n| **n > 0) { *n -= 1; continue; }
+        return sig == "STOP" && *ts >= started;
+    }
+    false
+}
+
+/// The audit rows this module reads, newest first: `(time, signal, pids)`.
+pub fn read_log(db: &Path) -> Vec<(u64, String, Vec<u32>)> {
+    History::at(db).and_then(|h| h.recent_actions(2000)).map(|v| v.into_iter().map(|a| (a.ts, a.sig, parse_pid_list(&a.sent))).collect()).unwrap_or_default()
 }
 
 fn parse_pid_list(s: &str) -> Vec<u32> { s.trim().trim_start_matches('[').trim_end_matches(']').split(',').filter_map(|p| p.trim().parse().ok()).collect() }
@@ -544,11 +612,7 @@ impl World for Real {
         Some(Fresh { uid: info.pbi_uid, ppid: info.pbi_ppid, state, exe, started: Some(info.pbi_start_tvsec).filter(|&t| t > 0) })
     }
     fn children(&self, pid: u32) -> Vec<Child> {
-        let rows = self.table.get_or_init(|| {
-            let out = Command::new("ps").args(["-axww", "-o", "pid=,ppid=,state=,command="]).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
-            parse_rows(&out)
-        });
-        rows.iter().filter(|r| r.1 == pid).map(|r| Child { pid: r.0, state: r.2, command: r.3.clone() }).collect()
+        self.rows().iter().filter(|r| r.1 == pid).map(|r| Child { pid: r.0, state: r.2, command: r.3.clone() }).collect()
     }
     fn send(&self, pid: u32, sig: i32) -> Result<(), String> {
         let pid = i32::try_from(pid).map_err(|_| "pid out of range".to_string())?;
@@ -561,12 +625,12 @@ impl World for Real {
     fn my_uid(&self) -> u32 { unsafe { libc::getuid() } }
     fn protected(&self) -> Option<Vec<u32>> { self.protected.clone() }
     fn froze_by_us(&self, pid: u32, started: u64) -> bool {
-        let rows = self.log.get_or_init(|| History::at(&self.db).and_then(|h| h.recent_actions(2000)).map(|v| v.into_iter().map(|a| (a.ts, a.sig, parse_pid_list(&a.sent))).collect()).unwrap_or_default());
+        let rows = self.log.get_or_init(|| read_log(&self.db));
         froze_by_log(rows, pid, started)
     }
+    /// From the same table as the children, so a request runs `ps` for it at most once.
     fn command(&self, pid: u32) -> Option<String> {
-        let out = Command::new("ps").args(["-ww", "-o", "command=", "-p", &pid.to_string()]).output().ok()?;
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|c| !c.is_empty())
+        self.rows().iter().find(|r| r.0 == pid).map(|r| r.3.clone()).filter(|c| !c.is_empty())
     }
 }
 
@@ -577,11 +641,20 @@ pub fn serve_reply(query: &str, tokens: &ConfirmTokens) -> (u16, String) {
     reply(query, &Ctx { tokens, db: &db, world: &Real::new(&db), busy: &SERVER_BUSY, now: Instant::now(), unix_now })
 }
 
-pub fn serve_status(write_ok: bool, query: &str) -> (u16, String) { serve_status_with(write_ok, query, &Real::new(&history::db_path())) }
+/// The token decision for the status route, made before anything is read from the machine.
+fn status_gate(write_ok: bool) -> Option<(u16, String)> {
+    (!write_ok).then(|| error_reply(&fail(403, "forbidden", "this read needs the dashboard's per-run token")))
+}
 
+pub fn serve_status(write_ok: bool, query: &str) -> (u16, String) {
+    // Checked first: `Real::new` runs `ps`, and a caller without the token must not be able to make it run.
+    if let Some(denied) = status_gate(write_ok) { return denied; }
+    status_reply(query, &Real::new(&history::db_path()))
+}
+
+#[cfg(test)]
 fn serve_status_with(write_ok: bool, query: &str, w: &dyn World) -> (u16, String) {
-    if !write_ok { return error_reply(&fail(403, "forbidden", "this read needs the dashboard's per-run token")); }
-    status_reply(query, w)
+    status_gate(write_ok).unwrap_or_else(|| status_reply(query, w))
 }
 
 #[cfg(test)]
@@ -803,7 +876,7 @@ mod tests {
         assert_eq!(w.sent(), vec![(11, libc::SIGKILL)]);
         let rows = rig.actions();
         assert_eq!(rows.len(), 2, "{rows:?}");
-        assert!(rows[0].1 == "[]" && rows[0].2.contains("gone"), "the later row says what was refused at the last moment");
+        assert!(rows[0].0 == "unsent KILL" && rows[0].1 == "[10]" && rows[0].2.contains("gone"), "the later row says which planned signal never went: {rows:?}");
         assert_eq!(rows[1].1, "[11, 10]", "the first row, newest last, names everything that was about to be signalled");
     }
 
@@ -1007,14 +1080,14 @@ mod tests {
         assert_eq!(list("interpreters"), INTERPRETERS);
         for c in f["cases"].as_array().unwrap() {
             let (exe, cmd) = (c["exe"].as_str().unwrap(), c["command"].as_str().unwrap());
-            assert_eq!(danger_reason(exe, is_interpreter(exe).then_some(cmd)).is_some(), c["danger"].as_bool().unwrap(), "{exe} {cmd}");
+            assert_eq!(danger_reason(exe, Some(cmd).filter(|c| !c.is_empty())).is_some(), c["danger"].as_bool().unwrap(), "{exe} {cmd:?}");
         }
     }
 
     #[test]
     fn the_confirmation_binding_cannot_be_forged_with_an_executable_that_imitates_a_second_item() {
         let item = |pid, exe: &str| Target { pid, started: Some(5), exe: exe.into() };
-        let req = |items: Vec<Target>| Request { action: Action::Freeze, scope: Scope::Chain, items, confirm_danger: false, mode: Mode::Preview };
+        let req = |items: Vec<Target>| Request { action: Action::Freeze, scope: Scope::Chain, items, confirm_danger: false, replaces: None, mode: Mode::Preview };
         // One item whose path contains what would, joined naively, read as a second item.
         let one = req(vec![item(1, "/x\n2:5:/y")]);
         let two = req(vec![item(1, "/x"), item(2, "/y")]);
@@ -1041,6 +1114,139 @@ mod tests {
         drop(hold);
         let (_, v) = rig.call(&w, &q("freeze", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
         assert_eq!(v["ok"], true, "{v}");
+    }
+
+    fn log_of(rig: &Rig) -> Vec<(u64, String, Vec<u32>)> { read_log(&rig.db) }
+
+    #[test]
+    fn a_planned_signal_that_never_went_does_not_count_as_one_that_did() {
+        let log = |rows: &[(u64, &str, &[u32])]| rows.iter().map(|(t, s, p)| (*t, s.to_string(), p.to_vec())).collect::<Vec<_>>();
+        // STOP planned, then cancelled: the process was never stopped by us, so a later ^Z is not ours.
+        assert!(!froze_by_log(&log(&[(101, "unsent STOP", &[5]), (100, "STOP", &[5])]), 5, 90));
+        // CONT planned and cancelled: the freeze before it still stands.
+        assert!(froze_by_log(&log(&[(111, "unsent CONT", &[5]), (110, "CONT", &[5]), (100, "STOP", &[5])]), 5, 90));
+        // A cancel names its own signal and pid only.
+        assert!(!froze_by_log(&log(&[(111, "unsent CONT", &[6]), (110, "CONT", &[5, 6]), (100, "STOP", &[5, 6])]), 5, 90), "the cancel was for pid 6 only");
+        assert!(froze_by_log(&log(&[(111, "unsent TERM", &[5]), (100, "STOP", &[5])]), 5, 90));
+        // One cancel cancels one planned row.
+        assert!(!froze_by_log(&log(&[(111, "unsent CONT", &[5]), (110, "CONT", &[5]), (105, "CONT", &[5]), (100, "STOP", &[5])]), 5, 90), "the second CONT really went");
+        assert!(froze_by_log(&log(&[(120, "STOP", &[5]), (111, "unsent CONT", &[5]), (110, "CONT", &[5]), (100, "STOP", &[5])]), 5, 90), "a newer STOP stands");
+    }
+
+    #[test]
+    fn a_failed_stop_leaves_a_log_that_does_not_make_a_later_job_control_stop_ours() {
+        let mut w = Fake::new().with(10, ME, 'S', EXE, 5);
+        w.fail_send = Some(10);
+        let rig = Rig::new("failed-stop-log");
+        let tok = rig.token(&w, &q("freeze", "one", &[(10, 5, EXE)], ""));
+        let (_, v) = rig.call(&w, &q("freeze", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
+        assert_eq!(v["items"][0]["code"], "signal_failed");
+        let rows = rig.actions();
+        assert!(rows.iter().any(|r| r.0 == "unsent STOP" && r.1 == "[10]"), "{rows:?}");
+        assert!(!froze_by_log(&log_of(&rig), 10, 5), "the STOP never went, so it is not ours");
+        // The process is now stopped by ^Z: the log must not call that our freeze.
+        w.procs.borrow_mut().get_mut(&10).unwrap().state = 'T';
+        w.ours.borrow_mut().clear();
+        assert!(!froze_by_log(&log_of(&rig), 10, 5));
+    }
+
+    #[test]
+    fn a_resume_refused_at_the_last_moment_leaves_the_process_ours_to_resume() {
+        // Freeze both through the route, then resume the chain: the parent's CONT goes first, then the child exits before its turn.
+        let mut w = Fake::new().with(10, ME, 'S', EXE, 5).with(11, ME, 'S', EXE, 5).chain(&[10, 11]);
+        let rig = Rig::new("late-resume-log");
+        let items = [(10, 5, EXE), (11, 5, EXE)];
+        let tok = rig.token(&w, &q("freeze", "chain", &items, ""));
+        let (_, v) = rig.call(&w, &q("freeze", "chain", &items, &format!("&dry=0&confirm_token={tok}")));
+        assert_eq!(v["ok"], true, "{v}");
+        w.exit_after_send = Some((11, 10)); // resume goes parent (11) first; then the child vanishes
+        let tok = rig.token(&w, &q("resume", "chain", &items, ""));
+        let (_, v) = rig.call(&w, &q("resume", "chain", &items, &format!("&dry=0&confirm_token={tok}")));
+        assert_eq!(v["ok"], false);
+        let log = log_of(&rig);
+        assert!(!froze_by_log(&log, 11, 5), "11 was really continued");
+        // 10's CONT was planned and never sent: the log still says we froze it.
+        assert!(froze_by_log(&log, 10, 5), "{log:?}");
+    }
+
+    #[test]
+    fn a_stop_whose_term_fails_does_not_cancel_the_freeze_in_the_log() {
+        let mut w = Fake::new().with(10, ME, 'S', EXE, 5);
+        let rig = Rig::new("stop-fails-log");
+        let tok = rig.token(&w, &q("freeze", "one", &[(10, 5, EXE)], ""));
+        rig.call(&w, &q("freeze", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
+        w.fail_send = Some(10);
+        let tok = rig.token(&w, &q("stop", "one", &[(10, 5, EXE)], ""));
+        let (_, v) = rig.call(&w, &q("stop", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
+        assert_eq!(v["items"][0]["status"], "failed");
+        let log = log_of(&rig);
+        assert!(froze_by_log(&log, 10, 5), "TERM and CONT were both planned and neither went; it is still frozen by us: {log:?}");
+    }
+
+    #[test]
+    fn the_danger_classifier_fails_closed() {
+        // A native Claude Code install: the path has a `claude` folder and a version number for the file name.
+        assert!(danger_reason("/Users/me/.local/share/claude/versions/2.1.332", Some("claude")).is_some());
+        assert!(danger_reason("/Users/me/.local/share/claude/versions/2.1.332", None).is_some(), "the folder alone is enough");
+        assert!(danger_reason("/opt/homebrew/bin/node", Some("node /x/claude.js")).is_some());
+        // An interpreter whose command line could not be read is unknown, so it is your session until shown otherwise.
+        assert!(danger_reason("/opt/homebrew/bin/node", None).is_some());
+        assert!(danger_reason("/usr/bin/python3", Some("   ")).is_some());
+        assert!(danger_reason("/opt/homebrew/bin/node", Some("node build.js")).is_none());
+        assert!(danger_reason("/usr/bin/git", None).is_none(), "a native program needs no command line to be judged");
+        // The check itself: a failed command read for node makes the hop need the confirmation.
+        let w = Fake::new().with(62, ME, 'S', "/opt/homebrew/bin/node", 5); // no command known
+        let (_, v) = Rig::new("danger-closed").call(&w, &q("force_stop", "one", &[(62, 5, "/opt/homebrew/bin/node")], ""));
+        assert_eq!(v["items"][0]["code"], "needs_danger_confirmation");
+    }
+
+    #[test]
+    fn a_chain_with_an_exited_process_says_so_and_the_status_route_agrees() {
+        let w = Fake::new().with(100, ME, 'S', EXE, 5).with(102, ME, 'S', EXE, 5); // 101 is gone
+        w.procs.borrow_mut().get_mut(&102).unwrap().ppid = 101;
+        let items = [(102, 5, EXE), (101, 5, EXE), (100, 5, EXE)];
+        let rig = Rig::new("chain-exited");
+        let (_, v) = rig.call(&w, &q("freeze", "chain", &items, ""));
+        let by: HashMap<u64, String> = v["items"].as_array().unwrap().iter().map(|i| (i["pid"].as_u64().unwrap(), i["code"].as_str().unwrap_or("").to_string())).collect();
+        assert_eq!((by[&101].as_str(), by[&100].as_str()), ("gone", "chain_exited"), "{v}");
+        assert!(v["items"].as_array().unwrap().iter().any(|i| i["reason"].as_str().is_some_and(|r| r.contains("has exited"))));
+        // The status route, asked about the same items, marks them the same way for the page.
+        let enc = |s: &str| s.replace(':', "%3A").replace('/', "%2F");
+        let query = items.iter().map(|(p, st, e)| format!("item={}", enc(&format!("{p}:{st}:{e}")))).collect::<Vec<_>>().join("&");
+        let (_, body) = serve_status_with(true, &query, &w);
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let chain: Vec<Option<&str>> = v["items"].as_array().unwrap().iter().map(|i| i["chain_code"].as_str()).collect();
+        assert_eq!(chain, vec![None, Some("chain_exited"), Some("chain_exited")], "{v}");
+        // Whole and healthy: no chain code.
+        let ok = Fake::new().with(1000, ME, 'S', EXE, 5).with(1001, ME, 'S', EXE, 5).chain(&[1001, 1000]);
+        let (_, body) = serve_status_with(true, &format!("item={}&item={}", enc(&format!("1001:5:{EXE}")), enc(&format!("1000:5:{EXE}"))), &ok);
+        assert!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["items"].as_array().unwrap().iter().all(|i| i["chain_code"].is_null()));
+    }
+
+    #[test]
+    fn the_status_route_reads_nothing_from_the_machine_before_the_token_is_checked() {
+        // `serve_status` builds the real world only after this gate; here the gate alone, with nothing to read.
+        assert_eq!(status_gate(false).map(|r| r.0), Some(403));
+        assert!(status_gate(true).is_none());
+        assert_eq!(serve_status(false, "item=1%3A%3A").0, 403);
+    }
+
+    #[test]
+    fn a_preview_can_replace_the_confirmation_it_supersedes() {
+        let w = Fake::new().with(10, ME, 'S', EXE, 5).with(11, ME, 'S', EXE, 5);
+        let rig = Rig::new("replaces");
+        let old = rig.token(&w, &q("freeze", "one", &[(10, 5, EXE)], ""));
+        let new = {
+            let (code, v) = rig.call(&w, &q("freeze", "one", &[(10, 5, EXE)], &format!("&confirm_danger=1&replaces={old}")));
+            assert_eq!(code, 200);
+            v["confirm_token"].as_str().unwrap().to_string()
+        };
+        let (_, v) = rig.call(&w, &q("freeze", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={old}")));
+        assert_eq!(v["code"], "confirmation_invalid", "the superseded token is used up");
+        let (_, v) = rig.call(&w, &q("freeze", "one", &[(10, 5, EXE)], &format!("&confirm_danger=1&dry=0&confirm_token={new}")));
+        assert_eq!(v["ok"], true, "{v}");
+        // A made-up token to replace is ignored, not an error.
+        assert_eq!(rig.call(&w, &q("freeze", "one", &[(11, 5, EXE)], "&replaces=nonsense")).0, 200);
     }
 
     // ---- real processes. Only processes this test starts are ever signalled, and each is killed when its guard drops,

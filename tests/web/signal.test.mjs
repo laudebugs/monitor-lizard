@@ -41,7 +41,7 @@ test('severity: a script is caution, a leaf program is plain, children raise pla
   assert.deepEqual(unknown.why, ['what runs under it is not known yet']);
   assert.equal(S.sigSeverity(hop('make', '/usr/bin/make'), null).level, 'caution');
   assert.equal(S.sigSeverity(hop('-zsh', '/bin/zsh'), undefined).level, 'danger');
-  assert.equal(level('', ''), 'plain', 'a hop with nothing recorded does not throw');
+  assert.equal(level('', ''), 'danger', 'a hop with nothing recorded does not throw, and unknown is treated as your own session');
 });
 
 test('severity: a program that merely starts with the same letters is not the terminal or claude', () => {
@@ -87,9 +87,16 @@ test('availability: exited, reused, frozen, running, unreadable and not yet chec
 
 test('availability: the chain button works when any process of the chain can take the action', () => {
   const chain = [hop('a', '/a', { pid: 1 }), hop('b', '/b', { pid: 2 })];
-  const live = { [S.sigKey(chain[0])]: { code: 'gone' }, [S.sigKey(chain[1])]: { state: 'running' } };
+  const live = { [S.sigKey(chain[0])]: { state: 'running' }, [S.sigKey(chain[1])]: { state: 'running' } };
   assert.equal(S.sigChainAvail(chain, 1, live, 'freeze').ok, true);
   assert.equal(S.sigChainAvail(chain, 1, live, 'resume').ok, false);
+  // An exited or replaced process in the chain turns the chain buttons off, as the preview would refuse them.
+  const gone = { ...live, [S.sigKey(chain[0])]: { code: 'gone' } };
+  assert.match(S.sigChainAvail(chain, 1, gone, 'freeze').reason, /has exited/);
+  assert.equal(S.sigChainAvail(chain, 1, gone, 'freeze').ok, false);
+  assert.equal(S.sigAvail(chain[1], gone[S.sigKey(chain[1])], 'freeze').ok, true, 'the process on its own is still fine');
+  assert.equal(S.sigChainAvail(chain, 1, { ...live, [S.sigKey(chain[1])]: { state: 'running', chain_code: 'chain_exited' } }, 'stop').ok, false);
+  assert.equal(S.sigChainAvail(chain, 0, { ...live, [S.sigKey(chain[0])]: { state: 'running', chain_code: 'chain_exited' } }, 'stop').ok, true, 'the first hop has no link to check');
 });
 
 test('url: every item carries pid, start time and executable, encoded; a token makes it a real request; nothing leaves in a hash', () => {
@@ -305,4 +312,35 @@ test('availability: stopped by something else is never offered a resume or a sto
   assert.equal(S.sigAvail(h, live, 'force_stop').ok, true);
   assert.equal(S.sigAvail(h, { state: 'frozen', frozen_by_us: true }, 'resume').ok, true);
   assert.equal(S.sigAvail(h, { code: 'not_a_chain' }, 'freeze').ok, false);
+});
+
+test('danger: a flagged preview that differs from the one that was confirmed is shown, not sent', () => {
+  const items = [item(1, 'danger'), item(2)];
+  const held = reply(items, { confirm_token: 'first' }); held.items[0].status = 'refused'; held.items[0].code = 'needs_danger_confirmation';
+  let r = run([open(items), { type: 'reply', seq: 1, status: 200, body: held }, { type: 'go' }, { type: 'danger-yes' }]);
+  const ask = r.fx.find((f) => f.do === 'preview' && f.confirmDanger);
+  assert.equal(ask.replaces, 'first', 'the flagged preview names the token it supersedes');
+  assert.ok(S.sigUrl(ask).endsWith('&confirm_danger=1&dry=1&replaces=first'));
+  // The second preview shows something new: a process now has children.
+  const changed = reply(items); changed.items[1].children_total = 2; changed.items[1].children = [{ pid: 9, command: 'x' }, { pid: 10, command: 'y' }];
+  const out = run([{ type: 'reply', seq: ask.seq, status: 200, body: changed }], r.st);
+  assert.equal(out.st.phase, 'previewed');
+  assert.equal(out.st.changed, true);
+  assert.equal(out.fx.filter((f) => f.do === 'commit').length, 0, 'nothing is sent for a list the person did not see');
+  assert.equal(out.st.confirmDanger, true);
+  const sent = run([{ type: 'go' }], out.st);
+  assert.equal(sent.st.phase, 'sending', 'the next click sends, with the flag and the new token');
+  assert.equal(sent.st.changed, false, 'the note about the change does not follow the person into the result');
+  assert.equal(sent.fx.find((f) => f.do === 'commit').token, 'tok');
+  // The same list sends at once, and the first token is not named again.
+  const same = run([{ type: 'reply', seq: ask.seq, status: 200, body: reply(items) }], r.st);
+  assert.equal(same.st.phase, 'sending');
+  assert.equal(S.sigUrl(same.fx.find((f) => f.do === 'commit')).includes('replaces'), false);
+});
+
+test('danger: the first preview without a token has nothing to replace', () => {
+  const items = [item(1, 'danger')];
+  const held = reply(items, { confirm_token: null }); held.items[0].status = 'refused'; held.items[0].code = 'needs_danger_confirmation';
+  const r = run([open(items), { type: 'reply', seq: 1, status: 200, body: held }, { type: 'go' }, { type: 'danger-yes' }]);
+  assert.equal(S.sigUrl(r.fx.find((f) => f.do === 'preview' && f.confirmDanger)).includes('replaces'), false);
 });

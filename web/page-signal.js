@@ -16,20 +16,26 @@ const SIG_ORDER = ['freeze', 'resume', 'stop', 'force_stop'];
 // The owner's own session, by program name, app bundle and interpreter. The Rust side holds the same lists
 // (src/requester_signal.rs DANGER_PROGRAMS, DANGER_BUNDLES, INTERPRETERS) and enforces the second confirmation on the
 // server; tests/fixtures/danger-hops.json is checked by both, lists and cases.
-const SIG_DANGER_PROGRAMS = ['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'tcsh', 'csh', 'login', 'su', 'nu', 'pwsh', 'xonsh', 'elvish', 'ssh', 'sshd', 'mosh-server', 'tmux', 'screen', 'zellij', 'claude'];
-const SIG_DANGER_BUNDLES = ['terminal', 'iterm', 'iterm2', 'ghostty', 'warp', 'alacritty', 'wezterm', 'kitty', 'hyper', 'visual studio code', 'visual studio code - insiders', 'cursor', 'zed', 'zed preview', 'claude'];
+const SIG_DANGER_PROGRAMS = ['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'tcsh', 'csh', 'login', 'su', 'nu', 'pwsh', 'xonsh', 'elvish', 'ssh', 'sshd', 'mosh-server', 'tmux', 'screen', 'zellij', 'claude', 'npx', 'bunx', 'tsx', 'ts-node', 'electron'];
+const SIG_DANGER_BUNDLES = ['terminal', 'iterm', 'iterm2', 'ghostty', 'warp', 'alacritty', 'wezterm', 'kitty', 'hyper', 'tabby', 'rio', 'visual studio code', 'visual studio code - insiders', 'cursor', 'windsurf', 'zed', 'zed preview', 'sublime text', 'nova', 'xcode', 'intellij idea', 'intellij idea ce', 'pycharm', 'pycharm ce', 'webstorm', 'goland', 'clion', 'rubymine', 'phpstorm', 'rider', 'datagrip', 'android studio', 'claude', 'claudecode'];
 const SIG_INTERPRETERS = ['node', 'bun', 'deno', 'python', 'python3', 'ruby', 'perl'];
 const SIG_LEVEL = { plain: 0, caution: 1, danger: 2 };
 const sigPlural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 const sigName = (hop) => baseName(String((hop && hop.exe) || String((hop && hop.command) || '').split(/\s+/)[0] || '')).replace(/^-+/, '');
 const sigIsInterp = (name) => SIG_INTERPRETERS.includes(name) || /^python[0-9.]*$/.test(name);
-// Why the hop is the owner's own session, or null. The same rule as `danger_reason` in Rust: the program's file name, an
-// app bundle on its path, or an interpreter whose command line names claude.
+// Why the hop is the owner's own session, or null. The same rule as `danger_reason` in Rust: the file name of the executable
+// or of the first word of the command, an app bundle anywhere on either path, a word naming Claude Code (a `claude` folder
+// counts: a native install runs from `.../claude/versions/<version>`), and, for an interpreter, a command line that is
+// missing. What cannot be read is treated as the owner's own session.
+const sigClaudeWord = (w) => w === 'claude' || w === 'claude-code' || w.startsWith('claude.');
 function sigDangerWhy(hop) {
-  const exe = String((hop && hop.exe) || ''), name = baseName(exe).replace(/^-+/, '');
-  if (SIG_DANGER_PROGRAMS.includes(name)) return 'a shell, login, multiplexer or Claude session';
-  if (exe.split('/').some((seg) => seg.endsWith('.app') && SIG_DANGER_BUNDLES.includes(seg.slice(0, -4).toLowerCase()))) return 'a terminal app, an editor with a terminal, or Claude';
-  if (sigIsInterp(name) && String((hop && hop.command) || '').split(/[\s/]+/).some((w) => w === 'claude' || w === 'claude-code')) return 'a Claude session run by an interpreter';
+  const exe = String((hop && hop.exe) || ''), cmd = String((hop && hop.command) || '').trim();
+  if (!exe) return 'its program is not known';
+  const argv0 = cmd.split(/\s+/)[0] || '';
+  if ([baseName(exe), baseName(argv0)].some((n) => SIG_DANGER_PROGRAMS.includes(n.replace(/^-+/, '')))) return 'a shell, login, multiplexer, launcher or Claude session';
+  if ([...exe.split('/'), ...cmd.split('/')].some((seg) => seg.endsWith('.app') && SIG_DANGER_BUNDLES.includes(seg.slice(0, -4).toLowerCase()))) return 'a terminal app, an editor or IDE with a terminal, or Claude';
+  if ([...exe.split('/'), ...cmd.split(/[\s/]+/)].some(sigClaudeWord)) return 'a Claude session';
+  if (sigIsInterp(baseName(exe).replace(/^-+/, '')) && !cmd) return 'its command line could not be read, so what it runs is unknown';
   return null;
 }
 // What the hop is, as far as the person is concerned. `danger` is the owner's own session; `caution` is a script, anything
@@ -63,6 +69,7 @@ function sigAvail(hop, live, action) {
   if (code === 'gone') return { ok: false, reason: 'Already exited, nothing to ' + verb };
   if (code === 'pid_reused') return { ok: false, reason: 'This pid now belongs to a different process' };
   if (code === 'not_a_chain') return { ok: false, reason: 'It is no longer the parent of the process below it' };
+  if (code === 'chain_exited') return { ok: false, reason: 'A process below it in this chain has exited, so the chain cannot be checked. Use one process at a time' };
   // Stopped by something else (^Z, a debugger): the server never continues it, so only Freeze's refusal and Force stop apply.
   if (live.frozen_by_us === false && (code === 'already_frozen' || code === 'not_frozen_by_us' || live.state === 'frozen')) {
     if (action === 'force_stop') return { ok: true, reason: '' };
@@ -75,12 +82,19 @@ function sigAvail(hop, live, action) {
   return { ok: false, reason: 'Its state could not be read' };
 }
 // Chain buttons are enabled when at least one process of the chain can take the action; the dialog says which ones will not.
+const SIG_CHAIN_EXITED = 'A process in this chain has exited or been replaced, so the chain cannot be checked. Use one process at a time';
 const sigChainAvail = (chain, i, liveMap, action) => {
-  const parts = chain.slice(0, i + 1).map((hop) => sigAvail(hop, liveMap && liveMap[sigKey(hop)], action));
+  const lives = chain.slice(0, i + 1).map((hop) => liveMap && liveMap[sigKey(hop)]);
+  // The preview would refuse every item above an exited one (chain_exited, or not_a_chain after a change), so the button is off the same way.
+  if (lives.some((l, j) => l && (l.code === 'gone' || l.code === 'pid_reused' || (j > 0 && (l.chain_code === 'chain_exited' || l.chain_code === 'not_a_chain'))))) return { ok: false, reason: SIG_CHAIN_EXITED };
+  const parts = chain.slice(0, i + 1).map((hop, j) => sigAvail(hop, lives[j], action));
   return parts.some((p) => p.ok) ? { ok: true, reason: '' } : parts[0];
 };
 const sigUrl = (fx) => '/api/requester/signal?action=' + fx.action + '&scope=' + fx.scope + fx.items.map((i) => '&item=' + encodeURIComponent(i.pid + ':' + (i.started == null ? '' : i.started) + ':' + i.exe)).join('')
-  + (fx.confirmDanger ? '&confirm_danger=1' : '') + (fx.token ? '&dry=0&confirm_token=' + encodeURIComponent(fx.token) : '&dry=1');
+  + (fx.confirmDanger ? '&confirm_danger=1' : '') + (fx.token ? '&dry=0&confirm_token=' + encodeURIComponent(fx.token) : '&dry=1' + (fx.replaces ? '&replaces=' + encodeURIComponent(fx.replaces) : ''));
+// What a preview showed, for comparing the flagged preview with the one the person confirmed: the processes, their levels, what
+// each would do, their state and what runs under them. A held-back hop reads the same as one that goes.
+const sigSignature = (sum, items) => JSON.stringify([items.map((i) => [i.pid, i.level]), sum.items.map((i) => [i.pid, i.status, i.waiting ? null : i.code, i.state, i.childrenTotal, i.children.map((c) => c.command)])]);
 const SIG_STATUSES = ['would_signal', 'signalled', 'refused', 'failed'];
 const sigNum = (n) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
 // One reply read defensively. Counts come from the listed items, so the list and the numbers cannot disagree, and only a
@@ -150,9 +164,9 @@ function sigHeadline(sum, s, preview) {
 }
 function sigStep(s, ev) {
   const none = { state: s, fx: [] }, say = (text) => ({ do: 'announce', text }), phase = s.phase;
-  const ask = (state, confirmDanger) => ({ state: Object.assign({}, state, { phase: 'previewing', seq: s.seq + 1, token: null, summary: null, message: null, confirmDanger: !!confirmDanger }),
-    fx: [{ do: 'preview', seq: s.seq + 1, action: state.action, scope: state.scope, items: state.items, confirmDanger: !!confirmDanger }, say('Checking ' + sigPlural(state.items.length, 'process', 'processes') + '. Nothing is signalled yet.')] });
-  const send = (state) => ({ state: Object.assign({}, state, { phase: 'sending', seq: s.seq + 1 }),
+  const ask = (state, confirmDanger) => ({ state: Object.assign({}, state, { phase: 'previewing', seq: s.seq + 1, token: null, summary: null, message: null, changed: false, confirmDanger: !!confirmDanger }),
+    fx: [{ do: 'preview', seq: s.seq + 1, action: state.action, scope: state.scope, items: state.items, confirmDanger: !!confirmDanger, replaces: confirmDanger ? state.token : null }, say('Checking ' + sigPlural(state.items.length, 'process', 'processes') + '. Nothing is signalled yet.')] });
+  const send = (state) => ({ state: Object.assign({}, state, { phase: 'sending', changed: false, seq: s.seq + 1 }),
     fx: [{ do: 'commit', seq: s.seq + 1, action: state.action, scope: state.scope, items: state.items, token: state.token, confirmDanger: !!state.confirmDanger }, say(SIG_ACTIONS[state.action].label + ' sent to ' + sigPlural(state.items.length, 'process', 'processes') + '. Waiting for the result.')] });
   switch (ev.type) {
     case 'open': {
@@ -176,13 +190,18 @@ function sigStep(s, ev) {
           if (!r) return i;
           if (r.waiting) return Object.assign({}, i, { level: 'danger', why: i.why.length && i.level === 'danger' ? i.why : ['the server treats it as your own session'] });
           if (r.status !== 'would_signal') return i;
+          if (i.level === 'danger') return Object.assign({}, i, { unknownKids: false });
           const sev = sigSeverity({ exe: i.exe, command: i.cmd }, r.childrenTotal);
           return Object.assign({}, i, { level: sev.level, why: sev.why, unknownKids: false });
         });
         const level = sigLevel(s.action, items), token = sum.token && sum.counts.would_signal > 0 ? sum.token : null;
         const state = Object.assign({}, s, { phase: 'previewed', summary: sum, items, level, token, message: null });
-        // The second confirmation was given before this preview, which carried the flag: send it now, once.
-        if (s.confirmDanger && token && sum.counts.would_signal > 0) return send(Object.assign({}, state, { phase: 'previewed' }));
+        // The second confirmation was given before this preview, which carried the flag. If it shows what the person confirmed,
+        // send it now, once. If anything differs, show it and ask again: the confirmation was for the other list.
+        if (s.confirmDanger && token && sum.counts.would_signal > 0) {
+          if (sigSignature(sum, items) === s.sig0) return send(state);
+          return { state: Object.assign({}, state, { changed: true }), fx: [say('The check changed after you confirmed. Review the list, then continue.')] };
+        }
         return { state, fx: [say(sigHeadline(sum, s, true) + (sum.counts.refused ? ' ' + sigPlural(sum.counts.refused, 'process is', 'processes are') + ' refused.' : ''))] };
       }
       if ((readable && (committing || !sum.dryRun)) || partial) {
@@ -194,7 +213,7 @@ function sigStep(s, ev) {
     case 'go': {
       if (phase !== 'previewed' || !(s.token || (s.summary && s.summary.waiting))) return none; // a second click while sending, or before a preview, does nothing
       // Your own session needs a second, separate confirmation, and the server wants the flag on a fresh preview as well.
-      if (s.level === 'danger' && !s.confirmDanger) return { state: Object.assign({}, s, { phase: 'confirming-danger' }), fx: [say('This is your own session. Confirm it separately.')] };
+      if (s.level === 'danger' && !s.confirmDanger) return { state: Object.assign({}, s, { phase: 'confirming-danger', sig0: s.summary ? sigSignature(s.summary, s.items) : '' }), fx: [say('This is your own session. Confirm it separately.')] };
       return s.token ? send(s) : none;
     }
     case 'danger-yes': return phase === 'confirming-danger' ? ask(s, true) : none;
@@ -280,6 +299,7 @@ function sigBody(s) {
       sigP(s.action === 'freeze' ? 'Anything you type in it will not appear until it is resumed. Resume it from this page.' : 'Unsaved work in it is lost.'), sigP('Nothing has been sent yet.', 'small mut')];
   }
   const done = s.phase === 'done', kidsTotal = sum.items.reduce((n, i) => n + i.childrenTotal, 0), lines = [sigP(sigHeadline(sum, s, !done), 'tr-head')];
+  if (s.changed) lines.unshift(sigP('The check changed after you confirmed. Review the list below, then continue.', 'tr-warn'));
   if (!done) sigWarning(s, kidsTotal).forEach((t, n) => lines.push(sigP(t, n === 0 && s.level !== 'plain' ? 'tr-warn' : 'small')));
   if (s.action === 'stop' && done) lines.push(sigP('A process can ignore a stop request. If it is still running, use Force stop.', 'small'));
   if (sum.auditError) lines.push(sigP('History could not be written: ' + sum.auditError, 'small'));
