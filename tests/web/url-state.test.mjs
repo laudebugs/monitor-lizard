@@ -388,3 +388,45 @@ test('switching Performance tab pushes history, and the patch restores the tab',
   assert.equal(L.patchFromHash(L.parseHash('#performance'), { sorts: {}, fil: {} }).perfTab, 'overview');
   assert.equal(L.toHashState({ view: 'performance', perfTab: 'cpugpu', sorts: {} }).ex.perfTab, 'cpugpu');
 });
+
+// ---- Storage: label chip, selected tile and folder, sort
+const stBase = { view: 'storage', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: { stTile: 'all', stItem: null } };
+test('storage: the label chip, tile, folder and sort round-trip through the address', () => {
+  const s = { ...stBase, filter: 'safe', sorts: { store: { col: 'size', dir: 'desc' } }, ex: { stTile: 'caches', stItem: '00ab12cd34ef5678' } };
+  const h = L.writeHash(s);
+  assert.equal(h, '#storage?tile=caches&item=00ab12cd34ef5678&filter=safe&sort=store.size.desc');
+  assert.deepEqual(L.parseHash(h), s);
+  assert.equal(L.writeHash(stBase), '#storage', 'defaults write nothing');
+});
+
+test('storage: values outside the lists fall back to the defaults', () => {
+  for (const bad of ['evil', '', '__proto__', 'constructor', 'DEVELOPER', 'developer,caches']) assert.equal(L.parseHash('#storage?tile=' + bad).ex.stTile, 'all', bad);
+  for (const bad of ['', 'a b', '../x', 'x'.repeat(65), '__proto__x?']) assert.equal(L.parseHash('#storage?item=' + encodeURIComponent(bad)).ex.stItem, null, bad);
+  assert.equal(L.parseHash('#storage?filter=danger').filter, 'all');
+  assert.deepEqual(L.parseHash('#storage?sort=store.__proto__.asc,store.size.sideways,nope.size.asc').sorts, {});
+  assert.deepEqual(L.parseHash('#storage?sort=store.share.asc').sorts, { store: { col: 'share', dir: 'asc' } });
+  assert.equal(L.parseHash('#apps?tile=mail').ex.stTile, undefined, 'the keys belong to Storage only');
+  assert.equal(L.writeHash({ ...stBase, ex: { stTile: 'evil', stItem: '../x' } }), '#storage');
+});
+
+test('storage: S travels to the address and back, and a tile or folder change is a place to come back to', () => {
+  const S = { view: 'storage', stfilter: 'review', stTile: 'developer', stItem: null, sel: null, q: '', sorts: {}, fil: {} };
+  const h = L.writeHash(L.toHashState(S));
+  assert.equal(h, '#storage?tile=developer&filter=review');
+  const patch = L.patchFromHash(L.parseHash(h), { view: 'overview', sorts: {}, fil: {} });
+  assert.equal(patch.stfilter, 'review');
+  assert.equal(patch.stTile, 'developer');
+  assert.equal(L.historyMode('#storage', '#storage?tile=mail'), 'push');
+  assert.equal(L.historyMode('#storage?tile=mail', '#storage?tile=mail&item=aa'), 'push');
+  assert.equal(L.historyMode('#storage', '#storage?filter=safe'), 'replace');
+  assert.equal(L.historyMode('#storage', '#storage?sort=store.size.asc'), 'replace');
+});
+
+test('storage: a not-yet-scanned location id survives the address, a hostile one does not', () => {
+  const id = 'nr-/Users/me/My Downloads';
+  const h = L.writeHash({ ...stBase, ex: { stTile: 'all', stItem: id } });
+  assert.equal(L.parseHash(h).ex.stItem, id);
+  for (const bad of ['nr-\u0000x', 'nr-a\nb', 'nr-' + 'x'.repeat(400)]) assert.equal(L.parseHash('#storage?item=' + encodeURIComponent(bad)).ex.stItem, null, JSON.stringify(bad).slice(0, 30));
+  assert.equal(L.parseHash('#storage?q=deriveddata').q, 'deriveddata', 'the folder search is in the address');
+  assert.equal(L.writeHash({ ...stBase, q: 'cache' }), '#storage?q=cache');
+});
