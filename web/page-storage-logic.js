@@ -306,6 +306,10 @@ const cleanupSummary = (list) => (list.length ? plural(list.length, 'folder', 'f
 // The safe subtotal and the inspector's total for "Review all safe" both come from sumText over the same rows, so the
 // wording ("at least", unavailable sizes) cannot differ between them.
 const safeSubtotalText = (list) => sumText(sumSizes(pickedRows(list, safeIds(list))));
+// On a partial scan every size is a lower bound that can only grow, so a safe total would read as final and be wrong.
+// Each place that states one (the list summary, the Review all safe announcement, the multi-select total) goes through here.
+const SAFE_WITHHELD = 'Not shown until the scan is complete.';
+const safeSubtotalFor = (d, list) => (storageState({ data: d }) === 'complete' ? safeSubtotalText(list) : SAFE_WITHHELD);
 const safeCleanupLine = (list) => { const ids = safeIds(list); return ids.length ? plural(ids.length, 'safe folder', 'safe folders') : 'Nothing safe to remove'; };
 
 // One reading of a section for Inside System Data: a size, or the reason there is none. Never 0 for a section that could not be read.
@@ -411,7 +415,9 @@ function trashSummary(body, known) {
   });
   const counts = Object.fromEntries(TRASH_STATUSES.map((s) => [s, items.filter((i) => i.status === s).length]));
   const sized = (s) => items.filter((i) => i.status === s);
-  const sum = (s) => ({ bytes: sized(s).reduce((n, i) => n + (i.bytes || 0), 0), unknown: sized(s).filter((i) => i.bytes == null).length });
+  // A folder the scan only partly measured counts as a lower bound, so the sum says "at least".
+  const sum = (s) => ({ bytes: sized(s).reduce((n, i) => n + (i.bytes || 0), 0), unknown: sized(s).filter((i) => i.bytes == null).length,
+    partial: sized(s).filter((i) => known && known[i.id] && known[i.id].lowerBound).length });
   return { items, counts, would: sum('would_move'), moved: sum('moved'), historyId: Number.isInteger(b.history_id) && b.history_id >= 0 ? b.history_id : null,
     token: typeof b.confirm_token === 'string' && b.confirm_token ? b.confirm_token : null, dryRun: b.dry_run !== false, okFlag: b.ok === true,
     note: typeof b.note === 'string' && b.note ? visible(b.note) : TRASH_PUT_BACK, auditError: typeof b.audit_error === 'string' && b.audit_error ? visible(b.audit_error) : null,
@@ -429,7 +435,7 @@ function trashDisagrees(b, items, counts) {
   if (Array.isArray(b.moved) && b.moved.length !== counts.moved) return true;
   return false;
 }
-const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0).replace(/^unavailable$/, 'unknown size');
+const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0 || s.partial > 0).replace(/^unavailable$/, 'unknown size');
 // A refusal of the whole request: a plain sentence and the way forward. `moved` says whether a body listed anything moved.
 function trashProblem(status, code, committing) {
   const again = ' Nothing was moved. Preview again to continue.';
