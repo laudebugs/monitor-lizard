@@ -6,8 +6,8 @@
 <meta name="color-scheme" content="dark light">
 <script>(function(){var t=localStorage.getItem('monitor-lizard-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
 <title>Monitor Lizard</title>
-<!-- The same circuit-trace mark as the sidebar logo, inline (no remote asset, local-first per ADR 0002). -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg stroke='%23b388ff' stroke-width='6' fill='none' stroke-linecap='square'%3E%3Cpath d='M32 10 L32 20 L18 20 L18 32 L10 32'/%3E%3Cpath d='M32 20 L46 20 L46 32 L54 32'/%3E%3Cpath d='M32 20 L32 34 L20 34 L20 46'/%3E%3Cpath d='M32 34 L44 34 L44 46'/%3E%3C/g%3E%3Cg fill='%23b388ff'%3E%3Crect x='29' y='7' width='6' height='6'/%3E%3Crect x='15' y='29' width='6' height='6'/%3E%3Crect x='43' y='29' width='6' height='6'/%3E%3Crect x='17' y='43' width='6' height='6'/%3E%3Crect x='41' y='43' width='6' height='6'/%3E%3C/g%3E%3C/svg%3E">
+<!-- The app icon's lizard mark, inline (no remote asset, local-first per ADR 0002). scripts/make-icons.sh rewrites the next line from src-tauri/icons/source/mark.svg. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2060%2060'%3E%3Crect%20x='20'%20y='0'%20width='5'%20height='5'%20rx='0'%20fill='%237dffb4'/%3E%3Crect%20x='25'%20y='0'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='30'%20y='0'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='35'%20y='0'%20width='5'%20height='5'%20rx='0'%20fill='%237dffb4'/%3E%3Crect%20x='20'%20y='5'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='25'%20y='5'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='30'%20y='5'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='35'%20y='5'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='25'%20y='10'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='30'%20y='10'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='0'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='5'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='20'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='25'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='30'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='35'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='50'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='55'%20y='15'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='5'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='10'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='15'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='20'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='25'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='30'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='35'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='40'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='45'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='50'%20y='20'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='20'%20y='25'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='25'%20y='25'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='30'%20y='25'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='35'%20y='25'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='20'%20y='30'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='25'%20y='30'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='30'%20y='30'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='35'%20y='30'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='5'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='10'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='15'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='20'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='25'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='30'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='35'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='40'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='45'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='50'%20y='35'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='0'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='5'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='20'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='25'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='30'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='35'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='50'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='55'%20y='40'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='25'%20y='45'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='30'%20y='45'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='35'%20y='45'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='30'%20y='50'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='35'%20y='50'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3Crect%20x='35'%20y='55'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'/%3E%3Crect%20x='40'%20y='55'%20width='5'%20height='5'%20rx='0'%20fill='%23b388ff'%20fill-opacity='0.72'/%3E%3C/svg%3E">
 <style>
 /* Bundled, not relying on the OS having it installed: Regular and SemiBold only (the two weights this
    page uses), subsetted to basic Latin plus common punctuation. SIL Open Font License 1.1, web/fonts/OFL.txt.
@@ -256,6 +256,38 @@ function swapState(used, total) {
   return { kind: 'ok', pct: Math.min(100, used / total * 100) };
 }
 /* memory-tab:end */
+/* actions:begin */
+// Pure logic for the Stop/Quit confirm dialog: no DOM, no fetch, so a Node test can load it. Every
+// value here is already unwrapped from its Reading<T> shape by the caller -- this block only
+// decides what to do with plain pids, start times and percentages, never how to read a Reading.
+// Only pids with a confirmed, fresh start time are safe to show a dialog for: one whose row is
+// missing (already exited) or whose start time came back unavailable (a rare systemic failure, see
+// procusage::boottime_unix) is dropped rather than guessed at -- the dialog only ever offers to
+// stop what it just confirmed is still running. `null` means none of the requested pids are
+// confirmable right now, so there is no dialog to open at all.
+function confirmable(pids, startByPid, cpuByPid) {
+  const kept = pids.filter((pid) => startByPid.has(pid) && startByPid.get(pid) != null);
+  if (!kept.length) return null;
+  return { pids: kept, starts: kept.map((pid) => startByPid.get(pid)), cpuPct: kept.map((pid) => cpuByPid.get(pid) ?? null) };
+}
+// What the dialog says it confirmed, in the "from a fresh sample" language the design calls for.
+// Several processes' percentages are summed, not listed, so the line stays one sentence regardless
+// of how many processes a "Quit app" covers.
+function evidenceLine(label, cpuPct) {
+  const known = cpuPct.filter((v) => v != null);
+  if (cpuPct.length === 1) {
+    return known.length ? (label + ' is using ' + Math.round(known[0]) + '% CPU right now, from a fresh sample.') : 'Confirmed running right now, from a fresh sample.';
+  }
+  return known.length ? ('Together using ' + Math.round(known.reduce((a, b) => a + b, 0)) + '% CPU right now, from a fresh sample.') : (cpuPct.length + ' processes confirmed running right now, from a fresh sample.');
+}
+// Which rows from a previous read are missing from a fresh one: just exited (by Stop or on its
+// own), shown once more marked `stopped` rather than vanishing with nothing to show that anything
+// happened. A row already marked stopped is never re-added, so it drops off for good one read later.
+function justStoppedRows(prevRows, freshRows) {
+  const seen = new Set(freshRows.map((r) => r.pid));
+  return prevRows.filter((r) => !r.stopped && !seen.has(r.pid)).map((r) => Object.assign({}, r, { stopped: true }));
+}
+/* actions:end */
 /* view-items:begin */
 // The one rule for "nothing to show". h() and render() both use it: Element.append and replaceChildren write a
 // null argument as the text "null", so a conditional section (`cond ? h(...) : null`) must be dropped first.
@@ -272,7 +304,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, privOk: false, persOk: false, histOk: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, procRows: null, procFailed: false, procSort: 'cpu', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, privOk: false, persOk: false, histOk: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -295,7 +327,7 @@ const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved t
      proto    the Listeners protocol filter
      result   the Privilege result filter (all, failed, ok)
      topic, tab, entry   the Guide's topic filter, Commands or Glossary, and selected entry (see PAGE_PARAMS)
-     tab   on Performance, the open tab: overview, cpugpu, disknet or memory
+     tab   on Performance, the open tab: overview, cpugpu, disknet, memory or topconsumers
      filter, tile, item, q   on Storage, the label chip (safe, review, yours), the selected treemap tile, the selected folder's id and the folder search
    Read-only link shortcuts for pre-filtered views: host=<addr> (Network), port=<n> and exposed=1 (Listeners),
    failed=1 (Privilege). Every key and value is checked against the lists below: an address is typed or pasted
@@ -320,7 +352,7 @@ const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.
 // A folder id is the scanner's hash (or the page's fallback); a location not reached yet is 'nr-' plus its path, which is
 // length-limited and free of control characters.
 const isItemId = (v) => isId(v) || (typeof v === 'string' && v.startsWith('nr-') && v.length > 3 && v.length <= 300 && !/[\u0000-\u001f\u007f]/.test(v));
-const PERF_TABS = ['overview', 'cpugpu', 'disknet', 'memory'];
+const PERF_TABS = ['overview', 'cpugpu', 'disknet', 'memory', 'topconsumers'];
 // The Storage page's treemap tiles: every section the scanner names, the merged small ones and the unmeasured rest.
 const ST_TILES = ['all', 'developer', 'caches', 'logs', 'downloads', 'mail', 'applications', 'other', 'rest'];
 const PAGE_PARAMS = {
@@ -1107,13 +1139,26 @@ async function approve(g) { try { await api('/api/approve?key=' + encodeURICompo
 async function stop(sig) {
   const m = S.modal; rec({ modal: null });
   try {
-    const o = await (await api('/api/kill?sig=' + sig + '&pids=' + m.pids.join(','), 'POST')).json();
+    const o = await (await api('/api/kill?sig=' + sig + '&pids=' + m.pids.join(',') + '&start=' + m.starts.join(','), 'POST')).json();
     toast('Sent SIG' + sig + ' to ' + o.sent.length + ' process(es) of ' + m.label + (o.refused.length ? '. Refused ' + o.refused.length + ': ' + o.refused[0].reason : '.'));
     setTimeout(() => load(true), 700);
     setTimeout(loadHist, 700); // the audit row for this action lands on the server at the same moment
   } catch (e) { toast('Stop failed: ' + e.message); }
 }
-const askStop = (label, procs) => rec({ modal: { label, pids: procs.map((p) => p.pid), count: procs.length } });
+// Fetches one fresh row per pid before opening the dialog (never from whatever stale list the
+// caller already had), so the confirm screen -- and the `start=` the eventual /api/kill call sends
+// back -- both come from the same just-read sample. A pid that already exited, or a server that
+// could not be reached at all, means fewer (or zero) confirmable pids, never a dialog built on guesses.
+async function askStop(label, procs) {
+  const pids = procs.map((p) => p.pid);
+  let rows = [];
+  try { rows = await (await api('/api/processes?pids=' + pids.join(','))).json(); } catch (e) { rows = []; }
+  const startByPid = new Map(rows.map((r) => [r.pid, rv(r.start_unix)]));
+  const cpuByPid = new Map(rows.map((r) => [r.pid, rv(r.cpu_pct)]));
+  const c = confirmable(pids, startByPid, cpuByPid);
+  if (!c) { toast(label + ' is no longer running, or its current state could not be confirmed.'); return; }
+  rec({ modal: { label, pids: c.pids, starts: c.starts, cpuPct: c.cpuPct, count: c.pids.length } });
+}
 
 function cards() {
   const g = S.snap.groups, f = S.snap.findings, out = [];
@@ -1642,6 +1687,13 @@ async function loadVolume() {
     quiet({ volume: await res.json(), volumeFailed: false });
   } catch (e) { quiet({ volume: null, volumeFailed: true }); }
 }
+async function loadProcesses() {
+  if (document.hidden || S.view !== 'performance' || S.perfTab !== 'topconsumers') return;
+  try {
+    const rows = await (await api('/api/processes?sort=' + S.procSort + '&limit=50')).json();
+    quiet({ procRows: rows.concat(justStoppedRows(S.procRows || [], rows)), procFailed: false });
+  } catch (e) { quiet({ procRows: null, procFailed: true }); }
+}
 const CAPACITY_STATUS_TEXT = { loading: 'Reading capacity...', failed: 'Could not read capacity. Retrying.' };
 const card = (...kids) => h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px' }, ...kids);
 // Cards use one rate chart each: the series share an axis, and the legend gives the current value in words
@@ -1713,6 +1765,45 @@ function perfMemoryTab_(win, last) {
         h('p', { class: 'mut small', style: 'margin:8px 0 0' }, formatBytes(used) + ' of ' + formatBytes(total) + ' used')]);
   return [memCard, pressureCard, swapCard];
 }
+const PROC_SORTS = [['cpu', 'CPU'], ['mem', 'Memory'], ['disk', 'Disk I/O']];
+const PROC_STATUS_TEXT = { loading: 'Reading processes...', failed: 'Could not read processes. Retrying.' };
+function perfTopConsumersTab_() {
+  const rows = S.procRows;
+  const cols = 'grid-template-columns:minmax(160px,2fr) 70px 90px 100px 100px 130px';
+  const header = h('div', { class: 'tr h', style: cols }, ['Process', 'CPU', 'Memory', 'Disk read', 'Disk write', ''].map((l) => h('span', {}, l)));
+  const row = (p) => {
+    // Shown once more after it drops out of a fresh read (see loadProcesses), so Stop -- or the
+    // process exiting on its own -- has something to point to rather than the row just vanishing.
+    if (p.stopped) {
+      return h('div', { class: 'tr ell', style: cols + ';cursor:default;opacity:.6' },
+        h('span', nameAttrs(p.command), p.command + ' (' + p.pid + ')'),
+        h('span', {}, '-'), h('span', {}, '-'), h('span', {}, '-'), h('span', {}, '-'),
+        h('span', {}, h('span', { class: 'tag' }, 'stopped')));
+    }
+    const cpu = rv(p.cpu_pct), mem = rv(p.mem_bytes);
+    const dr = p.disk_read_bytes_per_sec ? rv(p.disk_read_bytes_per_sec) : null, dw = p.disk_write_bytes_per_sec ? rv(p.disk_write_bytes_per_sec) : null;
+    return h('div', { class: 'tr ell', style: cols + ';cursor:default' },
+      h('span', nameAttrs(p.command), p.command + ' (' + p.pid + ')'),
+      h('span', {}, cpu == null ? '-' : Math.round(cpu) + '%'),
+      h('span', {}, mem == null ? '-' : formatBytes(mem)),
+      h('span', {}, dr == null ? '-' : formatRate(dr)),
+      h('span', {}, dw == null ? '-' : formatRate(dw)),
+      // Another user's process never gets a Stop button, matching the Apps detail page's own
+      // "root" tag -- `restricted` covers root and every other user, not root alone.
+      h('span', {}, p.restricted ? h('span', { class: 'tag', title: 'Monitor Lizard never signals another user’s process' }, 'restricted')
+        : h('button', { class: 'btn sm', onClick: () => askStop(p.command + ' ' + p.pid, [p]) }, 'Stop')));
+  };
+  const status = rows == null ? (S.procFailed ? 'failed' : 'loading') : 'ok';
+  const body = status === 'ok'
+    ? (rows.length ? h('section', { class: 'card tbl' }, header, rows.map(row)) : h('div', { class: 'card item' }, h('p', {}, 'No processes to show.')))
+    : h('p', { class: 'mut small' }, PROC_STATUS_TEXT[status]);
+  return [
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Sort by', style: 'margin-bottom:14px' },
+      PROC_SORTS.map(([id, l]) => h('button', { class: S.procSort === id ? 'chip on' : 'chip', onClick: () => { rec({ procSort: id }); loadProcesses(); } }, l))),
+    body,
+    h('p', { class: 'mut small', style: 'margin-top:10px' }, 'Your own processes only; another user’s are restricted. Stop re-checks this is still the same process, from a fresh sample, before signalling it.'),
+  ];
+}
 // Trailing underscore: this view function would otherwise shadow the global window.performance.
 function performanceView_() {
   const win = perfWindowed(), last = S.metrics[S.metrics.length - 1];
@@ -1720,14 +1811,14 @@ function performanceView_() {
   // the opposite, no fresh sample to report on at all, so the tiles shown are old news.
   const stale = !!last && (Date.now() / 1000 - last.ts) > 8;
   const winLabel = S.perfWin === '1h' ? 'hour' : '5 min';
-  const tabs = [['overview', 'Overview'], ['cpugpu', 'CPU and GPU'], ['disknet', 'Disk and network'], ['memory', 'Memory']];
+  const tabs = [['overview', 'Overview'], ['cpugpu', 'CPU and GPU'], ['disknet', 'Disk and network'], ['memory', 'Memory'], ['topconsumers', 'Top consumers']];
   return pageShell({ title: verdictTitle('performance'), filters: [
-      h('div', { class: 'seg', role: 'group', 'aria-label': 'Performance tab' }, tabs.map(([id, l]) => h('button', { class: S.perfTab === id ? 'chip on' : 'chip', style: 'height:34px', onClick: () => { rec({ perfTab: id }); if (id === 'disknet') loadVolume(); } }, l))),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Performance tab' }, tabs.map(([id, l]) => h('button', { class: S.perfTab === id ? 'chip on' : 'chip', style: 'height:34px', onClick: () => { rec({ perfTab: id }); if (id === 'disknet') loadVolume(); if (id === 'topconsumers') loadProcesses(); } }, l))),
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Time window' }, [['5m', 'Last 5 min'], ['1h', 'Last hour']].map(([v, l]) => h('button', { class: S.perfWin === v ? 'chip on' : 'chip', style: 'height:34px', onClick: () => rec({ perfWin: v }) }, l))),
       ],
     actions: [h('span', { class: 'small mut' }, last ? (S.perfLive ? 'live, every 2 s' : 'paused') : 'collecting the first sample...'),
       h('button', { class: 'btn sm', onClick: () => rec({ perfLive: !S.perfLive }) }, S.perfLive ? 'Pause' : 'Resume')],
-    body: S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : S.perfTab === 'disknet' ? h('div', {}, ...perfDiskNetTab_(win, last)) : S.perfTab === 'memory' ? h('div', {}, ...perfMemoryTab_(win, last)) : perfOverviewTab_(win, last, stale, winLabel) });
+    body: S.perfTab === 'cpugpu' ? h('div', {}, ...perfCpuGpuTab_(win, last, winLabel)) : S.perfTab === 'disknet' ? h('div', {}, ...perfDiskNetTab_(win, last)) : S.perfTab === 'memory' ? h('div', {}, ...perfMemoryTab_(win, last)) : S.perfTab === 'topconsumers' ? h('div', {}, ...perfTopConsumersTab_()) : perfOverviewTab_(win, last, stale, winLabel) });
 }
 
 // ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
@@ -2694,6 +2785,7 @@ function render() {
   const m = S.modal, layer = [];
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
     h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
+    h('p', { class: 'mut small', style: 'margin:0' }, evidenceLine(m.label, m.cpuPct)),
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
@@ -2712,7 +2804,7 @@ $('skip').addEventListener('click', () => $('main').focus());
 $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if (!FILTERABLE.includes(S.view) && S.q) S.view = 'apps'; render(); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
-window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadStorage(); });
+window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
 // "/" jumps to the search box on the Guide unless a field has focus (the key must still type a slash there).
 document.addEventListener('keydown', (e) => {
@@ -2720,9 +2812,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && S.view === 'guide' && !S.modal && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); $('q').focus(); }
 });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); fromHash(); render(); loadVolume(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
+applyTheme(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
 setInterval(loadVolume, 30000);
+setInterval(loadProcesses, 5000); // matches the server's own 5 s procusage sampler interval
 setInterval(loadMetrics, 2000); // loadMetrics itself is the one place that checks S.perfLive, document.hidden and the active view
 // A tab backgrounded for a while is caught up in this one listener-driven fetch, not by the interval
 // above firing a burst once visible again (it only ever requests what's new since the last ts held).

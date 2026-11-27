@@ -94,7 +94,7 @@ test('floor: a long name reaches the title of the name cell, and every name cell
   assert.equal(a.title, long);
   assert.match(a.style, /display:flex/);
   assert.equal(nameAttrs(42).title, '42');
-  assert.equal((html.match(/h\('span', nameAttrs\(/g) || []).length, 6); // Apps, Listeners, Persistence, Network, Storage, Storage clean-ups
+  assert.equal((html.match(/h\('span', nameAttrs\(/g) || []).length, 8); // Apps, Listeners, Persistence, Network, Storage, Storage clean-ups, Top consumers (running and stopped rows)
 });
 
 test('floor: a table that opts into the floor sets both variables', () => {
