@@ -1,5 +1,4 @@
-Throwaway spike (docs/plans/ui-components.md, "The spike"). Not for merge.
-preact 11.2.0 dist/preact.mjs and hooks/dist/hooks.mjs from the npm tarball
-(sha512 /HfHI/7N84e6GrWBJ3J280z3mLaRJiDcSvj/A+y/4AbLnND/1UlGHe1sR6oYuTGwId0nP7dqDU9OnLxMPZ7xBg==),
-served at /vendor/*, import map in index.html, `h` in core.js changed from const to let so the
-experiment could swap in Preact's h from the console.
+Throwaway spike (docs/plans/ui-components.md, "Spike results"). Not for merge.
+Second round: classic scripts only (no import map, no module script). preact 11.2.0 dist/preact.mjs is loaded by
+a dynamic import() in shell.js, only when localStorage 'monitor-lizard-ui' is 'preact'; until it resolves h() builds Nodes.
+vendored: preact.mjs, preact-hooks.mjs (unused), PREACT-LICENSE; npm tarball sha512 /HfHI/7N84e6GrWBJ3J280z3mLaRJiDcSvj/A+y/4AbLnND/1UlGHe1sR6oYuTGwId0nP7dqDU9OnLxMPZ7xBg==

@@ -366,6 +366,14 @@ async function copyFlow(command, { write, show, byId, select }) {
 }
 /* guide-copy:end */
 
+// Spike: Preact mode. window.preact is set by the import() in shell.js; until then (or when the opt-in is off) h() builds Nodes.
+const UI_PREACT = (() => { try { return localStorage.getItem('monitor-lizard-ui') === 'preact'; } catch (e) { return false; } })();
+const vnodeMode = () => UI_PREACT && typeof window.preact !== 'undefined';
+function build(fn) {
+  if (!vnodeMode()) return fn();
+  const old = h; h = (tag, attrs, ...kids) => window.preact.h(tag, attrs || null, ...kids);
+  try { return fn(); } finally { h = old; }
+}
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
 const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !trashOpen()) render(); };

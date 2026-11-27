@@ -44,7 +44,17 @@ function drawNav() {
   if (had) { const el = nav.querySelector('[data-nav="' + had + '"]'); if (el) el.focus(); }
 }
 // The top bar's breadcrumb and the page below it change together.
-const show = (page) => { $('crumb').replaceChildren(...nodesOf(page.crumb)); $('content').replaceChildren(...nodesOf(page.nodes)); };
+const owned = new Set();
+function commit(container, nodes) {
+  if (!owned.has(container)) { container.replaceChildren(); owned.add(container); }
+  window.preact.render(window.preact.h(window.preact.Fragment, null, ...nodesOf(nodes)), container);
+}
+const show = (page) => {
+  if (page.vnodes) { commit($('crumb'), page.crumb); commit($('content'), page.nodes); return; }
+  for (const c of [$('crumb'), $('content')]) if (owned.has(c)) { window.preact.render(null, c); owned.delete(c); }
+  $('crumb').replaceChildren(...nodesOf(page.crumb)); $('content').replaceChildren(...nodesOf(page.nodes));
+};
+const buildPage = (fn) => { const v = vnodeMode(); const p = build(fn); if (p) p.vnodes = v; return p; };
 function render() {
   pruneTables(TABLES, Object.keys(PAGE_SORTS[S.view] || {})); pruneTables(HEADERS, Object.keys(PAGE_SORTS[S.view] || {}));
   drawNav();
@@ -58,15 +68,15 @@ function render() {
   if (S.view !== 'storage') { S.stMulti = []; S.stAll = false; S.stAsk = false; }
   let page = null;
   if (!S.snap && S.view !== 'guide' && S.view !== 'storage') page = pageShell({ title: TITLES[S.view] || '', body: h('p', { class: 'mut' }, 'Collecting the first snapshot...') }); // the Guide needs no snapshot
-  else if (S.view === 'overview') page = overview();
-  else if (S.view === 'apps') page = apps();
-  else if (S.view === 'priv') page = priv();
-  else if (S.view === 'listeners') page = listeners();
-  else if (S.view === 'persist') page = persistence();
-  else if (S.view === 'performance') page = performanceView_();
-  else if (S.view === 'network') page = network();
-  else if (S.view === 'history') page = historyView();
-  else if (S.view === 'storage') page = storage();
+  else if (S.view === 'overview') page = buildPage(overview);
+  else if (S.view === 'apps') page = buildPage(apps);
+  else if (S.view === 'priv') page = buildPage(priv);
+  else if (S.view === 'listeners') page = buildPage(listeners);
+  else if (S.view === 'persist') page = buildPage(persistence);
+  else if (S.view === 'performance') page = buildPage(performanceView_);
+  else if (S.view === 'network') page = buildPage(network);
+  else if (S.view === 'history') page = buildPage(historyView);
+  else if (S.view === 'storage') page = buildPage(storage);
   if (page) show(page);
   else if (S.view === 'guide') {
     // Rebuilt only when what the Guide shows changes: a poll must not drop focus or the selected command.
@@ -111,6 +121,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && S.view === 'guide' && !S.modal && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); $('q').focus(); }
 });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
+if (UI_PREACT) import('/vendor/preact.mjs').then((m) => { window.preact = m; render(); }, (e) => console.warn('preact failed to load', e));
 applyTheme(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000);
 setInterval(loadVolume, 30000);
