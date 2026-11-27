@@ -223,6 +223,7 @@ pub fn project_idle(home: &Path, project: &Path, modules: &Path, now: u64) -> bo
 mod tests {
     use super::*;
     use crate::storage::tests::temp;
+    use crate::storage::trash::tests::run_within;
     use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::process::Command;
@@ -322,29 +323,33 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
-    /// Removes the temp folder and detaches the image even when an assert fails.
+    /// Removes the temp folder and detaches the image (with `-force`, within a time limit) even when an assert fails. The
+    /// temp folder holds the `.dmg`, so removing it deletes the image; if the detach fails the folder is left alone rather
+    /// than walked into.
     struct Mounted { dir: PathBuf, mount: PathBuf }
     impl Drop for Mounted {
         fn drop(&mut self) {
-            let _ = Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(&self.mount).output();
-            let _ = fs::remove_dir_all(&self.dir);
+            match run_within(Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&self.mount), 30) {
+                Ok(()) => { let _ = fs::remove_dir_all(&self.dir); }
+                Err(why) => eprintln!("could not detach the test volume at {:?}; leaving {:?} in place: {why}", self.mount, self.dir),
+            }
         }
     }
 
     /// Mounts a tiny disk image inside a folder and checks the walk stays on the folder's own volume.
-    /// Ignored by default because mounting needs a session that allows `hdiutil` (hosted CI runners
-    /// may not); run it with `cargo test -- --ignored`. It fails, not skips, if the mount fails.
+    /// Ignored by default, so it never runs in CI, where `hdiutil` has frozen a hosted runner; run it locally with
+    /// `cargo test -- --ignored`. Every `hdiutil` call has a time limit. It fails, not skips, if the mount fails.
     #[test]
-    #[ignore = "mounts a disk image with hdiutil; run with --ignored"]
+    #[ignore = "mounts a disk image with hdiutil; run locally with --ignored"]
     fn a_walk_never_crosses_into_another_volume() {
         let dir = temp("device");
         let mount = dir.join("root/mnt");
-        let guard = Mounted { dir: dir.clone(), mount: mount.clone() };
         fs::create_dir_all(&mount).unwrap();
         let image = dir.join("v.dmg");
-        let run = |c: &mut Command| { let o = c.output().expect("hdiutil runs"); assert!(o.status.success(), "hdiutil failed: {}", String::from_utf8_lossy(&o.stderr)); };
-        run(Command::new("/usr/bin/hdiutil").args(["create", "-size", "4m", "-fs", "HFS+", "-volname", "t", "-ov"]).arg(&image));
-        run(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-mountpoint"]).arg(&mount).arg(&image));
+        run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "4m", "-fs", "HFS+", "-volname", "t", "-ov"]).arg(&image), 30).unwrap();
+        // The guard exists before the attach, so a timed-out attach that half mounted is still detached.
+        let guard = Mounted { dir: dir.clone(), mount: mount.clone() };
+        run_within(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-mountpoint"]).arg(&mount).arg(&image), 30).unwrap();
         fs::write(mount.join("big"), vec![1u8; 1024 * 1024]).unwrap();
         fs::write(dir.join("root/own"), b"x").unwrap();
         let w = walk(&dir.join("root"), lim(1000)).unwrap().unwrap();

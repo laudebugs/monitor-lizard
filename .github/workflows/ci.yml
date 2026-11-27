@@ -60,6 +60,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make check-code
       - run: make test
+        timeout-minutes: 12 # a hang fails here, with the log so far, instead of freezing the job for 30 minutes
 
   # The only required status check in branch protection. Passes when every needed job passed or was skipped.
   gate:

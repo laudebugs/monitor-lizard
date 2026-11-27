@@ -48,12 +48,12 @@ Stop `make test` in the GitHub Actions macOS `code` job from freezing the runner
 
 ## Steps
 
-- [ ] Claim: add this file in `ongoing/`.
-- [ ] Bound `run_within` and the guards.
-- [ ] Skip the mount tests in CI; add `ML_RUN_MOUNT_TESTS=1`.
-- [ ] Fix the Stop of a frozen process and the real-process test.
-- [ ] Add the step timeout.
-- [ ] Document.
+- [x] Claim: add this file in `ongoing/`.
+- [x] Bound `run_within` and the guards.
+- [x] Skip the mount tests in CI; add `ML_RUN_MOUNT_TESTS=1`.
+- [x] Fix the Stop of a frozen process and the real-process test.
+- [x] Add the step timeout.
+- [x] Document.
 
 ## Edge cases (must be covered)
 
@@ -102,9 +102,9 @@ hdiutil info
 
 ## Definition of done
 
-- [ ] Claimed: first commit added this file in `ongoing/`
-- [ ] Follows the applicable guidelines
+- [x] Claimed: first commit added this file in `ongoing/`
+- [x] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
+- [x] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added

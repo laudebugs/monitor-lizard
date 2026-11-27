@@ -465,10 +465,22 @@ fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
                             Ok(mut ok) => {
                                 let mut sent: Vec<&'static str> = Vec::new();
                                 let mut failure = None;
+                                let mut ended = false;
                                 for name in recorded.signals.clone() {
-                                    match w.send(t.pid, signo(name)) { Ok(()) => sent.push(name), Err(m) => { failure = Some(m); break; } }
+                                    match w.send(t.pid, signo(name)) {
+                                        Ok(()) => sent.push(name),
+                                        // macOS ends a stopped process on TERM at once, so the CONT that follows can find it already gone. That is
+                                        // the outcome Stop asked for, not a failure; only a signal after one that went, and only a process that
+                                        // is really gone (not any send error), counts.
+                                        Err(_) if !sent.is_empty() && gone(w, &t) => { ended = true; break; }
+                                        Err(m) => { failure = Some(m); break; }
+                                    }
                                 }
                                 ok.signals = sent.clone();
+                                if ended {
+                                    let why = serde_json::json!({ "pid": t.pid, "reason": "the process had already ended", "code": serde_json::Value::Null });
+                                    for n in recorded.signals.iter().filter(|n| !sent.contains(n)) { unsent.push((n, t.pid, why.clone())); }
+                                }
                                 match failure {
                                     None => { ok.status = Status::Signalled; ok }
                                     Some(m) => {
@@ -497,6 +509,11 @@ fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
             Ok(render(&req, &items, false, None, audit_error))
         }
     }
+}
+
+/// True when the process this request targeted no longer exists: it cannot be probed, is a zombie, or the pid now has another start time.
+fn gone(w: &dyn World, t: &Target) -> bool {
+    match w.probe(t.pid) { None => true, Some(f) => f.state == 'Z' || (t.started.is_some() && f.started != t.started) }
 }
 
 fn refused_not_previewed(t: &Target, action: Action) -> ItemResult {
@@ -666,10 +683,10 @@ mod tests {
     const ME: u32 = 501;
     struct Fake {
         procs: RefCell<HashMap<u32, Fresh>>, kids: HashMap<u32, Vec<Child>>, sent: RefCell<Vec<(u32, i32)>>, protected: Option<Vec<u32>>, fail_send: Option<u32>,
-        exit_after_send: Option<(u32, u32)>, ours: RefCell<std::collections::HashSet<u32>>, cmds: HashMap<u32, String>, child_reads: std::cell::Cell<usize>,
+        exit_after_send: Option<(u32, u32)>, term_ends: bool, ours: RefCell<std::collections::HashSet<u32>>, cmds: HashMap<u32, String>, child_reads: std::cell::Cell<usize>,
     }
     impl Fake {
-        fn new() -> Fake { Fake { procs: RefCell::new(HashMap::new()), kids: HashMap::new(), sent: RefCell::new(vec![]), protected: Some(vec![]), fail_send: None, exit_after_send: None, ours: Default::default(), cmds: HashMap::new(), child_reads: Default::default() } }
+        fn new() -> Fake { Fake { procs: RefCell::new(HashMap::new()), kids: HashMap::new(), sent: RefCell::new(vec![]), protected: Some(vec![]), fail_send: None, exit_after_send: None, term_ends: false, ours: Default::default(), cmds: HashMap::new(), child_reads: Default::default() } }
         fn with(self, pid: u32, uid: u32, state: char, exe: &str, started: u64) -> Fake { self.procs.borrow_mut().insert(pid, Fresh { uid, ppid: 0, state, exe: exe.into(), started: Some(started) }); self }
         /// `pids` child first: each one's parent is the next.
         fn chain(self, pids: &[u32]) -> Fake { for w in pids.windows(2) { self.procs.borrow_mut().get_mut(&w[0]).unwrap().ppid = w[1]; } self }
@@ -681,9 +698,12 @@ mod tests {
         fn children(&self, pid: u32) -> Vec<Child> { self.child_reads.set(self.child_reads.get() + 1); self.kids.get(&pid).cloned().unwrap_or_default() }
         fn send(&self, pid: u32, sig: i32) -> Result<(), String> {
             if self.fail_send == Some(pid) { return Err("Operation not permitted".into()); }
+            if !self.procs.borrow().contains_key(&pid) && self.term_ends { return Err("No such process (os error 3)".into()); }
             self.sent.borrow_mut().push((pid, sig));
             // Behave like the kernel and the audit log, so a later check sees the effect.
             if let Some(f) = self.procs.borrow_mut().get_mut(&pid) { match sig { s if s == libc::SIGSTOP => { f.state = 'T'; self.ours.borrow_mut().insert(pid); } s if s == libc::SIGCONT => { f.state = 'S'; self.ours.borrow_mut().remove(&pid); } s if s == libc::SIGKILL => f.state = 'Z', _ => {} } }
+            // macOS ends a stopped process on TERM at once.
+            if self.term_ends && sig == libc::SIGTERM { self.procs.borrow_mut().remove(&pid); }
             // Something else exits while the request is part way through.
             if let Some((after, gone)) = self.exit_after_send { if after == pid { self.procs.borrow_mut().remove(&gone); } }
             Ok(())
@@ -907,6 +927,30 @@ mod tests {
         assert_eq!(w.sent(), vec![(10, libc::SIGTERM), (10, libc::SIGCONT)]);
         let rows = rig.actions();
         assert!(rows.contains(&("TERM".to_string(), "[10]".to_string(), "[]".to_string())) && rows.contains(&("CONT".to_string(), "[10]".to_string(), String::new())), "every signal that was sent has its own row: {rows:?}");
+    }
+
+    #[test]
+    fn a_stop_whose_term_already_ended_the_frozen_process_is_a_success_not_a_failed_continue() {
+        let mut w = Fake::new().with(10, ME, 'T', EXE, 5).ours(10);
+        w.term_ends = true;
+        let rig = Rig::new("stop-frozen-ends");
+        let tok = rig.token(&w, &q("stop", "one", &[(10, 5, EXE)], ""));
+        let (_, v) = rig.call(&w, &q("stop", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
+        assert_eq!((v["ok"].clone(), v["items"][0]["status"].clone(), v["items"][0]["signals"].clone()), (true.into(), "signalled".into(), serde_json::json!(["TERM"])), "{v}");
+        assert_eq!(w.sent(), vec![(10, libc::SIGTERM)], "the CONT that found nothing is not counted as sent");
+        let rows = rig.actions();
+        assert!(rows.iter().any(|r| r.0 == "unsent CONT" && r.1 == "[10]"), "the CONT that did not go is recorded as unsent: {rows:?}");
+    }
+
+    #[test]
+    fn a_failed_first_signal_is_still_a_failure_for_a_frozen_stop() {
+        // Nothing was delivered, so this is a failure whatever became of the process.
+        let mut w = Fake::new().with(10, ME, 'T', EXE, 5).ours(10);
+        w.fail_send = Some(10);
+        let rig = Rig::new("stop-frozen-fails");
+        let tok = rig.token(&w, &q("stop", "one", &[(10, 5, EXE)], ""));
+        let (_, v) = rig.call(&w, &q("stop", "one", &[(10, 5, EXE)], &format!("&dry=0&confirm_token={tok}")));
+        assert_eq!(v["items"][0]["code"], "signal_failed", "{v}");
     }
 
     #[test]
@@ -1258,16 +1302,21 @@ mod tests {
         while Instant::now() < end { if cond() { return true; } std::thread::sleep(std::time::Duration::from_millis(25)); }
         cond()
     }
+    /// `wait_until` that panics with what it was waiting for, so a timeout in CI names the step instead of just failing an assert.
+    fn wait_for(what: impl Fn() -> String, cond: impl FnMut() -> bool) { assert!(wait_until(cond), "timed out after 10s waiting for: {}", what()); }
     fn exe_of(pid: u32) -> String { libproc::proc_pid::pidpath(pid as i32).unwrap_or_default() }
     fn state_of_pid(pid: u32) -> Option<char> { Real::new(Path::new("/nonexistent/h.db")).probe(pid).map(|f| f.state) }
 
     /// A process the test started, detached from the test process (its parent is launchd, or another guarded process),
     /// so Monitor Lizard's own-tree protection does not apply to it. Killed when dropped.
-    struct Guard(u32);
+    ///
+    /// The start time is kept so that `Drop` never signals a pid that has since been reused by someone else's process.
+    struct Guard(u32, Option<u64>);
     impl Guard {
+        fn new(pid: u32) -> Guard { Guard(pid, crate::watcher::started_of(pid)) }
         fn sleeper() -> Guard {
             let out = Command::new("/bin/sh").args(["-c", "/bin/sleep 300 >/dev/null 2>&1 & echo $!"]).output().expect("start a sleep");
-            let g = Guard(String::from_utf8_lossy(&out.stdout).trim().parse().expect("the sleep's pid"));
+            let g = Guard::new(String::from_utf8_lossy(&out.stdout).trim().parse().expect("the sleep's pid"));
             // The forked shell has not exec'd `sleep` until its path says so.
             assert!(wait_until(|| exe_of(g.0).ends_with("/sleep")), "the sleep started");
             g
@@ -1275,25 +1324,36 @@ mod tests {
         /// A shell and the `sleep` it is waiting for: the shell is the parent, the sleep the child.
         fn pair() -> (Guard, Guard) {
             let out = Command::new("/bin/sh").args(["-c", "/bin/sh -c '/bin/sleep 300; true' >/dev/null 2>&1 & echo $!"]).output().expect("start a pair");
-            let parent = Guard(String::from_utf8_lossy(&out.stdout).trim().parse().expect("the shell's pid"));
+            let parent = Guard::new(String::from_utf8_lossy(&out.stdout).trim().parse().expect("the shell's pid"));
             let mut child = None;
             assert!(wait_until(|| {
                 let o = Command::new("pgrep").args(["-P", &parent.0.to_string()]).output().unwrap();
                 child = String::from_utf8_lossy(&o.stdout).lines().next().and_then(|l| l.trim().parse::<u32>().ok()).filter(|&c| exe_of(c).ends_with("/sleep"));
                 child.is_some()
             }), "the shell started its sleep");
-            (parent, Guard(child.unwrap()))
+            (parent, Guard::new(child.unwrap()))
         }
         fn target(&self) -> (u32, u64, String) { (self.0, crate::watcher::started_of(self.0).expect("start time"), exe_of(self.0)) }
         fn state(&self) -> Option<char> { state_of_pid(self.0) }
         fn gone(&self) -> bool { wait_until(|| self.state().is_none_or(|s| s == 'Z')) }
         fn is(&self, want: char) -> bool { wait_until(|| self.state() == Some(want)) }
+        /// Panics unless the process reaches `want` within the wait; `what` names the step.
+        fn expect(&self, want: char, what: &str) { wait_for(|| format!("pid {} to be '{want}' ({what}); it is now {:?}", self.0, self.state()), || self.state() == Some(want)); }
+        fn expect_gone(&self, what: &str) { wait_for(|| format!("pid {} to end ({what}); it is now {:?}", self.0, self.state()), || self.state().is_none_or(|s| s == 'Z')); }
     }
-    impl Drop for Guard { fn drop(&mut self) { unsafe { libc::kill(self.0 as i32, libc::SIGKILL); } } }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            // SAFETY: `kill(2)` takes plain integers; the pid is only signalled while it still has the start time recorded for it.
+            if self.1.is_some() && crate::watcher::started_of(self.0) == self.1 { unsafe { libc::kill(self.0 as i32, libc::SIGKILL); } }
+        }
+    }
 
     #[test]
     fn real_sleep_processes_freeze_resume_and_stop() {
         let (a, b) = (Guard::sleeper(), Guard::sleeper());
+        // Both are verified running before anything is signalled.
+        a.expect('S', "before the test signals anything");
+        b.expect('S', "before the test signals anything");
         let (ta, tb) = (a.target(), b.target());
         let rig = Rig::new("real");
         let one = [(tb.0, tb.1, tb.2.as_str())];
@@ -1304,25 +1364,29 @@ mod tests {
         // Freeze one, see it frozen, and a second freeze is refused.
         let (code, v) = run("freeze", &one);
         assert_eq!((code, v["ok"].clone()), (200, true.into()), "{v}");
-        assert!(b.is('T') && a.is('S'), "only the chosen one froze");
+        b.expect('T', "frozen");
+        a.expect('S', "not chosen, so not frozen");
         let (_, v) = rig.rcall(&q("freeze", "one", &one, ""));
         assert_eq!((v["items"][0]["code"].clone(), v["items"][0]["state"].clone(), v["items"][0]["frozen_by_us"].clone()), ("already_frozen".into(), "frozen".into(), true.into()));
         // Resume it: this app froze it, so it is ours to continue.
         let (_, v) = run("resume", &one);
         assert_eq!(v["ok"], true, "{v}");
-        assert!(b.is('S'));
-        // Stop a frozen process: the TERM is delivered because Stop also continues it.
+        b.expect('S', "resumed");
+        // Stop a frozen process. TERM goes first; macOS may end a stopped process on the TERM itself, in which case the
+        // follow-up CONT finds nothing and is reported as unsent rather than as a failure. Either way the process ends.
         let (_, v) = run("freeze", &one);
         assert_eq!(v["ok"], true);
+        b.expect('T', "frozen again");
         let (_, v) = run("stop", &one);
-        assert_eq!((v["ok"].clone(), v["items"][0]["signals"].clone()), (true.into(), serde_json::json!(["TERM", "CONT"])), "{v}");
-        assert!(b.gone(), "the frozen process ended");
+        let signals = v["items"][0]["signals"].clone();
+        assert!(v["ok"] == true && (signals == serde_json::json!(["TERM", "CONT"]) || signals == serde_json::json!(["TERM"])), "{v}");
+        b.expect_gone("the frozen process ended after stop");
         // A gone process is refused now, and the other is force stopped.
         let (_, v) = rig.rcall(&q("stop", "one", &one, ""));
         assert_eq!(v["items"][0]["code"], "gone");
         let (_, v) = run("force_stop", &[(ta.0, ta.1, ta.2.as_str())]);
         assert_eq!(v["ok"], true);
-        assert!(a.gone());
+        a.expect_gone("force stopped");
         let rows = rig.actions();
         let sigs: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
         assert!(sigs.contains(&"STOP") && sigs.contains(&"CONT") && sigs.contains(&"TERM") && sigs.contains(&"KILL"), "{sigs:?}");
