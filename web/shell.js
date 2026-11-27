@@ -121,7 +121,7 @@ $('navtoggle').addEventListener('click', () => (S.navOpen ? closeNav() : openNav
 window.addEventListener('resize', () => { if (S.navOpen && window.innerWidth > 860) rec({ navOpen: false }); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
-window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); });
+window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); loadMetrics(); if (S.view === 'overview') loadStorageHistory(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && closeTopLayer()) e.preventDefault(); }); // one Escape closes one layer
 // "/" jumps to the search box on the Guide unless a field has focus (the key must still type a slash there).
 document.addEventListener('keydown', (e) => {
@@ -129,7 +129,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && S.view === 'guide' && !S.modal && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); $('q').focus(); }
 });
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
-applyTheme(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
+applyTheme(); fromHash(); render(); if (S.view === 'overview') loadStorageHistory(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000); setInterval(loadReqLive, 5000);
 setInterval(loadVolume, 30000);
 setInterval(loadProcesses, 5000); // matches the server's own 5 s procusage sampler interval

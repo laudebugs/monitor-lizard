@@ -206,7 +206,7 @@ function volumeBarArgs(vol) {
 }
 // A failed read keeps the card honest (it says so and retries on the next poll) instead of staying on "not read yet".
 async function loadVolume() {
-  if (document.hidden || S.view !== 'performance' || S.perfTab !== 'disknet') return;
+  if (document.hidden || !(S.view === 'overview' || (S.view === 'performance' && S.perfTab === 'disknet'))) return;
   try {
     const res = await api('/api/volume');
     if (!res.ok) throw new Error('volume read failed');

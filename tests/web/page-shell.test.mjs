@@ -55,8 +55,8 @@ test('titles say what the page found, singular and plural', () => {
   assert.equal(P.verdictTitle('apps', { review: 3 }), '3 apps need review');
   assert.equal(P.verdictTitle('apps', { review: 1 }), '1 app needs review');
   assert.equal(P.verdictTitle('apps', { review: 0 }), 'Nothing needs review');
-  assert.equal(P.verdictTitle('overview', { attention: 2 }), '2 items need your attention');
-  assert.equal(P.verdictTitle('overview', { attention: 0 }), 'Nothing needs your attention');
+  assert.equal(P.verdictTitle('overview', { attention: 2 }), '2 things need a decision');
+  assert.equal(P.verdictTitle('overview', { attention: 0 }), 'Nothing needs a decision');
   assert.equal(P.verdictTitle('priv', { failed: 1 }), '1 failed authorization request');
   assert.equal(P.verdictTitle('priv', { failed: 0 }), 'No failed authorization requests');
   assert.equal(P.verdictTitle('listeners', { exposed: 2 }), '2 listening sockets are open to your network');

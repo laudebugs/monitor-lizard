@@ -123,7 +123,7 @@ const status = (g) => (g.approved ? 'approved' : apple(g) ? 'macOS' : net(g) ? '
 const tagOf = (s) => ({ review: 'warn', approved: 'ok' }[s] || '');
 // The trust label comes from rules in the server (trusted, unknown, suspicious); the page only colors it.
 const trustCls = (t) => ({ trusted: 'ok', unknown: 'warn', suspicious: 'bad' }[t] || '');
-const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved this app', unreviewed: 'Uses the network and is not approved yet', unverified: 'Not approved and not verified as an Apple program', 'unsigned-network': 'Unsigned program using the network', 'exposed-listener': 'Listening on all interfaces', 'exposed-listener-apple': 'Apple service reachable from your network', 'new-remote': 'Contacted hosts first seen in the last hour', 'debug-port': 'Remote-debugging port is open' };
+const RULE_TEXT = { 'apple-signed': 'Signed by Apple', approved: 'You approved this app', unreviewed: 'Uses the network and is not approved yet', unverified: 'Not approved and not verified as an Apple program', 'unsigned-network': 'Unsigned program using the network', 'exposed-listener': 'Listening on all interfaces', 'exposed-listener-apple': 'Apple service reachable from your network', 'new-remote': 'Contacted hosts first seen in the last hour', 'debug-port': 'Remote-debugging port is open', 'failed-sudo': 'Five or more failed sudo requests in two hours', 'new-startup-item': 'Startup item added since your baseline' };
 /* url-state:begin */
 /* The address bar is the page's saved state: #<page>?<key>=<value>&...  Keys are a public format once a
    link is shared, so the list stays short and every key keeps its meaning:

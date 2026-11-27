@@ -37,7 +37,7 @@ const loadSettings = async () => { try { quiet({ settings: await (await api('/ap
 // `since` is the newest ts already held; the server returns only what's newer, so a tab backgrounded
 // for a while still gets exactly its gap in one request, not a burst of polls for the time it missed.
 async function loadMetrics() {
-  if (document.hidden || S.view !== 'performance' || !S.perfLive) return;
+  if (document.hidden || (S.view !== 'performance' && S.view !== 'overview') || (S.view === 'performance' && !S.perfLive)) return;
   try {
     const got = await (await api('/api/metrics?since=' + S.metricsSince)).json();
     if (!got.length) return;
