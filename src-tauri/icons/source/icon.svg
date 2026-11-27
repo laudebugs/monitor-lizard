@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12231c"/><stop offset="1" stop-color="#0b1410"/></linearGradient></defs>
+  <defs><clipPath id="c"><path d="M0 0H31V35H61V70H0Z"/></clipPath><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12231c"/><stop offset="1" stop-color="#0b1410"/></linearGradient></defs>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
   <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="2"/>
-  <g transform="translate(227 177.125) scale(9.5)" fill="none" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter">
-    <path d="M4 38H14L20 18L28 54L34 38" stroke="#4fd18b"/>
-    <path d="M34 38H56V26H46" stroke="#b8f2d2"/>
+  <g transform="translate(227 177.125) scale(9.5)" fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M1 38H14L20 18L28 54L34 38" stroke="#4fd18b" clip-path="url(#c)"/>
+    <path d="M34 38H56V14H41V25" stroke="#b8f2d2"/>
   </g>
 </svg>

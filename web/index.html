@@ -7,14 +7,14 @@
 <meta name="ml-token" content="__TOKEN__">
 <script>(function(){var t=localStorage.getItem('monitor-lizard-theme')||'system';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t})()</script>
 <title>Monitor Lizard</title>
-<!-- The app icon's lizard mark, inline (no remote asset, local-first per ADR 0002). scripts/make-icons.sh rewrites the next line from src-tauri/icons/source/mark.svg. -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%205%2060%2060'%3E%3Cstyle%3E.p%7Bstroke:%234fd18b%7D.t%7Bstroke:%23b8f2d2%7D%40media%20%28prefers-color-scheme:light%29%7B.p%7Bstroke:%2317803f%7D.t%7Bstroke:%230f5f2c%7D%7D%3C/style%3E%3Cg%20fill='none'%20stroke-width='6'%20stroke-linecap='square'%20stroke-linejoin='miter'%3E%3Cpath%20class='p'%20d='M4%2038H14L20%2018L28%2054L34%2038'/%3E%3Cpath%20class='t'%20d='M34%2038H56V26H46'/%3E%3C/g%3E%3C/svg%3E">
+<!-- The pulse-and-tail mark, inline (no remote asset, local-first per ADR 0002). scripts/make-icons.sh rewrites the next line from src-tauri/icons/source/mark.svg. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%205%2060%2060'%3E%3Cstyle%3E.p%7Bstroke:%234fd18b%7D.t%7Bstroke:%23b8f2d2%7D%40media%20%28prefers-color-scheme:light%29%7B.p%7Bstroke:%2317803f%7D.t%7Bstroke:%230f5f2c%7D%7D%3C/style%3E%3Cdefs%3E%3CclipPath%20id='c'%3E%3Cpath%20d='M0%200H31V35H61V70H0Z'/%3E%3C/clipPath%3E%3C/defs%3E%3Cg%20fill='none'%20stroke-width='6'%20stroke-linecap='butt'%20stroke-linejoin='miter'%3E%3Cpath%20class='p'%20clip-path='url%28%23c%29'%20d='M1%2038H14L20%2018L28%2054L34%2038'/%3E%3Cpath%20class='t'%20d='M34%2038H56V14H41V25'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <button class="skip" id="skip" type="button">Skip to main content</button>
 <div class="shell">
-<nav class="side" id="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 5 60 60" fill="none" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 38H14L20 18L28 54L34 38" stroke="currentColor"/><path d="M34 38H56V26H46" style="stroke:var(--logo-accent,var(--acc))"/></svg></span><span>Monitor Lizard</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
+<nav class="side" id="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 5 60 60" fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter"><defs><clipPath id="logo-clip"><path d="M0 0H31V35H61V70H0Z"/></clipPath></defs><path d="M1 38H14L20 18L28 54L34 38" stroke="currentColor" clip-path="url(#logo-clip)"/><path d="M34 38H56V14H41V25" style="stroke:var(--logo-accent,var(--acc))"/></svg></span><span>Monitor Lizard</span></div><div id="nav" style="display:flex;flex-direction:column;gap:2px"></div><div class="grow"></div>
 <div id="notif" style="padding:0 8px"></div>
 <div id="theme" style="padding:0 8px"></div>
 <div class="small mut" style="padding:0 8px;display:flex;flex-direction:column;gap:6px"><div id="live">connecting...</div><div>127.0.0.1, local only</div></div></nav>

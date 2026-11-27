@@ -3,8 +3,9 @@
     .p{stroke:#4fd18b}.t{stroke:#b8f2d2}
     @media (prefers-color-scheme:light){.p{stroke:#17803f}.t{stroke:#0f5f2c}}
   </style>
-  <g fill="none" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter">
-    <path class="p" d="M4 38H14L20 18L28 54L34 38"/>
-    <path class="t" d="M34 38H56V26H46"/>
+  <defs><clipPath id="c"><path d="M0 0H31V35H61V70H0Z"/></clipPath></defs>
+  <g fill="none" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter">
+    <path class="p" clip-path="url(#c)" d="M1 38H14L20 18L28 54L34 38"/>
+    <path class="t" d="M34 38H56V14H41V25"/>
   </g>
 </svg>

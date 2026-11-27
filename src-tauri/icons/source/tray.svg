@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 5 60 60">
-  <g fill="none" stroke="#000000" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter">
-    <path d="M4 38H14L20 18L28 54L34 38"/>
-    <path d="M34 38H56V26H46"/>
+  <defs><clipPath id="c"><path d="M0 0H31V35H61V70H0Z"/></clipPath></defs>
+  <g fill="none" stroke="#000000" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter">
+    <path clip-path="url(#c)" d="M1 38H14L20 18L28 54L34 38"/>
+    <path d="M34 38H56V14H41V25"/>
   </g>
 </svg>
