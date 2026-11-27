@@ -5,6 +5,9 @@
 mod cache;
 pub mod forecast;
 pub mod trash;
+#[cfg(test)]
+mod converge_tests;
+mod results;
 mod rules;
 mod volume;
 mod walk;
@@ -28,7 +31,10 @@ fn triple_of(c: &Capacity) -> Option<(u64, u64, u64)> {
 
 use crate::sampler::Reading;
 use serde::Serialize;
+use results::{Entry, Fresh, Results};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use volume::{Capacity, Snapshots};
 use walk::Limits;
@@ -39,6 +45,15 @@ const TIME_BUDGET: Duration = Duration::from_secs(20);
 /// Kept back for joining `tmutil`, building the reply and printing it.
 const RESERVE: Duration = Duration::from_millis(750);
 const MAX_ENTRIES_PER_LOCATION: u64 = 200_000;
+/// Name of the saved result map in the data folder.
+const STORE_FILE: &str = "storage-results.json";
+/// How many of the largest unchanged locations take part in the round-robin refresh, and how many of
+/// them one scan walks again. The rest are reused until their own modification time changes.
+const REFRESH_POOL: usize = 8;
+const REFRESH_PER_SCAN: usize = 2;
+/// An unchanged location is not walked again for a refresh until it is this old (seconds), so scans
+/// run back to back reuse everything.
+const REFRESH_MIN_AGE_SECS: u64 = 600;
 
 /// Why a size could not be read. The text is shown to the user.
 pub mod reason {
@@ -82,6 +97,12 @@ pub struct Item {
     /// `size` is a lower bound.
     pub complete: bool,
     pub unreadable: u32,
+    /// Unix seconds when this size was measured. Older than `Storage::scanned_at` for a reused row.
+    pub measured_at: u64,
+    /// True when this scan did not walk the location and the size comes from an earlier scan.
+    pub reused: bool,
+    /// True when an earlier complete size is kept because a later measurement was partial or failed.
+    pub stale: bool,
     /// The item's own modification time in nanoseconds when it was measured, so a removal can tell
     /// that it changed afterwards. Not sent to the page.
     #[serde(skip)]
@@ -146,61 +167,156 @@ impl Outcome {
     }
 }
 
-struct Scan<'a> { home: &'a Path, deadline: Instant, items: Vec<Item>, missed: Vec<(String, Category)> }
+/// One location to measure, before the order is known.
+struct Candidate { path: PathBuf, category: Category, project_idle: bool }
+
+/// Where a location stands against what earlier scans learned. The derived order is the visit order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Rank {
+    /// Never measured: walked first, in the fixed order.
+    Never,
+    /// Incomplete before, changed since, or due for its round-robin refresh: walked next, largest first.
+    Stale,
+    /// Complete and unchanged at the top level: reused without a walk.
+    Fresh,
+}
+
+struct Scan<'a> { home: &'a Path, deadline: Instant, items: Vec<Item>, missed: Vec<(String, Category)>, max_entries: u64, now: u64 }
 
 impl Scan<'_> {
+    fn item(&self, c: &Candidate, text: &str, size: Reading<u64>, e: Option<&Entry>, reused: bool) -> Item {
+        let v = rules::label_item(self.home, &c.path, c.project_idle);
+        Item {
+            id: item_id(text), path: text.to_string(), category: c.category, label: v.label, rule: v.rule, size,
+            apparent_bytes: e.and_then(|e| e.apparent), entries: e.map_or(0, |e| e.entries), complete: e.is_some_and(|e| e.complete), unreadable: e.map_or(0, |e| e.unreadable),
+            measured_at: e.map_or(self.now, |e| e.measured_at), reused, stale: e.is_some_and(|e| e.stale), modified_ns: trash::modified_ns(&c.path),
+        }
+    }
+
+    fn push_entry(&mut self, c: &Candidate, text: &str, e: &Entry, reused: bool) {
+        let item = self.item(c, text, Reading::Value(e.bytes), Some(e), reused);
+        self.items.push(item);
+    }
+
     /// Sizes one location with at most a quarter of the time that is left, so one huge folder cannot
-    /// use up the scan.
-    fn measure(&mut self, path: &Path, category: Category, project_idle: bool) {
-        let now = Instant::now();
-        if now >= self.deadline {
-            self.missed.push((path.display().to_string(), category));
+    /// use up the scan, and merges the result into what is known.
+    fn visit(&mut self, c: &Candidate, rank: Rank, results: &mut Results) {
+        let text = c.path.display().to_string();
+        let hint = trash::modified_ns(&c.path);
+        let prior = results.get(&text).cloned();
+        let confirmed = |e: &Entry| e.complete && e.mtime_hint.is_some() && e.mtime_hint == hint;
+        if rank == Rank::Fresh {
+            if let Some(e) = prior { self.push_entry(c, &text, &e, true); }
             return;
         }
-        let lim = Limits { deadline: now + slice(self.deadline - now), max_entries: MAX_ENTRIES_PER_LOCATION };
-        let Some(result) = walk::walk(path, lim) else { return };
-        let v = rules::label_item(self.home, path, project_idle);
-        let text = path.display().to_string();
-        let item = |size, apparent_bytes, entries, complete, unreadable| Item {
-            id: item_id(&text), path: text.clone(), category, label: v.label, rule: v.rule, size, apparent_bytes, entries, complete, unreadable, modified_ns: trash::modified_ns(path),
-        };
-        self.items.push(match result {
-            Ok(w) => {
-                // A skipped subfolder makes the size too small, so it is as partial as a cut-off walk.
-                item(Reading::Value(w.allocated), Some(w.apparent), w.entries, w.stop.is_none() && w.unreadable == 0, w.unreadable)
+        let now = Instant::now();
+        if now >= self.deadline {
+            // Out of time: what an earlier scan knows is shown (marked stale unless the top level is
+            // unchanged), and only a location never measured is "not reached".
+            match prior {
+                Some(e) if confirmed(&e) => self.push_entry(c, &text, &e, true),
+                Some(_) => { if let Some(e) = results.mark_stale(&text) { self.push_entry(c, &text, &e, true); } }
+                None => self.missed.push((text, c.category)),
             }
-            Err(why) => item(Reading::Unavailable(why), None, 0, false, 0),
-        });
+            return;
+        }
+        let lim = Limits { deadline: now + slice(self.deadline - now), max_entries: self.max_entries };
+        match walk::walk(&c.path, lim) {
+            None => results.forget(&text),
+            Some(Ok(w)) => {
+                // A skipped subfolder makes the size too small, so it is as partial as a cut-off walk.
+                let fresh = Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: w.stop.is_none() && w.unreadable == 0, mtime_hint: hint };
+                let e = results.merge(&text, fresh, self.now);
+                let reused = e.measured_at != self.now;
+                self.push_entry(c, &text, &e, reused);
+            }
+            Some(Err(why)) => match results.mark_stale(&text) {
+                Some(e) => self.push_entry(c, &text, &e, true),
+                None => { let item = self.item(c, &text, Reading::Unavailable(why), None, false); self.items.push(item); }
+            },
+        }
     }
 }
 
-/// Everything except capacity and snapshots, which describe the volume rather than a folder.
-///
-/// The order is the order of usefulness per second spent, and it matters because the budget usually
-/// runs out: Xcode's DerivedData and the Docker folder are large and safe to act on; app caches come
-/// next, biggest first by a cheap one-level size; simulators and logs follow; the `node_modules`
-/// search is slow and comes after them; the user's own folders and `/Applications` cannot be `safe`
-/// and go last.
-fn scan_items(home: &Path, applications: &Path, deadline: Instant, now: u64) -> Outcome {
-    let mut s = Scan { home, deadline, items: Vec::new(), missed: Vec::new() };
+/// Every location this scan may measure, in the fixed order of usefulness per second spent. It is
+/// also the visit order on a first run, and it matters because the budget usually runs out:
+/// Xcode's DerivedData and the Docker folder are large and safe to act on; app caches come next,
+/// biggest first by a cheap one-level size; simulators and logs follow; the `node_modules` search is
+/// slow and comes after them; the user's own folders and the apps in `/Applications` cannot be
+/// `safe` and go last. Each app bundle is its own location with its own entry cap.
+fn discover(home: &Path, applications: &Path, deadline: Instant, now: u64, max_entries: u64) -> (Vec<Candidate>, Vec<(String, Category)>) {
+    let (mut out, mut missed) = (Vec::new(), Vec::new());
+    let add = |out: &mut Vec<Candidate>, path: PathBuf, category, project_idle| out.push(Candidate { path, category, project_idle });
     let lib = |rel: &str| home.join("Library").join(rel);
-    s.measure(&lib("Developer/Xcode/DerivedData"), Category::Developer, false);
-    s.measure(&lib("Containers/com.docker.docker"), Category::Developer, false);
-    for child in caches_by_size(&lib("Caches"), Instant::now() + slice(deadline.saturating_duration_since(Instant::now()))) { s.measure(&child, Category::Caches, false); }
-    s.measure(&lib("Developer/CoreSimulator"), Category::Developer, false);
-    s.measure(&lib("Logs"), Category::Logs, false);
+    add(&mut out, lib("Developer/Xcode/DerivedData"), Category::Developer, false);
+    add(&mut out, lib("Containers/com.docker.docker"), Category::Developer, false);
+    for child in caches_by_size(&lib("Caches"), Instant::now() + slice(deadline.saturating_duration_since(Instant::now()))) { add(&mut out, child, Category::Caches, false); }
+    add(&mut out, lib("Developer/CoreSimulator"), Category::Developer, false);
+    add(&mut out, lib("Logs"), Category::Logs, false);
     if Instant::now() >= deadline {
-        s.missed.push(("node_modules search".into(), Category::Developer));
+        missed.push(("node_modules search".into(), Category::Developer));
     } else {
-        let limit = Limits { deadline: Instant::now() + slice(deadline.saturating_duration_since(Instant::now())), max_entries: MAX_ENTRIES_PER_LOCATION };
+        let limit = Limits { deadline: Instant::now() + slice(deadline.saturating_duration_since(Instant::now())), max_entries };
         let (modules, cut) = walk::find_node_modules(home, limit, now);
-        if cut { s.missed.push(("node_modules search (cut short)".into(), Category::Developer)); }
-        for (path, idle) in modules { s.measure(&path, Category::Developer, idle); }
+        if cut { missed.push(("node_modules search (cut short)".into(), Category::Developer)); }
+        for (path, idle) in modules { add(&mut out, path, Category::Developer, idle); }
     }
-    s.measure(&home.join("Downloads"), Category::Downloads, false);
-    s.measure(&lib("Mail"), Category::Mail, false);
-    s.measure(applications, Category::Applications, false);
+    add(&mut out, home.join("Downloads"), Category::Downloads, false);
+    add(&mut out, lib("Mail"), Category::Mail, false);
+    for bundle in app_bundles(applications) { add(&mut out, bundle, Category::Applications, false); }
+    (out, missed)
+}
+
+/// The entries of the applications folder, by name. A folder that cannot be listed is returned
+/// itself, so the reason shows up as one unavailable item; a missing one has no entries.
+fn app_bundles(dir: &Path) -> Vec<PathBuf> {
+    match std::fs::read_dir(dir) {
+        Ok(rd) => { let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect(); v.sort(); v }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(_) => vec![dir.to_path_buf()],
+    }
+}
+
+/// The order to visit `cands` in, with each one's rank. Never-measured locations come first, in the
+/// fixed order; then stale ones, largest known size first; then unchanged ones, which cost nothing.
+/// Of the largest unchanged locations, the two measured longest ago (and at least ten minutes ago) are
+/// walked again each scan, so a
+/// change deep inside a folder whose own time did not move is still found, in turn.
+fn visit_order(cands: &[Candidate], results: &Results, now: u64) -> Vec<(usize, Rank)> {
+    // (index, rank, last known size, measured_at)
+    let mut ranked: Vec<(usize, Rank, u64, u64)> = cands.iter().enumerate().map(|(i, c)| match results.get(&c.path.display().to_string()) {
+        None => (i, Rank::Never, 0, 0),
+        Some(e) => {
+            let unchanged = e.complete && e.mtime_hint.is_some() && e.mtime_hint == trash::modified_ns(&c.path);
+            (i, if unchanged { Rank::Fresh } else { Rank::Stale }, e.bytes, e.measured_at)
+        }
+    }).collect();
+    let mut pool: Vec<usize> = (0..ranked.len()).filter(|&k| ranked[k].1 == Rank::Fresh).collect();
+    pool.sort_by(|&a, &b| ranked[b].2.cmp(&ranked[a].2).then(ranked[a].0.cmp(&ranked[b].0)));
+    pool.truncate(REFRESH_POOL);
+    pool.sort_by_key(|&k| (ranked[k].3, ranked[k].0));
+    let due: Vec<usize> = pool.into_iter().filter(|&k| now.saturating_sub(ranked[k].3) >= REFRESH_MIN_AGE_SECS).take(REFRESH_PER_SCAN).collect();
+    for k in due { ranked[k].1 = Rank::Stale; }
+    ranked.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| if a.1 == Rank::Never { a.0.cmp(&b.0) } else { b.2.cmp(&a.2).then(a.0.cmp(&b.0)) }));
+    ranked.into_iter().map(|(i, r, _, _)| (i, r)).collect()
+}
+
+fn scan_items_with(home: &Path, applications: &Path, deadline: Instant, now: u64, results: &mut Results, max_entries: u64) -> Outcome {
+    let (cands, missed) = discover(home, applications, deadline, now, max_entries);
+    let order = visit_order(&cands, results, now);
+    let mut s = Scan { home, deadline, items: Vec::new(), missed, max_entries, now };
+    let mut seen = HashSet::new();
+    for (i, rank) in order {
+        seen.insert(cands[i].path.display().to_string());
+        s.visit(&cands[i], rank, results);
+    }
+    results.prune_missing(&seen);
     Outcome { items: s.items, missed: s.missed }
+}
+
+/// Everything except capacity and snapshots, which describe the volume rather than a folder.
+fn scan_items(home: &Path, applications: &Path, deadline: Instant, now: u64, results: &mut Results) -> Outcome {
+    scan_items_with(home, applications, deadline, now, results, MAX_ENTRIES_PER_LOCATION)
 }
 
 /// The children of the caches folder, largest first. When the folder cannot be listed the folder
@@ -322,18 +438,38 @@ fn trusted_home(candidate: &Path, uid: u32, account: Option<&Path>) -> Option<Pa
 
 fn now_secs() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
 
-/// One full scan, `tmutil` included, within `TIME_BUDGET`. Blocking: call it off the request thread.
-pub fn scan() -> Storage { scan_for(home_or_reason()) }
+/// One full scan for the command line, `tmutil` included, within `TIME_BUDGET`. Blocking: call it off
+/// the request thread.
+pub fn scan() -> Storage { scan_stored(TIME_BUDGET) }
+
+/// The server's background scan: the same scan with the longer budget, so repeated runs converge.
+pub fn scan_in_background() -> Storage { scan_stored(cache::SERVER_TIME_BUDGET) }
+
+/// Runs a scan against the result map kept for this process and saved in the data folder, so each
+/// run starts from what the last one learned. Scans never overlap (the cache starts one at a time),
+/// and the lock only guards the command line against a second caller.
+fn scan_stored(budget: Duration) -> Storage {
+    static RESULTS: Mutex<Option<Results>> = Mutex::new(None);
+    let home = home_or_reason();
+    let store = home.is_ok().then(|| crate::paths::data_dir().join(STORE_FILE));
+    let mut guard = RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let results = guard.get_or_insert_with(|| store.as_deref().map(Results::load).unwrap_or_default());
+    let out = scan_for(home, budget, results);
+    if let Some(p) = store.as_deref().filter(|_| out.refused.is_none()) {
+        if let Err(e) = results.save(p) { eprintln!("monitor-lizard: could not save the storage results: {e}"); }
+    }
+    out
+}
 
 /// `scan` for a given home, so a refused home can be tested without changing the environment.
-fn scan_for(home: Result<PathBuf, &'static str>) -> Storage {
+fn scan_for(home: Result<PathBuf, &'static str>, budget: Duration, results: &mut Results) -> Storage {
     run_in_background();
     walk::pace_reset();
     let started = Instant::now();
     // `tmutil` runs beside the walk instead of after it, so it adds no wall time.
     let tmutil = std::thread::spawn(volume::local_snapshots);
     let (o, refused) = match home {
-        Ok(h) => (scan_items(&h, Path::new("/Applications"), started + TIME_BUDGET - RESERVE, now_secs()), None),
+        Ok(h) => (scan_items(&h, Path::new("/Applications"), started + budget - RESERVE, now_secs(), results), None),
         Err(why) => (Outcome { items: Vec::new(), missed: Vec::new() }, Some(why)),
     };
     let capacity = volume::split_capacity(crate::iokit::boot_volume_capacity(), volume::available_and_important());
@@ -390,7 +526,7 @@ mod tests {
     fn an_expired_budget_lists_the_locations_not_reached_and_marks_the_result_partial() {
         let home = temp("expired");
         fs::create_dir_all(home.join("Downloads")).unwrap();
-        let o = scan_items(&home, &home.join("none"), Instant::now() - Duration::from_secs(1), now_secs());
+        let o = scan_items(&home, &home.join("none"), Instant::now() - Duration::from_secs(1), now_secs(), &mut Results::default());
         assert!(o.items.is_empty() && !o.complete());
         assert!(o.missed.iter().any(|(p, c)| p.ends_with("Downloads") && *c == Category::Downloads));
         assert!(o.missed.iter().any(|(p, _)| p == "node_modules search"));
@@ -407,7 +543,7 @@ mod tests {
         let locked = home.join("Library/Mail");
         fs::create_dir_all(&locked).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs());
+        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default());
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!o.items.iter().any(|i| i.path.contains("docker") || i.path.contains("DerivedData")), "missing locations are omitted");
         let mail = by_suffix(&o.items, "Library/Mail");
@@ -427,7 +563,7 @@ mod tests {
         fs::write(home.join("Library/Caches/com.big/f"), vec![1u8; 512 * 1024]).unwrap();
         fs::create_dir_all(home.join("Library/Caches/Homebrew")).unwrap();
         fs::write(home.join("Library/Caches/Homebrew/f"), vec![1u8; 4096]).unwrap();
-        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs());
+        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default());
         let order: Vec<_> = o.items.iter().filter(|i| i.category == Category::Caches).map(|i| i.path.rsplit('/').next().unwrap().to_string()).collect();
         assert_eq!(order, ["com.big", "Homebrew", "com.small"]);
         assert_eq!(by_suffix(&o.items, "com.big").label, Label::Review);
@@ -438,13 +574,13 @@ mod tests {
     #[test]
     fn locations_are_measured_in_the_documented_order() {
         let home = temp("order");
-        for rel in ["Library/Developer/Xcode/DerivedData", "Library/Containers/com.docker.docker", "Library/Caches/a", "Library/Developer/CoreSimulator", "Library/Logs", "Downloads", "Library/Mail", "apps/none"] {
+        for rel in ["Library/Developer/Xcode/DerivedData", "Library/Containers/com.docker.docker", "Library/Caches/a", "Library/Developer/CoreSimulator", "Library/Logs", "Downloads", "Library/Mail", "apps/none/Some.app"] {
             fs::create_dir_all(home.join(rel)).unwrap();
         }
         fs::create_dir_all(home.join("proj/node_modules")).unwrap();
-        let o = scan_items(&home, &home.join("apps/none"), in_secs(30), now_secs());
+        let o = scan_items(&home, &home.join("apps/none"), in_secs(30), now_secs(), &mut Results::default());
         let tails: Vec<_> = o.items.iter().map(|i| i.path.strip_prefix(&home.display().to_string()).unwrap().to_string()).collect();
-        assert_eq!(tails, ["/Library/Developer/Xcode/DerivedData", "/Library/Containers/com.docker.docker", "/Library/Caches/a", "/Library/Developer/CoreSimulator", "/Library/Logs", "/proj/node_modules", "/Downloads", "/Library/Mail", "/apps/none"]);
+        assert_eq!(tails, ["/Library/Developer/Xcode/DerivedData", "/Library/Containers/com.docker.docker", "/Library/Caches/a", "/Library/Developer/CoreSimulator", "/Library/Logs", "/proj/node_modules", "/Downloads", "/Library/Mail", "/apps/none/Some.app"]);
         fs::remove_dir_all(&home).unwrap();
     }
 
@@ -469,8 +605,8 @@ mod tests {
         // 40 ms left gives this location 10 ms, less than the walk needs: it is cut off by its slice,
         // not by the whole deadline, which is still in the future.
         let deadline = Instant::now() + Duration::from_millis(40);
-        let mut s = Scan { home: &home, deadline, items: vec![], missed: vec![] };
-        s.measure(&big, Category::Developer, false);
+        let mut s = Scan { home: &home, deadline, items: vec![], missed: vec![], max_entries: MAX_ENTRIES_PER_LOCATION, now: now_secs() };
+        s.visit(&Candidate { path: big.clone(), category: Category::Developer, project_idle: false }, Rank::Never, &mut Results::default());
         assert_eq!(s.items.len(), 1);
         assert!(!s.items[0].complete, "cut off by its slice");
         assert!(s.items[0].entries < 4000 && matches!(s.items[0].size, Reading::Value(_)));
@@ -488,7 +624,7 @@ mod tests {
         fs::create_dir_all(app.join("locked")).unwrap();
         fs::write(app.join("ok"), vec![1u8; 64 * 1024]).unwrap();
         fs::set_permissions(app.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
-        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs());
+        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default());
         fs::set_permissions(app.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
         let item = by_suffix(&o.items, "com.x");
         assert!(matches!(item.size, Reading::Value(_)) && item.unreadable == 1);
@@ -505,7 +641,7 @@ mod tests {
         fs::create_dir_all(home.join("Downloads")).unwrap();
         fs::create_dir_all(home.join("Library/Mail")).unwrap();
         fs::set_permissions(home.join("Library/Mail"), fs::Permissions::from_mode(0o000)).unwrap();
-        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs());
+        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default());
         fs::set_permissions(home.join("Library/Mail"), fs::Permissions::from_mode(0o755)).unwrap();
         let (c, _) = coverage(&o.items, &o.missed);
         assert!(c.locations_measured < c.locations_total);
@@ -519,7 +655,7 @@ mod tests {
         fs::create_dir_all(home.join("Library/Caches/com.x/sub")).unwrap();
         fs::write(home.join("Library/Caches/com.x/sub/f"), b"x").unwrap();
         fs::create_dir_all(home.join("Downloads")).unwrap();
-        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs());
+        let o = scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default());
         assert!(o.complete() && o.items.iter().all(|i| i.complete));
         let c = categories(&o.items, &o.missed);
         assert!(c.iter().all(|t| !t.lower_bound && t.unmeasured == 0));
@@ -529,7 +665,7 @@ mod tests {
     #[test]
     fn without_a_usable_home_nothing_is_scanned_and_the_reason_is_given() {
         for why in [reason::HOME_UNKNOWN, reason::HOME_UNTRUSTED] {
-            let s = scan_for(Err(why));
+            let s = scan_for(Err(why), TIME_BUDGET, &mut Results::default());
             assert!(s.items.is_empty() && !s.complete, "{why}");
             assert_eq!(s.refused, Some(why));
             let v: serde_json::Value = serde_json::from_str(&to_json(Some(&s), false, false)).unwrap();
@@ -553,7 +689,7 @@ mod tests {
 
     #[test]
     fn category_totals_sum_values_and_say_when_they_are_a_lower_bound() {
-        let item = |category, size, complete| Item { id: "i".into(), path: "p".into(), category, label: Label::Review, rule: Rule::Unclassified, size, apparent_bytes: None, entries: 0, complete, unreadable: 0, modified_ns: None };
+        let item = |category, size, complete| Item { id: "i".into(), path: "p".into(), category, label: Label::Review, rule: Rule::Unclassified, size, apparent_bytes: None, entries: 0, complete, unreadable: 0, measured_at: 0, reused: false, stale: false, modified_ns: None };
         let items = [item(Category::Logs, Reading::Value(5), true), item(Category::Logs, Reading::Value(7), true), item(Category::Mail, Reading::Unavailable(reason::PERMISSION_DENIED), false), item(Category::Caches, Reading::Value(3), false)];
         let missed = [("x".to_string(), Category::Downloads)];
         let c = categories(&items, &missed);
@@ -572,9 +708,9 @@ mod tests {
         fs::create_dir_all(home.join("Library/Logs")).unwrap();
         fs::create_dir_all(home.join("Downloads")).unwrap();
         let ids = |o: &Outcome| o.items.iter().map(|i| (i.path.clone(), i.id.clone())).collect::<Vec<_>>();
-        let a = ids(&scan_items(&home, &home.join("none"), in_secs(30), now_secs()));
+        let a = ids(&scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default()));
         fs::write(home.join("Downloads/new"), b"x").unwrap();
-        let b = ids(&scan_items(&home, &home.join("none"), in_secs(30), now_secs()));
+        let b = ids(&scan_items(&home, &home.join("none"), in_secs(30), now_secs(), &mut Results::default()));
         assert_eq!(a, b);
         assert_ne!(a[0].1, a[1].1);
         assert_eq!(item_id("/a"), "07d66707b49cd92d", "FNV-1a is specified, so this value must not change");
@@ -594,7 +730,7 @@ mod tests {
         // Not `scan()` itself (it reads the real home); the same code path with a past deadline.
         let home = temp("quick");
         let t = Instant::now();
-        let o = scan_items(&home, &home.join("none"), Instant::now() - Duration::from_secs(1), now_secs());
+        let o = scan_items(&home, &home.join("none"), Instant::now() - Duration::from_secs(1), now_secs(), &mut Results::default());
         assert!(t.elapsed() < Duration::from_secs(2) && !o.complete());
         fs::remove_dir_all(&home).unwrap();
     }

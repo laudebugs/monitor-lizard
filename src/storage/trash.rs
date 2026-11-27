@@ -323,7 +323,7 @@ pub(crate) mod tests {
     pub(crate) fn scanned(path: &Path, label: Label) -> Item {
         let text = path.display().to_string();
         let w = walk::walk(path, Limits { deadline: Instant::now() + Duration::from_secs(5), max_entries: 1000 }).unwrap().unwrap();
-        Item { id: item_id(&text), path: text, category: Category::Caches, label, rule: Rule::AppCache, size: Reading::Value(w.allocated), apparent_bytes: Some(w.apparent), entries: w.entries, complete: true, unreadable: 0, modified_ns: modified_ns(path) }
+        Item { id: item_id(&text), path: text, category: Category::Caches, label, rule: Rule::AppCache, size: Reading::Value(w.allocated), apparent_bytes: Some(w.apparent), entries: w.entries, complete: true, unreadable: 0, measured_at: 0, reused: false, stale: false, modified_ns: modified_ns(path) }
     }
 
     fn me() -> u32 { crate::storage::current_uid() }
