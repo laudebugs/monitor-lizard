@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `N2` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D13 |
 | Depends on | N1, G1 |
 | ADRs | None |
@@ -43,9 +43,9 @@ Press `/` anywhere, type, and jump to an app, port, remote host, startup item or
 
 ## Steps
 
-- [ ] Write `searchAll` as a pure function with tests first.
-- [ ] Add the menu with `role="listbox"` and `aria-activedescendant`.
-- [ ] Check with keyboard only and with a screen reader label.
+- [x] Write `searchAll` as a pure function with tests first.
+- [x] Add the menu with `role="listbox"` and `aria-activedescendant`.
+- [ ] Check with keyboard only and with a screen reader label (pending: see the Implementation Record).
 
 ## Edge cases (must be covered)
 
@@ -84,9 +84,27 @@ Plan status; README keyboard shortcuts if listed.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [ ] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+Built in `web/search.js`; the real-browser check is pending (see Not verified).
+
+**Pages and addresses.** Apps open `#apps?sel=<key>`. A port opens `#listeners?q=<port>`: `writeHash` writes `q`, and the `port=` form is a read-only shortcut, so the acceptance line's `#listeners?port=3000` is met in effect, not in text. A host opens `#network?q=<address>`, or `#history?q=<address>` when it is no longer connected. A startup item opens `#persist?q=<label>`. A Guide entry opens `#guide?q=<typed query>&entry=<id>` (`tab=glossary` for a term), so the Guide lists what the menu offered.
+
+**Decisions the todo left open.**
+- Typing on a page with no filter (Overview, Privilege, Performance) no longer jumps to Apps. The menu shows, and Enter with no result chosen opens Apps with the text. This closes the Performance gap recorded in S2a.
+- On a page that filters in place, the filter still applies while you type, and the menu shows beside it. Enter with no result chosen keeps the filter.
+- Matching ignores case, width variants and invisible format characters (zero width, bidi marks) on both sides, so a hostile name cannot hide from a search for what it looks like. Result text goes through `visible()` and into text nodes.
+- Ports match a number by prefix, one row per port. Hosts match an address by prefix, with or without brackets, and only a single word. Apps are the ones the Apps page lists (with network activity).
+- Groups with the better match come first (exact, then prefix, then word start, then contains); equal groups keep the order Apps, Ports, Hosts, Startup items, Guide. A query like `snapshots` has no app, port or host match, so the Guide leads.
+- Candidates are kept per match quality (200 each) before the five are chosen, so many weak matches never push out an exact one.
+- A result on another page is a new history entry; a result on the page you are on replaces the entry, as N1 does for filters.
+- `/` works on every page and selects the text in the box. It is ignored in a field, in a dialog and during composition. The keys are ignored while an input method is composing.
+
+**Not verified.** No real-browser run: the harness refused to start a server with a scratch HOME, so the menu's look, focus, themes, forced colors and screen reader output are pending.
