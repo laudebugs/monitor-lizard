@@ -1,0 +1,22 @@
+{
+  "programs": ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "login", "su", "nu", "pwsh", "xonsh", "elvish", "ssh", "sshd", "mosh-server", "tmux", "screen", "zellij", "claude"],
+  "bundles": ["terminal", "iterm", "iterm2", "ghostty", "warp", "alacritty", "wezterm", "kitty", "hyper", "visual studio code", "visual studio code - insiders", "cursor", "zed", "zed preview", "claude"],
+  "interpreters": ["node", "bun", "deno", "python", "python3", "ruby", "perl"],
+  "cases": [
+    { "exe": "/bin/zsh", "command": "-zsh", "danger": true },
+    { "exe": "/usr/bin/login", "command": "login -pf me", "danger": true },
+    { "exe": "/opt/homebrew/bin/tmux", "command": "tmux new", "danger": true },
+    { "exe": "/usr/bin/ssh", "command": "ssh host", "danger": true },
+    { "exe": "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", "command": "Terminal", "danger": true },
+    { "exe": "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "command": "Electron", "danger": true },
+    { "exe": "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper", "command": "Cursor Helper", "danger": true },
+    { "exe": "/Users/me/.local/bin/claude", "command": "claude --resume", "danger": true },
+    { "exe": "/opt/homebrew/bin/node", "command": "node /usr/lib/claude/cli.js", "danger": true },
+    { "exe": "/opt/homebrew/bin/node", "command": "node /x/node_modules/@anthropic-ai/claude-code/cli.js", "danger": true },
+    { "exe": "/opt/homebrew/bin/node", "command": "node build.js", "danger": false },
+    { "exe": "/usr/bin/git", "command": "git status", "danger": false },
+    { "exe": "/Applications/Terminalizer.app/Contents/MacOS/x", "command": "x", "danger": false },
+    { "exe": "/usr/local/bin/claudette", "command": "claudette --go", "danger": false },
+    { "exe": "/bin/sleep", "command": "sleep 300", "danger": false }
+  ]
+}

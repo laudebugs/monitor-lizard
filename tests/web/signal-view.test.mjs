@@ -124,30 +124,39 @@ test('the dialog names the full command line, escaped, grades each process and s
   assert.equal(w.P.sigDialog.name, 'sigDialog');
 });
 
-test('a danger action takes two confirmations and the second names the session; nothing is requested before it', async () => {
-  const w = world({ api: async (url, m) => { w.calls.api.push([url, m]); return { status: 200, json: async () => body([2], { dry_run: false, items: [{ pid: 2, status: 'signalled' }] }) }; } });
+test('a danger action takes two confirmations, previews again with the flag, and sends once; nothing is sent before the second', async () => {
+  const w = world({ api: async (url, m) => {
+    w.calls.api.push([url, m]);
+    const real = url.includes('dry=0'), flagged = url.includes('confirm_danger=1');
+    const b = body([2], { dry_run: !real, confirm_token: flagged && !real ? 'T' : null });
+    if (!flagged) { b.items[0].status = 'refused'; b.items[0].code = 'needs_danger_confirmation'; }
+    if (real) b.items[0].status = 'signalled';
+    return { status: 200, json: async () => b };
+  } });
   w.P.openSig('sudo:1:2', chain, 1, 'freeze', 'one');
-  const first = w.calls.api.length;
-  assert.equal(first, 1, 'the preview is the only request so far');
-  w.P.sigDispatch({ type: 'reply', seq: w.S.sig.seq, status: 200, body: body([2]) });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(w.calls.api.length, 1, 'the preview is the only request so far');
   let dlg = w.P.sigDialog();
   const go = dlg.buttons().find((b) => b.text === 'Continue');
-  assert.ok(go, 'the first button is Continue, not Freeze');
+  assert.ok(go && !('disabled' in go.attrs), 'Continue works with no token yet: the server holds your session back until the second confirmation');
   go.on.click();
   assert.equal(w.S.sig.phase, 'confirming-danger');
-  assert.equal(w.calls.api.length, 1, 'still nothing sent');
+  assert.equal(w.calls.api.length, 1, 'still only the first preview');
   dlg = w.P.sigDialog();
   assert.match(dlg.allText(), /Freeze your own session\?/);
   const yes = dlg.buttons().find((b) => /^Yes, freeze/.test(b.text));
   yes.on.click(); yes.on.click(); yes.on.click();
-  assert.equal(w.calls.api.length, 2, 'a double click is one request');
-  assert.match(w.calls.api[1][0], /dry=0&confirm_token=T$/);
-  assert.equal(w.calls.api[1][1], 'POST');
+  await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
+  assert.equal(w.calls.api.length, 3, 'one flagged preview and one real request, however many clicks');
+  assert.match(w.calls.api[1][0], /confirm_danger=1&dry=1$/);
+  assert.match(w.calls.api[2][0], /confirm_danger=1&dry=0&confirm_token=T$/);
+  assert.equal(w.calls.api[2][1], 'POST');
   assert.ok(!w.calls.api.some(([u]) => u.includes('#')));
 });
 
 test('a plain action needs one confirmation and the button says how many processes', () => {
   const w = world();
+  w.S.reqLive[w.P.sigKey({ ...chain[2], command: 'git status', exe: '/usr/bin/git' })] = { state: 'running', children_total: 0 };
   w.P.openSig('sudo:1:2', [chain[2]].map((x) => ({ ...x, command: 'git status', exe: '/usr/bin/git' })), 0, 'force_stop', 'one');
   w.P.sigDispatch({ type: 'reply', seq: w.S.sig.seq, status: 200, body: body([3]) });
   assert.ok(w.P.sigDialog().buttons().some((b) => b.text === 'Force stop 1 process'));

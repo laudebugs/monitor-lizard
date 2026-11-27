@@ -4,13 +4,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
 import { html } from './page.mjs';
 const block = (name) => {
   const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/'));
   assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)');
   return m[1];
 };
-const names = 'SIG_ACTIONS SIG_MAX sigSeverity sigLevel sigKey sigItem sigItems sigAvail sigChainAvail sigUrl sigSummary sigProblem sigStep sigIdle sigTitle sigWarning sigHeadline sigSelectionKey'.split(' ');
+const names = 'SIG_ACTIONS SIG_MAX sigSeverity sigLevel sigKey sigItem sigItems sigAvail sigChainAvail sigUrl sigSummary sigProblem sigStep sigIdle sigTitle sigWarning sigHeadline sigSelectionKey SIG_DANGER_PROGRAMS SIG_DANGER_BUNDLES SIG_INTERPRETERS sigDangerWhy'.split(' ');
 const S = new Function(block('requester') + '\n' + block('signal') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const hop = (command, exe = '', extra = {}) => ({ pid: 10, exe, command, started: 100, ...extra });
@@ -19,7 +20,9 @@ const level = (command, exe, kids = 0) => S.sigSeverity(hop(command, exe), kids)
 test('severity: shells, login, the terminal app and claude are the owner\'s own session', () => {
   for (const [cmd, exe] of [['-zsh', '/bin/zsh'], ['/bin/bash -l', '/bin/bash'], ['fish', '/opt/homebrew/bin/fish'], ['login -pf me', '/usr/bin/login'], ['sh', '/bin/sh'],
     ['/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal', '/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal'],
-    ['claude --resume', '/Users/me/.local/bin/claude'], ['node /usr/lib/claude/cli.js', '/opt/homebrew/bin/node'], ['tmux new', '/opt/homebrew/bin/tmux']]) {
+    ['claude --resume', '/Users/me/.local/bin/claude'], ['node /usr/lib/claude/cli.js', '/opt/homebrew/bin/node'], ['tmux new', '/opt/homebrew/bin/tmux'],
+    ['ssh host', '/usr/bin/ssh'], ['sshd: me@ttys001', '/usr/sbin/sshd'], ['zellij', '/opt/homebrew/bin/zellij'], ['pwsh', '/usr/local/bin/pwsh'], ['su - me', '/usr/bin/su'],
+    ['Electron', '/Applications/Visual Studio Code.app/Contents/MacOS/Electron'], ['Cursor Helper', '/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper'], ['zed', '/Applications/Zed.app/Contents/MacOS/zed']]) {
     const r = S.sigSeverity(hop(cmd, exe), 0);
     assert.equal(r.level, 'danger', cmd);
     assert.ok(r.why.length > 0, 'says why: ' + cmd);
@@ -33,7 +36,11 @@ test('severity: a script is caution, a leaf program is plain, children raise pla
   assert.equal(level('/usr/bin/git status', '/usr/bin/git', 3), 'caution');
   assert.deepEqual(S.sigSeverity(hop('make', '/usr/bin/make'), 2).why, ['it has 2 child processes']);
   assert.equal(level('-zsh', '/bin/zsh', 9), 'danger');
-  assert.equal(S.sigSeverity(hop('make', '/usr/bin/make'), undefined).level, 'plain', 'unknown children count is not a reason');
+  const unknown = S.sigSeverity(hop('make', '/usr/bin/make'), undefined);
+  assert.equal(unknown.level, 'caution', 'until the first live status arrives, nothing is plain by default');
+  assert.deepEqual(unknown.why, ['what runs under it is not known yet']);
+  assert.equal(S.sigSeverity(hop('make', '/usr/bin/make'), null).level, 'caution');
+  assert.equal(S.sigSeverity(hop('-zsh', '/bin/zsh'), undefined).level, 'danger');
   assert.equal(level('', ''), 'plain', 'a hop with nothing recorded does not throw');
 });
 
@@ -54,7 +61,8 @@ test('items: one hop, or the chain from the process that ran sudo up to the chos
   const chain = [hop('git', '/usr/bin/git', { pid: 1 }), hop('-zsh', '/bin/zsh', { pid: 2 }), hop('login', '/usr/bin/login', { pid: 3 })];
   assert.deepEqual(S.sigItems(chain, 1, 'one', {}).map((i) => i.pid), [2]);
   assert.deepEqual(S.sigItems(chain, 1, 'chain', {}).map((i) => i.pid), [1, 2]);
-  assert.deepEqual(S.sigItems(chain, 2, 'chain', {}).map((i) => i.level), ['plain', 'danger', 'danger']);
+  assert.deepEqual(S.sigItems(chain, 2, 'chain', {}).map((i) => i.level), ['caution', 'danger', 'danger'], 'no live status yet: the unknown hop is caution, not plain');
+  assert.deepEqual(S.sigItems(chain, 2, 'chain', { [S.sigKey(chain[0])]: { children_total: 0 } }).map((i) => i.level), ['plain', 'danger', 'danger']);
   const live = { [S.sigKey(chain[0])]: { children_total: 2 } };
   assert.equal(S.sigItems(chain, 0, 'one', live)[0].level, 'caution', 'children from the live status count');
 });
@@ -93,7 +101,9 @@ test('url: every item carries pid, start time and executable, encoded; a token m
 });
 
 // ---- the state machine
-const item = (pid, level = 'plain', extra = {}) => ({ pid, started: 5, exe: '/bin/x' + pid, label: 'prog' + pid, command: 'prog' + pid + ' --a', level, why: level === 'plain' ? [] : ['why'], ...extra });
+// The exe decides the level again when a reply arrives, so each level gets an exe that really is that level.
+const EXES = { plain: (pid) => '/bin/x' + pid, caution: () => '/opt/homebrew/bin/node', danger: () => '/bin/zsh' };
+const item = (pid, level = 'plain', extra = {}) => ({ pid, started: 5, exe: EXES[level](pid), cmd: level === 'caution' ? 'node a.js' : 'prog' + pid, label: 'prog' + pid, command: 'prog' + pid + ' --a', level, why: level === 'plain' ? [] : ['why'], ...extra });
 const reply = (items, extra = {}) => ({ ok: true, dry_run: true, confirm_token: 'tok', items: items.map((i) => ({ pid: i.pid, status: 'would_signal', state: 'running', children: [], children_total: 0, ...(i.over || {}) })), ...extra });
 function run(events, start = S.sigIdle()) {
   let st = start; const fx = [];
@@ -121,17 +131,53 @@ test('flow: open previews, the reply allows the move, go sends once, the reply i
   assert.equal(r.st.summary.counts.signalled, 1);
 });
 
-test('danger: Continue asks a second question, and only the second yes sends', () => {
+test('danger: Continue asks a second question, the answer previews again with the flag, and that preview sends once', () => {
   const items = [item(1, 'danger')];
-  let r = run([open(items), { type: 'reply', seq: 1, status: 200, body: reply(items) }, { type: 'go' }]);
-  assert.equal(r.st.phase, 'confirming-danger');
-  assert.equal(r.fx.filter((f) => f.do === 'commit').length, 0, 'the first confirmation sends nothing');
-  r = run([{ type: 'danger-back' }], r.st);
+  // The first preview holds the shell back (the server's needs_danger_confirmation), so there is no token yet.
+  const held = reply(items, { confirm_token: null }); held.items[0].status = 'refused'; held.items[0].code = 'needs_danger_confirmation';
+  let r = run([open(items), { type: 'reply', seq: 1, status: 200, body: held }]);
   assert.equal(r.st.phase, 'previewed');
-  r = run([{ type: 'go' }, { type: 'danger-yes' }, { type: 'danger-yes' }], r.st);
-  assert.equal(r.fx.filter((f) => f.do === 'commit').length, 1);
-  assert.equal(r.st.phase, 'sending');
+  assert.equal(r.st.token, null);
+  assert.equal(r.st.summary.waiting, true);
+  assert.equal(r.st.summary.items[0].status, 'would_signal', 'a held-back item waits, it is not a refusal');
+  assert.equal(r.st.summary.counts.refused, 0);
+  r = run([{ type: 'go' }], r.st);
+  assert.equal(r.st.phase, 'confirming-danger');
+  assert.equal(r.fx.filter((f) => f.do === 'commit' || f.do === 'preview').length, 0, 'the first confirmation sends nothing');
+  r = run([{ type: 'danger-back' }, { type: 'go' }], r.st);
+  assert.equal(r.st.phase, 'confirming-danger');
+  r = run([{ type: 'danger-yes' }, { type: 'danger-yes' }], r.st);
+  assert.equal(r.st.phase, 'previewing');
+  const asks = r.fx.filter((f) => f.do === 'preview');
+  assert.equal(asks.length, 1, 'a double click is one preview');
+  assert.equal(asks[0].confirmDanger, true);
+  assert.ok(S.sigUrl(asks[0]).includes('&confirm_danger=1&dry=1'));
+  r = run([{ type: 'reply', seq: asks[0].seq, status: 200, body: reply(items) }], r.st);
+  const sends = r.fx.filter((f) => f.do === 'commit');
+  assert.equal(r.st.phase, 'sending', 'the second confirmation was the last one: the flagged preview sends');
+  assert.equal(sends.length, 1);
+  assert.deepEqual([sends[0].confirmDanger, sends[0].token], [true, 'tok']);
+  assert.ok(S.sigUrl(sends[0]).endsWith('&confirm_danger=1&dry=0&confirm_token=tok'));
   assert.equal(S.sigStep(S.sigStep(S.sigIdle(), open(items)).state, { type: 'danger-yes' }).state.phase, 'previewing', 'danger-yes outside the question does nothing');
+});
+
+test('danger: a hop the page thought plain but the server holds back is treated as your own session', () => {
+  const items = [item(1)];
+  const held = reply(items, { confirm_token: null }); held.items[0].status = 'refused'; held.items[0].code = 'needs_danger_confirmation';
+  const r = run([open(items), { type: 'reply', seq: 1, status: 200, body: held }, { type: 'go' }]);
+  assert.equal(r.st.level, 'danger');
+  assert.equal(r.st.phase, 'confirming-danger');
+  assert.deepEqual(r.st.items[0].why, ['the server treats it as your own session']);
+});
+
+test('danger: a refusal in a committed request stays a refusal, and without any token or waiting item go does nothing', () => {
+  const items = [item(1, 'danger')];
+  const none = reply(items, { confirm_token: null, ok: false }); none.items[0].status = 'refused'; none.items[0].code = 'gone';
+  const r = run([open(items), { type: 'reply', seq: 1, status: 200, body: none }, { type: 'go' }]);
+  assert.equal(r.st.phase, 'previewed');
+  assert.equal(r.st.summary.waiting, false);
+  const done = S.sigSummary({ dry_run: false, items: [{ pid: 1, status: 'refused', code: 'needs_danger_confirmation' }] }, {});
+  assert.equal(done.items[0].status, 'refused');
 });
 
 test('danger on resume asks nothing extra', () => {
@@ -239,4 +285,24 @@ test('summary: hostile text in a reply is escaped, an unknown status is a failur
   assert.equal(sum.items[1].reason, 'r\\u{200b}');
   assert.equal(S.sigSummary(null, {}).hasItems, false);
   assert.equal(S.sigSummary([], {}).hasItems, false);
+});
+
+test('the danger lists and cases are the ones the Rust side checks', () => {
+  const f = JSON.parse(readFileSync(new URL('../fixtures/danger-hops.json', import.meta.url), 'utf8'));
+  assert.deepEqual(S.SIG_DANGER_PROGRAMS, f.programs);
+  assert.deepEqual(S.SIG_DANGER_BUNDLES, f.bundles);
+  assert.deepEqual(S.SIG_INTERPRETERS, f.interpreters);
+  for (const c of f.cases) assert.equal(S.sigDangerWhy({ exe: c.exe, command: c.command }) != null, c.danger, c.exe + ' ' + c.command);
+});
+
+test('availability: stopped by something else is never offered a resume or a stop, only force stop', () => {
+  const h = hop('sleep 9', '/bin/sleep');
+  const live = { state: 'frozen', frozen_by_us: false };
+  assert.equal(S.sigAvail(h, live, 'resume').ok, false);
+  assert.match(S.sigAvail(h, live, 'resume').reason, /Something else stopped it/);
+  assert.equal(S.sigAvail(h, live, 'stop').ok, false);
+  assert.equal(S.sigAvail(h, live, 'freeze').ok, false);
+  assert.equal(S.sigAvail(h, live, 'force_stop').ok, true);
+  assert.equal(S.sigAvail(h, { state: 'frozen', frozen_by_us: true }, 'resume').ok, true);
+  assert.equal(S.sigAvail(h, { code: 'not_a_chain' }, 'freeze').ok, false);
 });
