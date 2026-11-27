@@ -273,9 +273,16 @@ function stActions(d, now) {
       'aria-controls': 'st-export', onClick: () => stFocus(S.stAsk ? 'st-export-btn' : 'st-export-go', { stAsk: !S.stAsk }) }, 'Export HTML report') : null];
 }
 // Clean-ups list: the folders the scan labelled, largest first, top ST_CLEANUP_TOP unless "Show all" is on.
+// Each grid row has 12 px gaps and 16 px of padding on both sides (the `.tr` rule), so a list needs
+// its track minimums + gaps + 32 px. A card narrower than that scrolls inside itself instead of widening the page.
+const CLEAN_TRACKS = [120, 120, 74, 90, 84];
 const CLEAN_COLS = 'grid-template-columns:minmax(120px,2fr) minmax(120px,2fr) 74px minmax(90px,.7fr) 84px';
-// The clean-ups tracks and gaps need 536 px and the System Data tracks 364 px; a narrower card scrolls inside itself instead of widening the page.
-const CLEAN_MIN = 'min-width:540px';
+const SYSTEM_TRACKS = [110, 80, 150];
+const SYSTEM_COLS = 'grid-template-columns:minmax(110px,1fr) minmax(80px,2fr) minmax(150px,1fr)';
+const rowFloor = (tracks) => tracks.reduce((a, b) => a + b, 0) + 12 * (tracks.length - 1) + 32;
+// A box that scrolls sideways and can be reached by keyboard, named as table.js names its scrolling tables.
+const scrollBox = (name, floor, ...kids) => h('div', { class: 'sbox', style: 'overflow-x:auto', tabindex: '0', role: 'region', 'aria-label': name + ', scrollable' },
+  h('div', { style: 'min-width:' + floor + 'px' }, ...kids));
 const listReset = 'list-style:none;margin:0;padding:0';
 // Focus goes back to the control that opened a panel when it closes: render() rebuilds every control.
 const stFocus = (id, m) => { rec(m); const el = $(id); if (el) el.focus(); };
@@ -298,15 +305,15 @@ function storageCleanups(list, sel, picked) {
       announce(plural(safe.length, 'safe folder', 'safe folders') + ' selected: ' + safeSubtotalText(list) + '. Details are in the inspector.');
     } }, 'Review all safe');
   const pickedIds = new Set(picked.map((r) => r.id));
-  const colHead = h('div', { class: 'small mut', 'aria-hidden': 'true', style: CLEAN_COLS + ';display:grid;gap:12px;padding:0 0 6px' },
+  const colHead = h('div', { class: 'small mut', 'aria-hidden': 'true', style: CLEAN_COLS + ';display:grid;gap:12px;padding:0 16px 6px' },
     h('span', {}, 'Folder'), h('span', {}, 'Why'), h('span', {}, 'Label'), h('span', {}, 'Size'), h('span', {}));
   return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-label': 'Suggested clean-ups' },
     h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px' },
       h('h2', { class: 'sec', style: 'margin:0' }, 'Suggested clean-ups'), h('span', { class: 'grow' }), reviewAll),
     h('p', { class: 'small mut', style: 'margin:0 0 10px' }, cleanupSummary(list) + '. ' + safeCleanupLine(list)
       + (safe.length ? ', ' + safeSubtotalText(list) : '') + '.'),
-    list.length ? [h('div', { style: 'overflow-x:auto' }, h('div', { style: CLEAN_MIN }, colHead,
-        h('ul', { style: listReset, 'aria-label': 'Folders, largest first' }, v.shown.map((r) => cleanupRow(r, (!!sel && sel.id === r.id) || pickedIds.has(r.id)))))),
+    list.length ? [scrollBox('Suggested clean-ups', rowFloor(CLEAN_TRACKS), colHead,
+        h('ul', { style: listReset, 'aria-label': 'Folders, largest first' }, v.shown.map((r) => cleanupRow(r, (!!sel && sel.id === r.id) || pickedIds.has(r.id))))),
       v.hidden ? h('div', { style: 'padding-top:10px;display:flex;gap:10px;align-items:center' },
         h('span', { class: 'small mut' }, 'Showing the largest ' + v.shown.length + '; ' + v.hidden + ' more.'),
         h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stAll: true }) }, 'Show all')) : null,
@@ -318,7 +325,7 @@ function systemDataCard(d) {
   const rows = systemData(d);
   return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-label': 'Inside System Data' },
     h('h2', { class: 'sec', style: 'margin:0 0 10px' }, 'Inside System Data'),
-    h('div', { style: 'overflow-x:auto' }, h('ul', { style: listReset + ';min-width:370px', 'aria-label': 'Parts of System Data' }, rows.map((r) => h('li', { class: 'tr', style: 'grid-template-columns:minmax(110px,1fr) minmax(80px,2fr) minmax(150px,1fr);min-width:0;align-items:center' },
+    scrollBox('Inside System Data', rowFloor(SYSTEM_TRACKS), h('ul', { style: listReset, 'aria-label': 'Parts of System Data' }, rows.map((r) => h('li', { class: 'tr', style: SYSTEM_COLS + ';min-width:0;align-items:center' },
       h('span', {}, h('div', {}, r.name), r.detail ? h('div', { class: 'small mut' }, r.detail) : null),
       r.share == null ? h('span', { class: 'small mut', 'aria-hidden': 'true' }, 'No bar')
         : h('span', { class: 'bar', role: 'img', 'aria-label': r.name + ': ' + shareText({ share: r.share }) + ' of what is shown here' }, h('i', { style: 'width:' + Math.min(100, r.share).toFixed(1) + '%' })),
