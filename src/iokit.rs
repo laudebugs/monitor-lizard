@@ -172,6 +172,122 @@ pub fn boot_volume_capacity() -> Option<(u64, u64)> {
     Some((total, total.saturating_sub(available)))
 }
 
+/// The NVMe SMART page's "Data Units Written" (bytes 48-63, little-endian) in bytes. The NVMe spec
+/// counts a data unit as 1,000 blocks of 512 bytes.
+fn smart_bytes_written(page: &[u8; 512]) -> u64 {
+    let mut units = [0u8; 16];
+    units.copy_from_slice(&page[48..64]);
+    u128::from_le_bytes(units).saturating_mul(512_000).min(u64::MAX as u128) as u64
+}
+
+/// The COM-style head every IOKit plug-in interface starts with (`IUNKNOWN_C_GUTS`).
+#[repr(C)]
+struct IUnknownHead {
+    _reserved: *mut std::ffi::c_void,
+    query_interface: unsafe extern "C" fn(*mut std::ffi::c_void, core_foundation_sys::uuid::CFUUIDBytes, *mut *mut std::ffi::c_void) -> i32,
+    _add_ref: unsafe extern "C" fn(*mut std::ffi::c_void) -> u32,
+    release: unsafe extern "C" fn(*mut std::ffi::c_void) -> u32,
+}
+
+/// `IONVMeSMARTInterface` from the SDK's `IOKit/storage/nvme/NVMeSMARTLibExternal.h`, up to the
+/// one call used. That struct is not inside the header's `#pragma pack(1)` region, so natural C
+/// alignment applies, as `repr(C)` gives.
+#[repr(C)]
+struct SmartInterface {
+    head: IUnknownHead,
+    _version: u16,
+    _revision: u16,
+    smart_read_data: unsafe extern "C" fn(*mut std::ffi::c_void, *mut [u8; 512]) -> i32,
+}
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOCreatePlugInInterfaceForService(service: io_service_t, plugin_type: core_foundation_sys::uuid::CFUUIDRef, interface_type: core_foundation_sys::uuid::CFUUIDRef, out: *mut *mut *mut IUnknownHead, score: *mut i32) -> i32;
+    fn IODestroyPlugInInterface(interface: *mut *mut IUnknownHead) -> i32;
+}
+
+fn uuid(b: [u8; 16]) -> core_foundation_sys::uuid::CFUUIDRef {
+    // SAFETY: a constant UUID is owned by CoreFoundation for the life of the process; nothing here
+    // releases it.
+    unsafe { core_foundation_sys::uuid::CFUUIDGetConstantUUIDWithBytes(std::ptr::null(), b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]) }
+}
+/// kIONVMeSMARTUserClientTypeID, kIONVMeSMARTInterfaceID (NVMeSMARTLibExternal.h) and
+/// kIOCFPlugInInterfaceID (IOCFPlugIn.h).
+const NVME_SMART_USER_CLIENT: [u8; 16] = [0xAA, 0x0F, 0xA6, 0xF9, 0xC2, 0xD6, 0x45, 0x7F, 0xB1, 0x0B, 0x59, 0xA1, 0x32, 0x53, 0x29, 0x2F];
+const NVME_SMART_INTERFACE: [u8; 16] = [0xCC, 0xD1, 0xDB, 0x19, 0xFD, 0x9A, 0x4D, 0xAF, 0xBF, 0x95, 0x12, 0x45, 0x4B, 0x23, 0x0A, 0xB6];
+const CF_PLUGIN_INTERFACE: [u8; 16] = [0xC2, 0x44, 0xE8, 0x58, 0x10, 0x9C, 0x11, 0xD4, 0x91, 0xD4, 0x00, 0x50, 0xE4, 0xC6, 0x42, 0x6F];
+
+/// Every service whose registry entry says "NVMe SMART Capable" = Yes, internal drives first.
+// SAFETY: the matching dictionary is retained once more before IOServiceGetMatchingServices
+// consumes that one reference, so `matching` still owns its own when it is dropped; the iterator is
+// drained and released here, and each service returned is the caller's to release.
+unsafe fn smart_capable_services() -> Vec<(bool, io_service_t)> {
+    use core_foundation::boolean::CFBoolean;
+    let inner = CFDictionary::from_CFType_pairs(&[(CFString::new("NVMe SMART Capable"), CFBoolean::true_value().as_CFType())]);
+    let matching = CFDictionary::from_CFType_pairs(&[(CFString::new("IOPropertyMatch"), inner.as_CFType())]);
+    core_foundation_sys::base::CFRetain(matching.as_concrete_TypeRef() as _);
+    let mut iter: io_iterator_t = 0;
+    if IOServiceGetMatchingServices(kIOMasterPortDefault, matching.as_concrete_TypeRef() as _, &mut iter) != 0 {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    loop {
+        let svc = IOIteratorNext(iter);
+        if svc == 0 { break; }
+        let internal = dict_property(svc, "Protocol Characteristics")
+            .and_then(|d| d.find(CFString::new("Physical Interconnect Location")).and_then(|v| v.clone().downcast::<CFString>()))
+            .is_some_and(|v| v.to_string() == "Internal");
+        out.push((internal, svc));
+    }
+    IOObjectRelease(iter);
+    out.sort_by_key(|(internal, _)| !internal);
+    out
+}
+
+/// Reads the SMART page through the drive's plug-in. A failure says which step was refused.
+// SAFETY: `svc` is a live service handle the caller owns. The plug-in and interface pointers are
+// only dereferenced after the calls that fill them report success and leave them non-null, and
+// each is released exactly once (`release`, `IODestroyPlugInInterface`) before returning.
+unsafe fn read_smart_page(svc: io_service_t) -> Result<[u8; 512], &'static str> {
+    let mut plugin: *mut *mut IUnknownHead = std::ptr::null_mut();
+    let mut score = 0i32;
+    if IOCreatePlugInInterfaceForService(svc, uuid(NVME_SMART_USER_CLIENT), uuid(CF_PLUGIN_INTERFACE), &mut plugin, &mut score) != 0 || plugin.is_null() {
+        return Err("macOS would not open the drive's SMART interface");
+    }
+    let mut smart: *mut std::ffi::c_void = std::ptr::null_mut();
+    let iid = core_foundation_sys::uuid::CFUUIDGetUUIDBytes(uuid(NVME_SMART_INTERFACE));
+    let asked = ((**plugin).query_interface)(plugin as _, iid, &mut smart);
+    let result = if asked != 0 || smart.is_null() {
+        Err("the drive's SMART plug-in has no SMART interface")
+    } else {
+        let iface = smart as *mut *mut SmartInterface;
+        let mut page = [0u8; 512];
+        let read = ((**iface).smart_read_data)(smart, &mut page);
+        ((**iface).head.release)(smart);
+        if read == 0 { Ok(page) } else { Err("the drive did not return its SMART data") }
+    };
+    IODestroyPlugInInterface(plugin);
+    result
+}
+
+/// Lifetime bytes written to the internal SSD, from its NVMe SMART data. Read through Apple's
+/// NVMe SMART plug-in, which on Apple silicon answers an ordinary user without root (checked on
+/// macOS 27). Unavailable, with the reason, on a Mac whose drive does not offer it.
+pub fn ssd_lifetime_bytes_written() -> crate::sampler::Reading<u64> {
+    use crate::sampler::Reading;
+    // SAFETY: each service from `smart_capable_services` is ours to release, and is released here
+    // exactly once after `read_smart_page` (which does not keep it) is done with it.
+    let services = unsafe { smart_capable_services() };
+    let mut result = Reading::Unavailable("no drive on this Mac reports NVMe SMART data");
+    for (i, &(_, svc)) in services.iter().enumerate() {
+        if i == 0 {
+            result = match unsafe { read_smart_page(svc) } { Ok(page) => Reading::Value(smart_bytes_written(&page)), Err(e) => Reading::Unavailable(e) };
+        }
+        unsafe { IOObjectRelease(svc) };
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +299,26 @@ mod tests {
         // entry exists with some keys missing -- all three must not panic either way.
         if let Some(gpu) = Gpu::open() {
             let _ = gpu.utilization();
+        }
+    }
+
+    #[test]
+    fn smart_bytes_written_reads_the_data_units_field_in_thousands_of_512_byte_blocks() {
+        let mut page = [0u8; 512];
+        page[48..56].copy_from_slice(&406_048_281u64.to_le_bytes());
+        page[32] = 0xFF; // Data Units Read sits just before it and must not leak in
+        assert_eq!(smart_bytes_written(&page), 406_048_281 * 512_000);
+        page[63] = 0x01; // a count too large for u64 bytes saturates rather than wrapping
+        assert_eq!(smart_bytes_written(&page), u64::MAX);
+    }
+
+    #[test]
+    fn ssd_lifetime_bytes_written_is_a_value_or_a_reason_never_a_panic() {
+        // A hosted runner may have no NVMe drive at all; a real Mac with one reads a non-zero count.
+        match ssd_lifetime_bytes_written() {
+            crate::sampler::Reading::Value(v) => assert!(v > 0),
+            crate::sampler::Reading::Unavailable(why) => assert!(!why.is_empty()),
+            crate::sampler::Reading::Restricted => panic!("never produced here"),
         }
     }
 

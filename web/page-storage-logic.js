@@ -558,3 +558,54 @@ function trashHistoryRows(moves) {
   return out;
 }
 /* storage-trash:end */
+/* storage-writes:begin */
+// Pure logic for the Storage page's disk writes panel (GET /api/storage/writes). No DOM or storage access, so a test
+// loads it with disk-net (formatBytes) and page-shell (plural).
+const WR_TOP = 8, WR_W = 120, WR_H = 24;
+// Which of the panel's states to draw: the first read has not come back, it failed, the history could not be opened,
+// the setting is off, it is on with nothing recorded yet, or there are rows to show.
+function writesState(d, failed) {
+  if (!d || typeof d !== 'object') return failed ? 'failed' : 'loading';
+  if (d.available === false) return 'unavailable';
+  if (!d.enabled) return 'off';
+  return Array.isArray(d.apps) && d.apps.some((a) => a.total > 0) ? 'data' : 'empty';
+}
+// The busiest apps first, as the server already sorts them; each keeps its 24 hourly figures for the trace.
+function writesRows(d) {
+  const apps = d && Array.isArray(d.apps) ? d.apps.filter((a) => a && typeof a.app === 'string' && Number.isFinite(a.total) && a.total > 0) : [];
+  const top = apps.slice(0, WR_TOP), peak = top.length ? top[0].total : 0;
+  return { rows: top.map((a) => ({ app: a.app, total: a.total, text: formatBytes(a.total), share: peak ? Math.max(2, Math.round(a.total / peak * 100)) : 0,
+    hourly: Array.isArray(a.hourly) ? a.hourly.map((v) => (Number.isFinite(v) && v > 0 ? v : 0)) : [] })), more: apps.length - top.length };
+}
+// One app's hourly trace as an svg path, scaled to its own busiest hour, so a quiet app's pattern still shows.
+function writesSpark(hourly) {
+  if (!Array.isArray(hourly) || hourly.length < 2) return '';
+  const top = Math.max(...hourly), step = WR_W / (hourly.length - 1);
+  return 'M' + hourly.map((v, i) => (i * step).toFixed(1) + ' ' + (WR_H - 1 - (top > 0 ? v / top : 0) * (WR_H - 2)).toFixed(1)).join(' L');
+}
+// What a screen reader hears for one trace: the busiest hour, since the picture alone says nothing.
+function writesSparkLabel(row, hours) {
+  const top = Math.max(0, ...row.hourly), at = row.hourly.indexOf(top), t = Array.isArray(hours) ? hours[at] : null;
+  if (!(top > 0) || !Number.isFinite(t)) return row.app + ': ' + row.text + ' in the last 24 hours';
+  const when = new Date(t * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return row.app + ': ' + row.text + ' in the last 24 hours, most in the hour from ' + when + ' (' + formatBytes(top) + ')';
+}
+// The SSD's lifetime figure, or why it is hidden. The server sends a reading: { value } or { unavailable: reason }.
+function writesLifetimeText(r) {
+  if (r && Number.isFinite(r.value)) return { shown: true, text: formatBytes(r.value) + ' written to the internal SSD since it was made' };
+  return { shown: false, text: 'Lifetime SSD writes are hidden: ' + (r && typeof r.unavailable === 'string' ? r.unavailable : 'not read yet') };
+}
+// The line under the heading for each state, so every state says what it means and what to do next.
+function writesNote(state, d) {
+  const days = d && Number.isFinite(d.keep_days) ? d.keep_days : 7;
+  return {
+    loading: 'Reading the disk writes history...',
+    failed: 'The disk writes history could not be read. It is read again when you open this page.',
+    unavailable: 'The history database could not be opened' + (d && d.error ? ': ' + d.error : '') + '.',
+    off: 'Off. Turn it on to record, each hour, how much each of your apps writes to disk. Nothing is recorded until you do.',
+    empty: 'On. Nothing recorded yet: the first figures appear within a few minutes of an app writing to disk.',
+    data: 'Bytes your apps wrote in the last 24 hours. Kept ' + plural(days, 'day', 'days') + ', on this Mac only.',
+  }[state];
+}
+const writesHasRows = (d) => !!(d && Number.isFinite(d.rows_kept) && d.rows_kept > 0);
+/* storage-writes:end */
