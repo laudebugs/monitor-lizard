@@ -14,7 +14,7 @@ use tauri::{
         config::{Color, WindowEffectsConfig},
         WindowEffect, WindowEffectState,
     },
-    ActivationPolicy, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
+    image::Image, ActivationPolicy, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
 };
 
 fn free_gib() -> f64 {
@@ -137,7 +137,13 @@ fn main() {
             };
 
             let started = running_server.is_some();
-            let tray = TrayIconBuilder::with_id("main")
+            // A black-and-clear template image: macOS recolours it for a light or dark menu bar.
+            let mut tray = TrayIconBuilder::with_id("main").icon_as_template(true);
+            match Image::from_bytes(include_bytes!("../icons/tray.png")) {
+                Ok(icon) => tray = tray.icon(icon),
+                Err(e) => log_error(&format!("tray icon unreadable, showing text only: {e}")),
+            }
+            let tray = tray
                 .title(if started { "…".to_string() } else { "Monitor Lizard: error".to_string() })
                 .tooltip(if started { String::new() } else { format!("Server failed to start; see {}", shell_log_path().display()) })
                 .menu(&menu)
