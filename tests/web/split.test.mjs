@@ -1,27 +1,12 @@
 // The dashboard is one page split into web/app.css and classic scripts that share globals. These tests
-// guard the split: nothing changed in the move, the load order holds, and the token stays in one script.
+// guard the split: the load order holds and the token stays in one script.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import vm from 'node:vm';
-import { shell, css, script, scriptFiles, scriptTexts, webFile } from './page.mjs';
+import { shell, css, scriptFiles, scriptTexts, webFile } from './page.mjs';
 
-const fixture = (name) => readFileSync(new URL('../fixtures/web-before/' + name, import.meta.url), 'utf8');
-
-// This file and tests/fixtures/web-before/ exist only to prove the move; they are deleted in the PR after it
-// merges, and nothing else depends on them, so a later edit to any script is not blocked by them.
-const OLD_TOKEN_LINE = 'const TOKEN = "__TOKEN__";';
 const NEW_TOKEN_LINE = "const TOKEN = document.querySelector('meta[name=ml-token]').content;";
-
-test('split: the stylesheet is the old one, and the scripts differ from the old script block in exactly the token line', () => {
-  assert.equal(css === fixture('old.css'), true, 'web/app.css differs from the old <style> block');
-  const before = fixture('old-script.js').split('\n'), after = script.split('\n');
-  assert.equal(before[0], OLD_TOKEN_LINE);
-  assert.equal(after[0], NEW_TOKEN_LINE);
-  assert.equal(after.length, before.length, 'a line was added or removed');
-  const changed = before.flatMap((l, i) => (l === after[i] ? [] : [i]));
-  assert.deepEqual(changed, [0], 'only the token line may differ; lines ' + changed.join(', '));
-});
 
 test('split: every script is under the 800-line budget and web/ holds no file the shell does not load', () => {
   for (const [i, f] of scriptFiles.entries()) assert.ok(scriptTexts[i].split('\n').length - 1 <= 800, f + ' is over 800 lines');

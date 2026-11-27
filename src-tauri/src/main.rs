@@ -56,7 +56,7 @@ fn window_effects() -> WindowEffectsConfig {
     WindowEffectsConfig { effects: vec![WindowEffect::Sidebar], state: Some(WindowEffectState::Active), ..Default::default() }
 }
 
-/// `web/index.html`'s own `--bg` token, both themes: the title bar is drawn by macOS itself (not
+/// `web/app.css`'s own `--bg` token, both themes: the title bar is drawn by macOS itself (not
 /// the page), so matching it against the system default grey -- rather than this page's actual
 /// background -- is exactly the seam this function exists to avoid.
 fn page_bg_color(theme: Theme) -> Color {

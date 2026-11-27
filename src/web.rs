@@ -41,8 +41,9 @@ const TOKEN_FILE: &str = "/";
 
 pub struct File { pub path: &'static str, pub content_type: &'static str, pub body: &'static str }
 
-/// The files with this run's token put into the shell. The one replaced shell lives for the whole run,
-/// so it is leaked once at startup and every request serves a `&'static str` without copying it.
+/// The files with this run's token put into the shell. The replaced shell lives for the whole run, so
+/// each call leaks one copy and every request serves a `&'static str` without copying it. The server
+/// calls this once at startup; tests share one result (`shared_files`) so they do not leak a copy each.
 pub fn files(secret: &str) -> Vec<File> {
     SOURCES.iter().map(|s| File {
         path: s.path,
@@ -63,7 +64,12 @@ fn status(code: u16, text: &str) -> ResponseBox { Response::from_string(text).wi
 pub fn reply(files: &[File], hosts: &[String], host: Option<&str>, sec_fetch_site: Option<&str>, path: &str) -> ResponseBox {
     if !crate::server::host_allowed(hosts, host) { return status(403, "bad host"); }
     let Some(f) = files.iter().find(|f| f.path == path) else { return status(404, "not found") };
-    if f.content_type != HTML && cross_site(sec_fetch_site) { return status(403, "forbidden"); }
+    if f.content_type != HTML && cross_site(sec_fetch_site) {
+        // Said once per refusal so a web view that tags its own requests this way shows up in the terminal
+        // instead of as a silently unstyled page.
+        eprintln!("refused {path}: Sec-Fetch-Site {}", sec_fetch_site.unwrap_or(""));
+        return status(403, "forbidden");
+    }
     let header = |k: &str, v: &str| Header::from_bytes(k, v).unwrap();
     Response::new(
         StatusCode(200),
@@ -80,6 +86,11 @@ mod tests {
     use std::sync::Arc;
 
     const SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    fn shared_files() -> &'static [File] {
+        static ALL: std::sync::OnceLock<Vec<File>> = std::sync::OnceLock::new();
+        ALL.get_or_init(|| files(SECRET))
+    }
 
     #[test]
     fn the_token_is_in_the_shells_meta_tag_and_in_no_other_file() {
@@ -138,12 +149,12 @@ mod tests {
         use std::io::{Read, Write};
         let (server, port) = crate::server::bind_free().expect("bind");
         let hosts = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
-        let all = files(SECRET);
+        let all = shared_files();
         let worker = Arc::clone(&server);
         let handle = std::thread::spawn(move || {
             let req = worker.incoming_requests().next().unwrap();
             let hdr = |n: &'static str| req.headers().iter().find(|h| h.field.equiv(n)).map(|h| h.value.to_string());
-            let res = reply(&all, &hosts, hdr("Host").as_deref(), hdr("Sec-Fetch-Site").as_deref(), req.url());
+            let res = reply(all, &hosts, hdr("Host").as_deref(), hdr("Sec-Fetch-Site").as_deref(), req.url());
             let _ = req.respond(res);
         });
         let host = host.replace("PORT", &port.to_string());

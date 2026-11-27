@@ -263,7 +263,7 @@ pub fn usage() -> String {
 
 /// The words of a query: lower case, with no-letter words ("/", "-") dropped and a trailing "s" cut from words
 /// longer than three letters, so "snapshots" also finds "snapshot". The page's search (`guideWords` in
-/// web/index.html) follows the same rules; tests/fixtures/guide-search.json holds results both must give.
+/// web/core.js) follows the same rules; tests/fixtures/guide-search.json holds results both must give.
 fn query_words(q: &str) -> Vec<String> {
     q.split_whitespace()
         .map(str::to_lowercase)

@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `T2` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9 |
 | Depends on | S4 |
 | ADRs | None |
 | Branch | `chore/t2-split-web-page` |
 | PR title | `chore(web): split the dashboard page into CSS and script files` |
 | Size | L (a move; see Risks) |
-| PR | — |
+| PR | [#64](https://github.com/laudebugs/monitor-lizard/pull/64) |
 
 ## Goal
 
@@ -101,7 +101,7 @@ make test
 ## Risks and open questions
 
 - Size: 2,827 lines move and none change (one line, the token read, differs). The template asks for L todos to be split first, but a half-moved page does not run, so this ships as one PR. The review is the byte-equality test, not a line read.
-- A global defined in one file and used before its file loads fails only in a browser. The load-order test and the page-by-page check are the guard.
+- A global defined in one file and used before its file loads fails only in a browser. The load-order test and the page-by-page check are the guard. A load-time guard that shows a failure in the page was considered in review and left out: this todo is a pure move, and the guard would be new behaviour.
 - This lands after S4 and before S3a, S5 and the redesigns; every open branch that edits `web/index.html` must rebase on it. Tell the other session before merging.
 
 ## Definition of done
@@ -111,7 +111,7 @@ make test
 - [x] `/code-review` run per `AGENTS.md` (as a spec review and a standards review); findings and fixes in commit messages
 - [x] `/writing-review` run on any prose (round on PR #64; findings fixed in the docs commit after 8cff9d8)
 - [x] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record (2026-11-26)
 
@@ -123,13 +123,13 @@ make test
 
 **Added guards.** For `/app.css` and `/js/*` the server answers 403 to `Sec-Fetch-Site: cross-site` or `same-site` (an absent header, `same-origin` and `none` pass). Every web file is sent with `cache-control: no-store` (this changes the page's old no-header behaviour on purpose: it carries a per-run secret, and a stale shell next to a cached script after a restart would make every write fail with 403) and `x-content-type-options: nosniff`. `src/web.rs::reply` is the single function `serve_on` and the socket tests both call, so the guard cannot be missing from the real route while a test passes.
 
-**Deviations.** The Node tests read the page through `tests/web/page.mjs` instead of each naming a file. `storage-page` and `storage-cleanups` sit in `page-storage-logic.js`, not in `page-storage.js`, because the bytes between them (the Guide and the page-shell block) must stay in place for the equality proof. The fixture in `tests/fixtures/web-before/` and the byte-equality test exist only to prove this move: they are deleted in the next PR after merge, and nothing else depends on them.
+**Deviations.** The Node tests read the page through `tests/web/page.mjs` instead of each naming a file. `storage-page` and `storage-cleanups` sit in `page-storage-logic.js`, not in `page-storage.js`, because the bytes between them (the Guide and the page-shell block) stayed in place for the byte-equality proof, which passed before review. The fixture and the byte-equality test were then deleted in this PR, so a later edit to any script is not blocked by them.
 
 **Checked in Chrome** (scratch HOME, no resize, both themes, console open), twice: once before and once after the token and header changes. After them: all 10 pages in both themes with no page error (the only console exceptions come from the browser extension); Storage after a Rescan showed the clean-ups list, Inside System Data and Growth; Privilege with a requester detail open; all five Performance tabs including Top consumers; Guide. A settings write through the page returned 200 with the token and the same write without it returned 403; no script file contains the secret and the shell holds it once; every request went to `127.0.0.1`. Curl against the scratch server confirmed the 403 for `Sec-Fetch-Site: cross-site` on the stylesheet and scripts. The one write checked is the settings write.
 
 **Not verified.**
 
-- Blocks merging: that the Tauri webview sends `same-origin` or no `Sec-Fetch-Site`. Chrome was checked; the shell was not run. Amber has been asked to run the shell against this branch.
+- Blocks merging: that the Tauri webview sends `same-origin` or no `Sec-Fetch-Site`. Chrome was checked; the shell was not run. Amber has been asked to run the shell against this branch. A refused request is now logged to the terminal as `refused <path>: Sec-Fetch-Site ...`, so a wrong guess shows up there.
 - Narrow widths, forced colors and reduced motion.
 - The Stop and Quit dialogs and approve and trash writes; the browser check covers one write, the settings write.
 - Cross-file function hoisting is gone, and a top-level throw in one script no longer stops the scripts after it. Only the stand-in-browser test and the page-by-page check guard this.
