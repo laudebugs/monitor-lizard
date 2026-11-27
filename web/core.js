@@ -1,4 +1,4 @@
-const TOKEN = "__TOKEN__";
+const TOKEN = document.querySelector('meta[name=ml-token]').content;
 const $ = (id) => document.getElementById(id);
 /* disk-net:begin */
 // Pure logic for the Disk and network tab and the capacity bar: no DOM, no storage, so a Node test can load it.

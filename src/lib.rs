@@ -26,3 +26,4 @@ pub mod settings;
 pub mod snapshot;
 pub mod storage;
 pub mod watcher;
+pub mod web;

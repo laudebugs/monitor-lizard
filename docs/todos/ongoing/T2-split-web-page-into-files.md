@@ -19,7 +19,7 @@ Split `web/index.html` (about 2,400 lines, one `<style>`, one `<script>`) into a
 ## Context
 
 - The page is embedded with `include_str!("../web/index.html")` in `src/server.rs`; the binary is one offline file and must stay one.
-- Twelve marked blocks (`storage-cleanups`, `storage-page`, `url-state` and so on) exist; tests lift them by name, and others (`table-floor`, `memory-tab`) read `web/index.html` as text.
+- Fourteen marked blocks (`storage-cleanups`, `storage-page`, `url-state` and so on) exist; tests lift them by name, and others (`table-floor`, `memory-tab`) read `web/index.html` as text.
 - `src/server.rs` replaces `__TOKEN__` in the page with the per-run write token (`PAGE.replace`), and `const TOKEN = "__TOKEN__"` sits in the script block. That line moves with the script, so the replacement must run on the file that holds it, or the token must stay in the shell. The token must never reach the URL hash.
 - The code shares globals (`S`, `h`, `rec`, `render`, `writeHash`); it is not written as modules.
 - [docs/guidelines/maintainability.md](../../guidelines/maintainability.md) sets the 800-line budget.
@@ -57,11 +57,11 @@ Split `web/index.html` (about 2,400 lines, one `<style>`, one `<script>`) into a
 
 ## Steps
 
-- [ ] Check what the server sends for the page today: headers, any Content-Security-Policy, caching. Record it.
-- [ ] Save the old script block and stylesheet as a committed fixture from `main`, write a test that fails if the new files, concatenated in load order, differ from it byte for byte, then move the code until it passes. Delete the fixture in the last commit once reviewed, or keep it if the review wants it.
-- [ ] Add the routes; confirm every file loads with 200 and the right content type, and an unknown path still returns 404.
-- [ ] Update the Node tests to the new paths.
-- [ ] Open every page in a real browser on a scratch HOME, in both themes, with the console open.
+- [x] Check what the server sends for the page today: headers, any Content-Security-Policy, caching. Record it.
+- [x] Save the old script block and stylesheet as a committed fixture from `main`, write a test that fails if the new files, concatenated in load order, differ from it byte for byte (the token line excepted), then move the code until it passes. The fixture and that test stay in this PR and are deleted in the next one after merge.
+- [x] Add the routes; confirm every file loads with 200 and the right content type, and an unknown path still returns 404.
+- [x] Update the Node tests to the new paths.
+- [x] Open every page in a real browser on a scratch HOME, in both themes, with the console open.
 
 ## Edge cases (must be covered)
 
@@ -104,23 +104,27 @@ make test
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
-- [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Follows the applicable guidelines
+- [x] `/code-review` run per `AGENTS.md` (as a spec review and a standards review); findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
+- [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record (2026-11-26)
 
-**Built.** `web/index.html` (2,827 lines) is now a 43-line shell plus `web/app.css` (164) and 15 classic scripts (`core` 406, `table` 471, `data` 93, ten `page-*.js` of 26 to 370, `helpers` 451, `shell` 121). The split is contiguous line ranges taken at top-level seams, so the scripts joined in load order equal the old script block byte for byte. A page is a contiguous range, so some pure marked blocks sit in the file next to the code they were written with (the Guide search logic in `core.js`, the requester helpers in `table.js`); `docs/agents/layout.md` lists what each file holds.
+**Built.** `web/index.html` (2,827 lines) is now a 44-line shell plus `web/app.css` (164) and 16 classic scripts (`core` 406, `table` 471, `data` 93, ten `page-*.js` of 26 to 370, `helpers` 79, `page-storage-logic` 372, `shell` 121). The split is contiguous line ranges taken at top-level seams, so the scripts joined in load order equal the old script block byte for byte except one line (below). A new `src/web.rs` holds the file table and the serving decision. `docs/agents/layout.md` lists what each file holds.
 
-**What the server sent before** (step 1): the page, `/` only, with `content-type: text/html; charset=utf-8`; no `cache-control`, no Content-Security-Policy, no other header. The fonts alone carry `public, max-age=31536000, immutable`. The new files are served the same way: a type and no cache header.
+**What the server sent before** (step 1): the page, `/` only, with `content-type: text/html; charset=utf-8`; no `cache-control`, no Content-Security-Policy, no other header. Only the fonts carry `public, max-age=31536000, immutable`.
 
-**Deviations.** The token line stays in `core.js` unchanged and `web_files()` in `src/server.rs` replaces `__TOKEN__` in that one file; the placeholder is thus in the byte-equality fixture as it was. The Node tests read the page through `tests/web/page.mjs` (shell with the stylesheet and scripts put back in load order) instead of each naming a file. The fixture in `tests/fixtures/web-before/` is kept.
+**The one deliberate code change.** The first version put `const TOKEN = "<secret>"` in `/js/core.js`. Review found that a script is a fixed URL: any website the owner visits could load it with `<script src="http://127.0.0.1:4747/js/core.js">` (it passes the Host check) and read `TOKEN` from its own scripts, because classic scripts share one global scope. The old page kept the token in the body of `/`, which another origin cannot read. Now the shell holds `<meta name="ml-token" content="__TOKEN__">`, the server replaces it in the shell only, and the first line of `core.js` reads it. The byte-equality test asserts that exactly that one line differs.
 
-**Tests.** `tests/web/split.test.mjs`: byte equality, 800-line budget, no unlisted script, `core.js` first, a stand-in-browser run of every script in order (and a reversed order that must fail), the token only in `core.js` and only used as a request header. `src/server.rs`: token only in the token file, every file in `web/` is in `WEB_SOURCES`, the shell's tags equal `WEB_SOURCES` in order, 200 and content type for each file over a socket, 404 for unknown paths, 403 on a foreign Host.
+**Added guards.** For `/app.css` and `/js/*` the server answers 403 to `Sec-Fetch-Site: cross-site` or `same-site` (an absent header, `same-origin` and `none` pass). Every web file is sent with `cache-control: no-store` (this changes the page's old no-header behaviour on purpose: it carries a per-run secret, and a stale shell next to a cached script after a restart would make every write fail with 403) and `x-content-type-options: nosniff`. `src/web.rs::reply` is the single function `serve_on` and the socket tests both call, so the guard cannot be missing from the real route while a test passes.
 
-**Checked in Chrome** (scratch HOME, no resize, dark and light): every page opened with no page error; Storage after a Rescan (clean-ups, Inside System Data, Growth), Privilege with a requester detail opened, all five Performance tabs including Top consumers, Guide; a write through `api()` returned 200 and the same write without the token is refused; all requests, scripts, styles and fonts came from `127.0.0.1`.
+**Deviations.** The Node tests read the page through `tests/web/page.mjs` instead of each naming a file. `storage-page` and `storage-cleanups` sit in `page-storage-logic.js`, not in `page-storage.js`, because the bytes between them (the Guide and the page-shell block) must stay in place for the equality proof. The fixture in `tests/fixtures/web-before/` and the byte-equality test exist only to prove this move: they are deleted in the next PR after merge, and nothing else depends on them.
 
-**Not verified.** Narrow widths, forced colors and reduced motion; the Tauri shell; the Stop and Quit dialogs and approve/trash writes (only the settings write was exercised); `/code-review` and `/writing-review`; CI.
+**Tests.** `tests/web/split.test.mjs`: the equality test (token line exempt), the 800-line budget, no unlisted script, `core.js` first, a stand-in-browser run of every script in order (and a reversed order that must fail), the token only in the shell's meta tag. `src/web.rs`: token only in the shell, every file in `web/` is in `SOURCES`, the shell's tags equal `SOURCES` in order, 200 with type, `no-store` and `nosniff` for each file over a socket, 404 for unknown paths, 403 on a foreign Host, 403 for cross-site and same-site, no served file but `/` holds the secret. `src/server.rs`: a write is refused without the token whatever the Origin.
+
+**Checked in Chrome** (scratch HOME, no resize, both themes, console open), twice: once before and once after the token and header changes. After them: all 10 pages in both themes with no page error (the only console exceptions come from the browser extension); Storage after a Rescan showed the clean-ups list, Inside System Data and Growth; Privilege with a requester detail open; all five Performance tabs including Top consumers; Guide. A settings write through the page returned 200 with the token and the same write without it returned 403; no script file contains the secret and the shell holds it once; every request went to `127.0.0.1`. With curl against the scratch server: `/app.css` and `/js/core.js` return 403 for `Sec-Fetch-Site: cross-site`, 200 with no header or `same-origin`, `/` returns 200 either way, a POST without the token is 403, a foreign Host is 403, and the files carry `cache-control: no-store` and `x-content-type-options: nosniff`. The one write checked is the settings write.
+
+**Not verified.** Narrow widths, forced colors and reduced motion; the Tauri shell; the Stop and Quit dialogs and approve and trash writes (the browser check covers one write, the settings write, not every write action); that a Tauri webview sends `same-origin` or no `Sec-Fetch-Site` (Chrome was checked, the shell was not run); cross-file function hoisting is gone and a top-level throw in one script no longer stops the scripts after it, which only the stand-in-browser test and the page-by-page check guard; `/writing-review` on the docs prose; CI.

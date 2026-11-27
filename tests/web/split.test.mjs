@@ -8,9 +8,19 @@ import { shell, css, script, scriptFiles, scriptTexts, webFile } from './page.mj
 
 const fixture = (name) => readFileSync(new URL('../fixtures/web-before/' + name, import.meta.url), 'utf8');
 
-test('split: the stylesheet and the scripts, joined in load order, equal the page they were moved from byte for byte', () => {
+// This file and tests/fixtures/web-before/ exist only to prove the move; they are deleted in the PR after it
+// merges, and nothing else depends on them, so a later edit to any script is not blocked by them.
+const OLD_TOKEN_LINE = 'const TOKEN = "__TOKEN__";';
+const NEW_TOKEN_LINE = "const TOKEN = document.querySelector('meta[name=ml-token]').content;";
+
+test('split: the stylesheet is the old one, and the scripts differ from the old script block in exactly the token line', () => {
   assert.equal(css === fixture('old.css'), true, 'web/app.css differs from the old <style> block');
-  assert.equal(script === fixture('old-script.js'), true, 'the scripts joined in load order differ from the old <script> block');
+  const before = fixture('old-script.js').split('\n'), after = script.split('\n');
+  assert.equal(before[0], OLD_TOKEN_LINE);
+  assert.equal(after[0], NEW_TOKEN_LINE);
+  assert.equal(after.length, before.length, 'a line was added or removed');
+  const changed = before.flatMap((l, i) => (l === after[i] ? [] : [i]));
+  assert.deepEqual(changed, [0], 'only the token line may differ; lines ' + changed.join(', '));
 });
 
 test('split: every script is under the 800-line budget and web/ holds no file the shell does not load', () => {
@@ -55,14 +65,14 @@ test('load order: the test notices a wrong order (core.js last fails on its glob
   assert.throws(() => runInOrder(wrong), (e) => e.name === 'ReferenceError');
 });
 
-test('token: only core.js declares it, the shell never holds it, and the only use is the request header', () => {
-  assert.ok(!/__TOKEN__|TOKEN/.test(shell), 'the shell must not mention the token');
-  const holders = scriptFiles.filter((f, i) => scriptTexts[i].includes('__TOKEN__'));
-  assert.deepEqual(holders, ['core.js']);
-  assert.equal([...script.matchAll(/const TOKEN = "__TOKEN__";/g)].length, 1);
-  assert.ok(!/__TOKEN__/.test(css));
+test('token: it is read from the shell\'s meta tag, never carried by a script, and only used as a request header', () => {
+  assert.equal([...shell.matchAll(/__TOKEN__/g)].length, 1, 'the shell has the placeholder exactly once');
+  assert.ok(shell.includes('<meta name="ml-token" content="__TOKEN__">'), 'keep this exact text: the server replaces it');
+  assert.ok(!/__TOKEN__/.test(script) && !/__TOKEN__/.test(css), 'a script is a fixed URL another site can load, so it must not hold the token');
+  assert.equal(script.split('\n')[0], NEW_TOKEN_LINE);
+  assert.equal([...script.matchAll(/const TOKEN\b/g)].length, 1);
   // Every other mention is the header on a request: never a URL, the hash, storage or markup.
-  const uses = script.split('\n').filter((l) => /\bTOKEN\b/.test(l) && !l.startsWith('const TOKEN = '));
+  const uses = script.split('\n').filter((l, i) => i > 0 && /\bTOKEN\b/.test(l));
   assert.ok(uses.length >= 1);
   for (const l of uses) assert.ok(l.includes("headers: { 'X-MonitorLizard-Token': TOKEN }"), 'TOKEN used outside a request header: ' + l.trim());
 });
