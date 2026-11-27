@@ -18,6 +18,14 @@ Enable the Storage page's removal buttons: a preview from the dry run, a confirm
 
 ## Context
 
+The server contract is plan D15 (S3a follow-up); S3b must use it as follows:
+
+- **Preview:** `POST /api/trash?ids=a,b` (no `dry`, or `dry=1`). The reply has `confirm_token` when something would move, and `items[]` with `status`, `code` and `reason` for each id. Send `confirm_yours=1` on the preview too when the user has already given the second confirmation: the token is bound to it. A preview with nothing movable has no token.
+- **Real move:** `POST /api/trash?ids=a,b&dry=0&confirm_token=...` with exactly the same ids (and the same `confirm_yours`). The token is single use and lasts 10 minutes. Errors: 400 `confirmation_required`, 409 `confirmation_invalid`, `confirmation_expired`, `confirmation_mismatch`, 409 `busy` (another removal is running), 429 `too_many_previews`, 500 `audit_unavailable`.
+- **Reply:** `ok` (true only if everything moved), `history_id` (the audit entry to link to), `counts`, per-item `status` of `moved`, `refused`, `failed` or `not_attempted`, `failed` (the item whose move failed) and `note` (Put Back). All items refused is a 200 with `ok:false`; a 500 with a body still lists what moved.
+- **Page rules:** disable the button on click (one request); keep the token only with the selection it was issued for and clear it when the selection or the yours confirmation changes; name the folder in the yours confirmation; show that Finder's Put Back may not be offered and that History keeps the original path; show every non-moved item with its `reason`.
+
+
 - S3a serves `POST /api/trash` and its dry run; the per-run token is already in the page for other writes.
 
 ## Scope

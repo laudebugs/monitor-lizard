@@ -29,6 +29,8 @@ pub fn to_json(result: Option<&Storage>, scanning: bool, pretty: bool) -> String
 struct State {
     result: Option<Storage>,
     scanning: bool,
+    /// Counts finished scans, so a confirmation given for one scan's items cannot be used on another's.
+    generation: u64,
     /// When the last scan started: the clock for the interval, and the same moment in unix seconds.
     last_started: Option<(Instant, u64)>,
 }
@@ -79,7 +81,7 @@ impl Cache {
             std::thread::spawn(move || {
                 let guard = ScanGuard(cache.clone());
                 let result = scan();
-                cache.lock().result = Some(result);
+                { let mut st = cache.lock(); st.result = Some(result); st.generation += 1; }
                 drop(guard);
             });
         }
@@ -88,18 +90,26 @@ impl Cache {
 
     /// The items of the latest scan for these ids, in order. A removal takes ids and never a path from
     /// the page, so an id that no scan listed cannot name anything.
-    pub fn find(&self, ids: &[String]) -> Result<Vec<Item>, String> {
+    pub fn find(&self, ids: &[String]) -> Result<Vec<Item>, String> { self.find_in_generation(ids).map(|(_, items)| items) }
+
+    /// `find`, and which scan the items came from, read under one lock so the two always agree.
+    pub fn find_in_generation(&self, ids: &[String]) -> Result<(u64, Vec<Item>), String> {
         let st = self.lock();
         let Some(result) = st.result.as_ref() else { return Err("no scan has finished yet; scan first".into()) };
-        ids.iter().map(|id| result.items.iter().find(|i| &i.id == id).cloned().ok_or_else(|| format!("id {id} is not in the latest scan"))).collect()
+        let items = ids.iter().map(|id| result.items.iter().find(|i| &i.id == id).cloned().ok_or_else(|| format!("id {id} is not in the latest scan"))).collect::<Result<Vec<_>, _>>()?;
+        Ok((st.generation, items))
     }
 
     #[cfg(test)]
     pub(crate) fn with_result(result: Storage) -> Self {
         let c = Cache::default();
-        c.lock().result = Some(result);
+        { let mut st = c.lock(); st.result = Some(result); st.generation = 1; }
         c
     }
+
+    /// Replaces the result as a finished scan would.
+    #[cfg(test)]
+    pub(crate) fn replace_result(&self, result: Storage) { let mut st = self.lock(); st.result = Some(result); st.generation += 1; }
 
     #[cfg(test)]
     fn is_scanning(&self) -> bool { self.lock().scanning }

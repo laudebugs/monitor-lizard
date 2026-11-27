@@ -15,6 +15,10 @@ pub enum Label {
     Yours,
 }
 
+impl Label {
+    pub fn as_str(self) -> &'static str { match self { Label::Safe => "safe", Label::Review => "review", Label::Yours => "yours" } }
+}
+
 /// The rule that gave a label; the page shows it as the reason.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "kebab-case")]

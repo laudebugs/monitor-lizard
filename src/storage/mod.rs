@@ -51,6 +51,7 @@ pub mod reason {
     pub const TMUTIL_TIMED_OUT: &str = "tmutil timed out";
     pub const TMUTIL_FAILED: &str = "tmutil failed";
     pub const HOME_UNKNOWN: &str = "HOME is not set to an absolute path, so no folder can be scanned";
+    pub const HOME_UNTRUSTED: &str = "HOME is not a folder of yours at least two levels below the root (such as /Users/you), so nothing was scanned or moved";
     pub const SNAPSHOT_SIZE: &str = "no tool reports a snapshot size without root";
 }
 
@@ -271,24 +272,69 @@ fn run_in_background() {
 #[cfg(not(target_os = "macos"))]
 fn run_in_background() {}
 
-/// The home folder, or `None` when `HOME` is unset, empty or relative: a relative one would make every
-/// location resolve against the current directory.
-pub(crate) fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute())
+/// The home folder, canonicalised, or why it cannot be used. Removal treats everything under it as the
+/// user's own, so `HOME` must name the same folder as the account database does for the current user
+/// (`HOME=/Users/you/Library` is refused), be a real folder of that user, and sit at least two levels
+/// below the root (never `/` or `/Users`). An unset or relative `HOME` would make every location
+/// resolve against the current directory.
+pub(crate) fn home_or_reason() -> Result<PathBuf, &'static str> {
+    let uid = current_uid();
+    home_from(std::env::var_os("HOME"), uid, account_home(uid))
+}
+
+fn home_from(env_home: Option<std::ffi::OsString>, uid: u32, account: Option<PathBuf>) -> Result<PathBuf, &'static str> {
+    let candidate = PathBuf::from(env_home.ok_or(reason::HOME_UNKNOWN)?);
+    if !candidate.is_absolute() { return Err(reason::HOME_UNKNOWN); }
+    trusted_home(&candidate, uid, account.as_deref()).ok_or(reason::HOME_UNTRUSTED)
+}
+
+pub(crate) fn current_uid() -> u32 {
+    // SAFETY: geteuid has no arguments and cannot fail.
+    unsafe { libc::geteuid() }
+}
+
+/// The home folder the account database records for `uid`.
+fn account_home(uid: u32) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buf = vec![0u8; 4096];
+    // SAFETY: `pwd` and `buf` outlive the call, `buf.len()` is its true size, and `pw_dir` is only read
+    // when the call reports a match, as a NUL-terminated string inside `buf`.
+    unsafe {
+        let mut pwd: libc::passwd = std::mem::zeroed();
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        if libc::getpwuid_r(uid, &mut pwd, buf.as_mut_ptr().cast(), buf.len(), &mut found) != 0 || found.is_null() || pwd.pw_dir.is_null() { return None; }
+        Some(PathBuf::from(std::ffi::OsStr::from_bytes(std::ffi::CStr::from_ptr(pwd.pw_dir).to_bytes())))
+    }
+}
+
+/// `candidate` as its canonical path when it is a folder of `uid`, two levels down, and (when the
+/// account's folder is known) the same folder as that.
+fn trusted_home(candidate: &Path, uid: u32, account: Option<&Path>) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let canonical = candidate.canonicalize().ok()?;
+    let depth = |p: &Path| p.components().filter(|c| matches!(c, std::path::Component::Normal(_))).count();
+    // Both spellings count: `/Users/../` and a link to `/` must not pass.
+    if depth(candidate) < 2 || depth(&canonical) < 2 { return None; }
+    if account? .canonicalize().ok()? != canonical { return None; }
+    let meta = std::fs::metadata(&canonical).ok()?;
+    (meta.is_dir() && meta.uid() == uid).then_some(canonical)
 }
 
 fn now_secs() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
 
 /// One full scan, `tmutil` included, within `TIME_BUDGET`. Blocking: call it off the request thread.
-pub fn scan() -> Storage {
+pub fn scan() -> Storage { scan_for(home_or_reason()) }
+
+/// `scan` for a given home, so a refused home can be tested without changing the environment.
+fn scan_for(home: Result<PathBuf, &'static str>) -> Storage {
     run_in_background();
     walk::pace_reset();
     let started = Instant::now();
     // `tmutil` runs beside the walk instead of after it, so it adds no wall time.
     let tmutil = std::thread::spawn(volume::local_snapshots);
-    let (o, refused) = match home() {
-        Some(h) => (scan_items(&h, Path::new("/Applications"), started + TIME_BUDGET - RESERVE, now_secs()), None),
-        None => (Outcome { items: Vec::new(), missed: Vec::new() }, Some(reason::HOME_UNKNOWN)),
+    let (o, refused) = match home {
+        Ok(h) => (scan_items(&h, Path::new("/Applications"), started + TIME_BUDGET - RESERVE, now_secs()), None),
+        Err(why) => (Outcome { items: Vec::new(), missed: Vec::new() }, Some(why)),
     };
     let capacity = volume::split_capacity(crate::iokit::boot_volume_capacity(), volume::available_and_important());
     let snapshots = tmutil.join().unwrap_or_else(|_| volume::snapshots_from(Err(reason::TMUTIL_FAILED)));
@@ -481,12 +527,14 @@ mod tests {
     }
 
     #[test]
-    fn without_a_home_folder_nothing_is_scanned_and_the_reason_is_given() {
-        assert_eq!(home().is_none(), std::env::var_os("HOME").map(PathBuf::from).is_none_or(|h| !h.is_absolute()));
-        let mut s = Storage::fake(1);
-        s.refused = Some(reason::HOME_UNKNOWN);
-        let v: serde_json::Value = serde_json::from_str(&to_json(Some(&s), false, false)).unwrap();
-        assert!(v["refused"].as_str().unwrap().contains("HOME"));
+    fn without_a_usable_home_nothing_is_scanned_and_the_reason_is_given() {
+        for why in [reason::HOME_UNKNOWN, reason::HOME_UNTRUSTED] {
+            let s = scan_for(Err(why));
+            assert!(s.items.is_empty() && !s.complete, "{why}");
+            assert_eq!(s.refused, Some(why));
+            let v: serde_json::Value = serde_json::from_str(&to_json(Some(&s), false, false)).unwrap();
+            assert_eq!(v["refused"].as_str(), Some(why));
+        }
     }
 
     #[test]
@@ -549,5 +597,43 @@ mod tests {
         let o = scan_items(&home, &home.join("none"), Instant::now() - Duration::from_secs(1), now_secs());
         assert!(t.elapsed() < Duration::from_secs(2) && !o.complete());
         fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn only_the_accounts_own_home_is_trusted_and_it_is_canonicalised() {
+        let me = current_uid();
+        let d = temp("trusted").canonicalize().unwrap();
+        let ok = |c: &Path, acct: &Path| trusted_home(c, me, Some(acct));
+        assert_eq!(ok(&d, &d), Some(d.clone()));
+        assert_eq!(ok(Path::new(&format!("{}/", d.display())), &d), Some(d.clone()), "a trailing slash is fine");
+        assert!(trusted_home(&d, me.wrapping_add(1), Some(&d)).is_none(), "owned by someone else");
+        assert!(trusted_home(&d, me, None).is_none(), "no account folder to compare with");
+        fs::create_dir_all(d.join("Library")).unwrap();
+        assert!(ok(&d.join("Library"), &d).is_none(), "HOME=<home>/Library is not the home");
+        let other = temp("trusted-other");
+        assert!(ok(&other, &d).is_none(), "HOME and the account disagree");
+        // A symlinked HOME is accepted and comes back as the real folder, so items are not 'outside' it.
+        let link = temp("trusted-links").join("home-link");
+        std::os::unix::fs::symlink(&d, &link).unwrap();
+        assert_eq!(ok(&link, &d), Some(d.clone()));
+        for bad in ["/", "/Users", "/Users/", "/tmp", "/private", "/Users/.."] { assert!(ok(Path::new(bad), Path::new(bad)).is_none(), "{bad:?}"); }
+        assert!(ok(&d.join("no-such-folder"), &d).is_none());
+        let file = d.join("file");
+        fs::write(&file, "x").unwrap();
+        assert!(ok(&file, &file).is_none(), "a file is not a home");
+        let to_root = temp("trusted-links").join("rootlink");
+        std::os::unix::fs::symlink("/", &to_root).unwrap();
+        assert!(ok(&to_root, &to_root).is_none());
+    }
+
+    #[test]
+    fn home_from_says_why_it_refuses() {
+        let me = current_uid();
+        let d = temp("home-from").canonicalize().unwrap();
+        assert_eq!(home_from(None, me, Some(d.clone())), Err(reason::HOME_UNKNOWN));
+        for rel in ["", "relative/dir", "~"] { assert_eq!(home_from(Some(rel.into()), me, Some(d.clone())), Err(reason::HOME_UNKNOWN), "{rel:?}"); }
+        assert_eq!(home_from(Some("/".into()), me, Some(d.clone())), Err(reason::HOME_UNTRUSTED));
+        assert_eq!(home_from(Some(d.clone().into()), me, Some(d.clone())), Ok(d));
+        assert!(account_home(me).is_some_and(|h| h.is_absolute()), "this user has an account folder");
     }
 }

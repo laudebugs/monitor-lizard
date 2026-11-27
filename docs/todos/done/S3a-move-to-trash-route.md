@@ -120,3 +120,7 @@ make test
 - A real request needs the history database to open; otherwise nothing moves. The reply carries `audit_error` if the row could not be written after the move.
 - A folder swapped for a link between the check and the move is a race the check cannot close.
 - Item "in use by a running app" is not detected; the OS reason is reported if the move fails.
+
+### Fixed in follow-up
+
+A post-merge review of #60 found that the audit-before-move rule was only a doc comment, that anything but `dry=1` moved files, and several smaller gaps. They are fixed in `fix/s3a-trash-audit-and-dry-failsafe`; the record is [bugs/trash-moved-files-without-audit-or-on-a-typo](../../bugs/trash-moved-files-without-audit-or-on-a-typo/detail.md) and the contract is plan D15. The deviations above that say "a real request needs the history database to open" and "`audit_error` after the move" are replaced by the per-item audit written before each move, and the first `trash_moves` table is now read-only legacy.
