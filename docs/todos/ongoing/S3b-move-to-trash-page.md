@@ -103,7 +103,7 @@ README safety paragraph; plan status.
 ### Built
 
 - `storage-trash` block in `web/page-storage-logic.js`: the pure state machine (`trashStep`) and helpers, with 24 Node tests in `tests/web/storage-trash.test.mjs`, written before the dialog.
-- The dialog in `web/page-storage.js` (`trashDialog`), mounted from `web/shell.js`: focus moves to the heading, Tab wraps inside it, the page behind is `inert`, Escape and Cancel close it without a request (not while a move runs), and every transition goes to the announcer. Styles are in `web/app.css` with a forced-colors block.
+- The dialog in `web/page-storage.js` (`storage-trash-view` block), mounted from `web/shell.js` through `trashLayer`: focus moves to the heading, Tab wraps inside it, the page behind is `inert`, Escape and Cancel close it without a request (not while a move runs), and one Escape closes one layer. Every folder name, reason, code, note and audit error passes through `visible()`, so a bidi override, newline or zero-width character shows as an escape. A dialog that cannot be drawn closes with a message. Styles are in `web/app.css` with a forced-colors block.
 - `api()` in `web/data.js` now attaches `status` and `text` to the error it throws. Nothing else changed in how it works.
 - The Move to Trash button stays `aria-disabled` with helper text when nothing previewable is selected. It now also appears for a single `yours` folder (it used to say no removal is offered); that path asks for the second confirmation naming the folder.
 - Order for `yours`: preview, "Continue", a confirmation that names the folder, a new preview with `confirm_yours=1`, then the move with the same flag. The first token is dropped when the confirmation is given.
@@ -111,7 +111,7 @@ README safety paragraph; plan status.
 
 ### Deviations and limits
 
-- The History page does not list `trash_moves` yet, so "Open History" opens the page and the dialog shows the entry number.
+- The History page now lists `trash_moves` (section "Moves to the Trash", one row per item: when, request, folder, state, size, why) with the usual sort, search, export and column rules. Interrupted, pending, moving and unreadable rows are shown as what they are, and an unknown state is shown as unknown, never as moved. The dialog's "Open History" link goes there and names the request number.
 - `quiet()` (background polls) no longer redraws while the dialog is open, as it already did for the Stop dialog.
 - Agent testing never called `POST /api/trash` on a real server. The page ran against a scratch server (a scratch `HOME`) with `window.fetch` replaced in the console by scripted replies for: preview ok with a token, a yours preview with refusals, the yours re-preview carrying `confirm_yours=1`, commit ok (double click sent one commit), partial failure, 409 busy, expired token, network error, a 500 with a body, all items refused, and Tab and Escape handling. Dark and light were looked at; forced colors was not run in a browser.
 
@@ -120,3 +120,14 @@ README safety paragraph; plan status.
 1. Make a throwaway folder in your home, for example `~/Library/Caches/monitor-lizard-s3b-test` with a few small files, and Rescan on the Storage page.
 2. Select only that folder. Check the preview, then try Escape (nothing moves), reopen, and confirm. Check the result, that the folder is in the Trash, and that `GET /api/history` shows the same entry as the dialog.
 3. Repeat with a folder labelled yours (the confirmation must name it) only if you are happy to move one.
+
+### Review follow-up (same PR)
+
+- Escaping: all folder names and server text in the dialog and in History go through `visible()`; tests render the dialog with RLO, newline, zero-width, `<` and `&` and check the output (`tests/web/storage-trash-view.test.mjs`).
+- The preview key now holds each id with its label, so a rescan that makes a folder YOURS clears the preview instead of committing without `confirm_yours`.
+- Closing paths: a changed selection or label, leaving the page, and a dialog that cannot be drawn each close the dialog with an announcement. The first two return focus to the trigger (or the main region). Not every state change is announced; the preview, the move, the result and each close are, a Go back from the yours confirmation is not.
+- The server's `ok`, `counts`, `failed` and `moved` are checked against the item list. A disagreement shows a visible warning pointing to History; the item list is still what is counted.
+- `/api/history`'s request id and the dialog's "Recorded as request N" are the same number; `tests/web/storage-trash.test.mjs` builds History rows from the same reply and compares the counts and moved bytes with the summary.
+- The scan reuse claim in the dialog was checked against `src/storage/cache.rs`: `MIN_INTERVAL` is 60 seconds and a request inside it gets the cached scan.
+- Size: the web change is about 360 added lines (S budget is under 200). It grew because the History table, the escaping and the dialog guards were added after review.
+- Forced colors: the CSS only sets borders and uses system colours, and every status is also text; it was not run in a browser.

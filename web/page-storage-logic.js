@@ -378,21 +378,23 @@ function reportHtml({ d, rows, shownRows, system, generated, filterText }) {
 const TRASH_MAX_IDS = 50; // src/storage/trash.rs MAX_IDS
 const TRASH_ID = /^[0-9a-f]{16}$/i;
 const TRASH_PUT_BACK = 'Items go to your Trash, not to a permanent delete. Finder’s Put Back may not be offered for them; History keeps the original path of every item, so you can move one back by hand.';
-const trashKey = (ids) => [...new Set(ids)].sort().join(',');
+// What a preview belongs to: the ids and the label each had when it was asked for. A rescan that flips a label
+// changes the key, so a preview for a folder that is now YOURS is never committed without its confirmation.
+const trashKey = (items) => (items || []).map((i) => i.id + ':' + i.label).sort().join(',');
 const trashIdle = () => ({ phase: 'idle', seq: 0 });
 // What the selected rows allow. `rows` are storageRows() items, whose labels already went through shownLabel, so a
 // label the page does not trust is never treated as safe here. `ids` empty or `ok: false` keeps the button inert.
 function trashSelection(rows, ids) {
   const want = [...new Set(ids || [])], by = new Map((rows || []).map((r) => [r.id, r]));
   const picked = want.map((id) => by.get(id)).filter((r) => r && r.kind === 'item');
-  const named = (r) => ({ id: r.id, name: r.name, path: r.path, label: r.label === ST_LABEL.safe || r.label === ST_LABEL.yours ? r.label : ST_LABEL.review, bytes: r.bytes == null ? null : r.bytes, lowerBound: !!r.lowerBound });
+  const named = (r) => ({ id: r.id, name: visible(r.name), path: visible(r.path), label: r.label === ST_LABEL.safe || r.label === ST_LABEL.yours ? r.label : ST_LABEL.review, bytes: r.bytes == null ? null : r.bytes, lowerBound: !!r.lowerBound });
   const items = picked.map(named), yours = items.filter((r) => r.label === ST_LABEL.yours);
   let why = null;
   if (!want.length) why = 'Select a folder first';
   else if (picked.length !== want.length) why = 'A selected folder is not in the latest scan. Rescan first';
   else if (picked.some((r) => !TRASH_ID.test(r.id))) why = 'This folder has no id from the scan, so it cannot be removed. Rescan first';
   else if (picked.length > TRASH_MAX_IDS) why = 'At most ' + TRASH_MAX_IDS + ' folders at a time';
-  return { ok: why == null, why, ids: items.map((r) => r.id), items, yours };
+  return { ok: why == null, why, ids: items.map((r) => r.id), items, yours, key: trashKey(items) };
 }
 const TRASH_STATUSES = ['would_move', 'moved', 'refused', 'failed', 'not_attempted'];
 const trashNum = (n) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
@@ -403,17 +405,29 @@ function trashSummary(body, known) {
   const list = Array.isArray(b.items) ? b.items : [];
   const items = list.filter((i) => i && typeof i === 'object').map((i) => {
     const mine = known && known[i.id];
-    return { id: String(i.id), status: TRASH_STATUSES.includes(i.status) ? i.status : 'failed', code: typeof i.code === 'string' ? i.code : null,
-      reason: typeof i.reason === 'string' ? i.reason : null, bytes: trashNum(i.bytes), name: mine ? mine.name : homeRelative(typeof i.path === 'string' ? i.path : String(i.id)),
-      path: mine ? mine.path : typeof i.path === 'string' ? i.path : '', label: mine ? mine.label : ST_LABEL.review };
+    return { id: String(i.id), status: TRASH_STATUSES.includes(i.status) ? i.status : 'failed', code: typeof i.code === 'string' ? visible(i.code) : null,
+      reason: typeof i.reason === 'string' ? visible(i.reason) : null, bytes: trashNum(i.bytes), name: mine ? mine.name : visible(homeRelative(typeof i.path === 'string' ? i.path : String(i.id))),
+      path: mine ? mine.path : typeof i.path === 'string' ? visible(i.path) : '', label: mine ? mine.label : ST_LABEL.review };
   });
   const counts = Object.fromEntries(TRASH_STATUSES.map((s) => [s, items.filter((i) => i.status === s).length]));
   const sized = (s) => items.filter((i) => i.status === s);
   const sum = (s) => ({ bytes: sized(s).reduce((n, i) => n + (i.bytes || 0), 0), unknown: sized(s).filter((i) => i.bytes == null).length });
   return { items, counts, would: sum('would_move'), moved: sum('moved'), historyId: Number.isInteger(b.history_id) && b.history_id >= 0 ? b.history_id : null,
     token: typeof b.confirm_token === 'string' && b.confirm_token ? b.confirm_token : null, dryRun: b.dry_run !== false, okFlag: b.ok === true,
-    note: typeof b.note === 'string' && b.note ? b.note : TRASH_PUT_BACK, auditError: typeof b.audit_error === 'string' && b.audit_error ? b.audit_error : null,
-    hasItems: items.length > 0 };
+    note: typeof b.note === 'string' && b.note ? visible(b.note) : TRASH_PUT_BACK, auditError: typeof b.audit_error === 'string' && b.audit_error ? visible(b.audit_error) : null,
+    hasItems: items.length > 0, warning: trashDisagrees(b, items, counts) ? TRASH_DISAGREES : null };
+}
+const TRASH_DISAGREES = 'The server\u2019s own totals do not match its list of items, so this summary may be wrong. Open History to see what was recorded.';
+// The server's top-level ok, counts, failed and moved are a second account of the same request. When they differ from
+// what the item list adds up to, neither is trusted silently: the page shows a warning.
+function trashDisagrees(b, items, counts) {
+  if (!items.length) return false;
+  const dry = b.dry_run !== false, all = dry ? 'would_move' : 'moved';
+  if (b.counts && typeof b.counts === 'object' && TRASH_STATUSES.some((k) => b.counts[k] !== undefined && b.counts[k] !== counts[k])) return true;
+  if (typeof b.ok === 'boolean' && b.ok !== (counts[all] === items.length && !b.audit_error)) return true;
+  if (b.failed !== undefined && (b.failed != null) !== (counts.failed > 0)) return true;
+  if (Array.isArray(b.moved) && b.moved.length !== counts.moved) return true;
+  return false;
 }
 const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0).replace(/^unavailable$/, 'unknown size');
 // A refusal of the whole request: a plain sentence and the way forward. `moved` says whether a body listed anything moved.
@@ -434,9 +448,9 @@ function trashProblem(status, code, committing) {
   if (status === 0) return committing ? 'The page could not read the server’s reply, so it cannot say whether anything moved. Nothing is shown as moved. Open History to check, then preview again.'
     : 'The page could not reach the server. Nothing was moved. Preview again when the dashboard is running.';
   if (status === 429) return table.too_many_previews;
-  if (status === 409) return 'The server could not use the preview (' + (code || 'conflict') + ').' + again;
-  return (committing ? 'The server reported an error (' + status + (code ? ', ' + code : '') + ') without saying what happened. Nothing is shown as moved. Open History to check, then preview again.'
-    : 'The server could not preview this selection (' + status + (code ? ', ' + code : '') + '). Nothing was moved.');
+  if (status === 409) return 'The server could not use the preview (' + visible(code || 'conflict') + ').' + again;
+  return (committing ? 'The server reported an error (' + status + (code ? ', ' + visible(code) : '') + ') without saying what happened. Nothing is shown as moved. Open History to check, then preview again.'
+    : 'The server could not preview this selection (' + status + (code ? ', ' + visible(code) : '') + '). Nothing was moved.');
 }
 // A request the server calls malformed, or a scan that no longer matches, will not work on a blind second try.
 function trashRetryable(status, code) { return !['unknown_id', 'home_untrusted', 'bad_ids', 'bad_dry', 'bad_flag', 'repeated_parameter'].includes(code); }
@@ -460,7 +474,7 @@ function trashStep(s, ev) {
       if (phase !== 'idle' && phase !== 'done') return none;
       if (!sel || !sel.ok) return { state: s, fx: [say((sel && sel.why) || 'Nothing to preview')] };
       const known = Object.fromEntries(sel.items.map((i) => [i.id, i]));
-      return ask({ phase: 'previewing', seq: s.seq, ids: sel.ids, key: trashKey(sel.ids), known, yours: sel.yours }, false);
+      return ask({ phase: 'previewing', seq: s.seq, ids: sel.ids, key: sel.key, known, yours: sel.yours }, false);
     }
     case 'reply': {
       if ((phase !== 'previewing' && phase !== 'moving') || ev.seq !== s.seq) return none;
@@ -499,10 +513,35 @@ function trashStep(s, ev) {
       return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say(phase === 'done' ? 'Closed.' : 'Closed. Nothing was moved.')] };
     }
     case 'selection': {
-      if (!['previewing', 'previewed', 'confirming-yours', 'error'].includes(phase) || trashKey(ev.ids || []) === s.key) return none;
-      return { state: { phase: 'idle', seq: s.seq }, fx: [say('The selection changed, so the preview was cleared. Nothing was moved.')] };
+      if (!['previewing', 'previewed', 'confirming-yours', 'error'].includes(phase) || ev.key === s.key) return none;
+      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say('The removal dialog closed because the selection or a label changed. Nothing was moved.')] };
+    }
+    case 'leave': {
+      if (phase === 'idle' || phase === 'moving') return none;
+      return { state: { phase: 'idle', seq: s.seq }, fx: [{ do: 'focus' }, say('The removal dialog closed because you left the Storage page. Nothing was moved.')] };
     }
     default: return none;
   }
+}
+// ---- History: every row of GET /api/history `trash_moves`, one row per item. Text a stranger can choose (a folder name, an
+// OS error) goes through visible(), and a state the page does not know is shown as unknown, never as moved.
+const TRASH_STATE_TEXT = { moved: 'Moved', refused: 'Refused', failed: 'Failed', not_attempted: 'Not attempted', pending: 'Pending: no result recorded yet',
+  moving: 'Moving now, or stopped while moving', interrupted: 'Interrupted: it may or may not have moved', unreadable: 'Unreadable record' };
+function trashHistoryRows(moves) {
+  const out = [];
+  for (const m of Array.isArray(moves) ? moves : []) {
+    if (!m || typeof m !== 'object') continue;
+    const request = Number.isInteger(m.request) && m.request >= 0 ? m.request : null, ts = typeof m.ts === 'number' && Number.isFinite(m.ts) ? m.ts : null;
+    (Array.isArray(m.items) ? m.items : []).forEach((i, n) => {
+      if (!i || typeof i !== 'object') return;
+      const state = typeof i.state === 'string' ? i.state : '', d = pathDisplay(typeof i.path === 'string' ? i.path : '');
+      const code = typeof i.code === 'string' ? i.code : '', reason = typeof i.reason === 'string' ? i.reason : '';
+      out.push({ key: (request == null ? 'old' : request) + ':' + n + ':' + ts, request, requestText: request == null ? 'Earlier log' : 'Request ' + request, ts, state,
+        stateText: Object.prototype.hasOwnProperty.call(TRASH_STATE_TEXT, state) ? TRASH_STATE_TEXT[state] : 'Unknown state: ' + visible(state),
+        path: visible(d.text) || '(no path)', head: visible(d.head), tail: visible(d.tail) || '(no path)', label: i.label === ST_LABEL.safe || i.label === ST_LABEL.yours || i.label === ST_LABEL.review ? i.label : 'unknown',
+        why: visible(reason || code), bytes: trashNum(i.bytes), sizeText: trashNum(i.bytes) == null ? '-' : formatBytes(i.bytes) });
+    });
+  }
+  return out;
 }
 /* storage-trash:end */

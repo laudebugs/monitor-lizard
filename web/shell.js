@@ -86,16 +86,14 @@ function render() {
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
-  if (S.trash && S.trash.phase !== 'idle' && S.view !== 'storage' && S.trash.phase !== 'moving') S.trash = trashIdle(); // leaving the page cancels a preview
-  const trash = trashDialog();
+  const trash = trashLayer();
   if (trash) layer.push(trash);
-  document.querySelector('.shell').inert = !!trash; // the page behind a dialog is out of reach of the keyboard and screen readers
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   if (S.copyText) layer.push(h('div', { class: 'copybox', role: 'dialog', 'aria-label': 'Copy blocked' }, h('p', { class: 'small', style: 'margin:0' }, 'The browser did not allow copying. The text is selected: press Cmd+C.'),
     h('textarea', { readonly: true, rows: 8, 'aria-label': 'Row as JSON' }, S.copyText), h('button', { class: 'btn sm', onClick: () => rec({ copyText: null }) }, 'Close')));
   $('layer').replaceChildren(...layer);
   decorateTables();
-  const af = document.querySelector('[data-autofocus]'); if (af) af.focus();
+  const af = (trash || document).querySelector('[data-autofocus]'); if (af) af.focus();
   else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;
@@ -106,8 +104,7 @@ $('q').addEventListener('input', (e) => { S.q = e.target.value; S.page = {}; if 
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
 window.addEventListener('hashchange', () => { fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal) rec({ modal: null }); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.trash && S.trash.phase !== 'idle' && !S.modal) { e.preventDefault(); trashClose(); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && closeTopLayer()) e.preventDefault(); }); // one Escape closes one layer
 // "/" jumps to the search box on the Guide unless a field has focus (the key must still type a slash there).
 document.addEventListener('keydown', (e) => {
   const t = e.target, typing = t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable);

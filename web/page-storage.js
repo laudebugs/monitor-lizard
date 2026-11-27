@@ -363,7 +363,7 @@ function storage() {
   // A selection belongs to the filters it was made under: changing the section, label or search drops it.
   if (S.stMulti.length && S.stMultiSig !== stPickSig()) S.stMulti = [];
   const cleanList = stCleanups(rows), picked = sel ? [] : pickedRows(cleanList, S.stMulti);
-  if (S.trash && S.trash.phase !== 'idle') trashSync(sel ? [sel.id] : picked.map((r) => r.id));
+  if (trashOpen()) { const now = sel ? [sel] : picked; trashSync(trashSelection(now, now.map((r) => r.id))); }
   const filterText = (tile === ST_ALL ? 'All sections' : 'Section: ' + tile) + ', ' + (S.stfilter === ST_ALL ? 'all labels' : 'label ' + S.stfilter) + (S.q.trim() ? ', search "' + S.q.trim() + '"' : '');
   return pageShell({ title, subtitle: coverageText(d) + ', ' + measuredText(d.scanned_at, now), actions,
     filters: stFilterChips(labelCounts(found)),
@@ -373,10 +373,16 @@ function storage() {
     inspector: sel ? stItemInspector(sel) : picked.length ? stMultiInspector(picked, sumSizes(picked)) : stSectionInspector(d, state, rows, tiles, tile) });
 }
 
+/* storage-trash-view:begin */
 // ---- Move to Trash: the dialog around the state machine in page-storage-logic.js (`storage-trash`).
 // The page sends ids, never paths, through api() (the per-run token header) and keeps no token in the address.
+// Every folder name, reason and note a stranger could have chosen goes through visible(), so a bidi override, a
+// newline or a zero-width character shows as an escape instead of rearranging what the confirmation says.
+const trashOpen = () => !!(S.trash && S.trash.phase !== 'idle');
+const trashFocusBack = () => { const t = $('st-trash-btn') || $('main'); if (t) t.focus(); };
 function openTrash(sel) { trashDispatch({ type: 'open', selection: sel }); }
-function trashDispatch(ev) {
+// Runs the machine and its effects without drawing. Returns true when focus should go back to where the dialog began.
+function trashApply(ev) {
   const r = trashStep(S.trash || trashIdle(), ev);
   S.trash = r.state;
   let focus = false;
@@ -386,8 +392,12 @@ function trashDispatch(ev) {
     else if (fx.do === 'rescan') loadStorage(true);
     else if (fx.do === 'focus') focus = true;
   }
+  return focus;
+}
+function trashDispatch(ev) {
+  const focus = trashApply(ev);
   render();
-  if (focus) { const t = $('st-trash-btn') || $('main'); if (t) t.focus(); }
+  if (focus) trashFocusBack();
 }
 async function trashRequest(fx) {
   let status = 0, body = null;
@@ -395,14 +405,18 @@ async function trashRequest(fx) {
   catch (e) { if (e && e.status) { status = e.status; try { body = JSON.parse(e.text); } catch (_) { body = null; } } else body = null; }
   trashDispatch({ type: 'reply', seq: fx.seq, status, body });
 }
-// A rescan or the address can change what is selected while the dialog is open; the machine drops a stale preview.
-function trashSync(ids) {
-  const r = trashStep(S.trash, { type: 'selection', ids });
-  if (r.state === S.trash) return;
-  S.trash = r.state;
-  for (const fx of r.fx) if (fx.do === 'announce') announce(fx.text);
+// A rescan or the address can change what is selected, or a folder's label, while the dialog is open. It is called from
+// inside render(), so focus is moved afterwards.
+function trashSync(selection) {
+  if (trashApply({ type: 'selection', key: selection.key })) setTimeout(trashFocusBack, 0);
 }
 const trashClose = () => trashDispatch({ type: 'close' });
+// One Escape closes one layer: the removal dialog if it is open, otherwise the Stop dialog.
+function closeTopLayer() {
+  if (trashOpen()) { trashClose(); return 'trash'; }
+  if (S.modal) { rec({ modal: null }); return 'stop'; }
+  return null;
+}
 // Tab stays inside the dialog: it wraps at both ends, and Shift+Tab from the heading goes to the last button.
 function trashKeys(e) {
   if (e.key !== 'Tab') return;
@@ -412,38 +426,39 @@ function trashKeys(e) {
   else if (!e.shiftKey && (a === f[f.length - 1] || !box.contains(a))) { e.preventDefault(); f[0].focus(); }
 }
 const TRASH_STATUS_TEXT = { would_move: 'Will move', moved: 'Moved', refused: 'Refused', failed: 'Failed', not_attempted: 'Not attempted' };
-function trashItemRow(i, sizeLabel) {
-  const why = i.status === 'would_move' || i.status === 'moved' ? '' : ': ' + (i.reason || i.code || 'no reason given');
+function trashItemRow(i) {
+  const why = i.status === 'would_move' || i.status === 'moved' ? '' : ': ' + visible(i.reason || i.code || 'no reason given');
   return h('li', { class: 'tr-item', 'data-status': i.status },
-    h('div', { class: 'tr-name' }, h('span', { class: 'tr-path', title: i.path || i.name }, i.name), labelTag(i.label)),
-    h('div', { class: 'small tr-meta' }, h('strong', {}, TRASH_STATUS_TEXT[i.status] || 'Unknown'), why,
-      i.bytes == null ? '' : ', ' + formatBytes(i.bytes) + (sizeLabel || '')));
+    h('div', { class: 'tr-name' }, h('span', { class: 'tr-path', title: visible(i.path || i.name) }, visible(i.name)), labelTag(i.label)),
+    h('div', { class: 'small tr-meta' }, h('strong', {}, TRASH_STATUS_TEXT[i.status] || 'Unknown'), why, i.bytes == null ? '' : ', ' + formatBytes(i.bytes)));
 }
 const trashCounts = (c) => ['moved', 'refused', 'failed', 'not_attempted'].map((k) => c[k] + ' ' + k.replace('_', ' ')).join(', ');
+const trashNames = (list) => list.map((y) => '“' + visible(y.name) + '”').join(', ');
 function trashBody(t) {
   const sum = t.summary, p = (text, cls) => h('p', { class: cls || '', style: 'margin:0;line-height:1.5' }, text);
-  const names = () => Object.values(t.known).map((i) => trashItemRow({ id: i.id, status: 'would_move', name: i.name, path: i.path, label: i.label, bytes: i.bytes, reason: null }));
-  if (t.phase === 'previewing') return [p('Checking ' + plural(t.ids.length, 'folder', 'folders') + ' with the server. Nothing moves yet.', 'mut'), h('ul', { class: 'tr-list' }, Object.values(t.known).map((i) => h('li', { class: 'tr-item' }, h('div', { class: 'tr-name' }, h('span', { class: 'tr-path', title: i.path }, i.name), labelTag(i.label)))))];
-  if (t.phase === 'moving') return [p('Moving ' + plural(t.ids.length, 'folder', 'folders') + ' to the Trash. This can take up to 45 seconds. It cannot be cancelled once it has started.', 'mut'), h('ul', { class: 'tr-list' }, names())];
-  if (t.phase === 'error') return [p(t.message.text), t.message.retry ? p('Preview again to start over; nothing is carried across.', 'small mut') : null];
+  const known = () => Object.values(t.known).map((i) => trashItemRow({ id: i.id, status: 'would_move', name: i.name, path: i.path, label: i.label, bytes: i.bytes, reason: null }));
+  if (t.phase === 'previewing') return [p('Checking ' + plural(t.ids.length, 'folder', 'folders') + ' with the server. Nothing moves yet.', 'mut'), h('ul', { class: 'tr-list' }, known())];
+  if (t.phase === 'moving') return [p('Moving ' + plural(t.ids.length, 'folder', 'folders') + ' to the Trash. This can take up to 45 seconds and cannot be cancelled once it starts.', 'mut'), h('ul', { class: 'tr-list' }, known())];
+  if (t.phase === 'error') return [p(t.message.text), t.message.retry ? p('Preview again to start over. Nothing carries across.', 'small mut') : null];
   if (t.phase === 'confirming-yours') {
-    return [p('This selection includes ' + plural(t.yours.length, 'folder', 'folders') + ' labelled YOURS, so it holds your own files, not a cache:'),
-      h('ul', { class: 'tr-list' }, t.yours.map((y) => h('li', { class: 'tr-item' }, h('div', { class: 'tr-name' }, h('strong', { class: 'tr-path', title: y.path }, homeRelative(y.path)), labelTag(y.label)), h('div', { class: 'small tr-meta' }, y.bytes == null ? 'size unknown' : formatBytes(y.bytes))))),
-      p('Move ' + t.yours.map((y) => '“' + y.name + '”').join(', ') + ' to the Trash? Anything that uses it may stop working until you put it back. Confirming asks the server for a new preview that includes it.', 'small')];
+    return [p('This selection includes ' + plural(t.yours.length, 'folder', 'folders') + ' labelled YOURS. ' + (t.yours.length === 1 ? 'It holds' : 'They hold') + ' your own files, not a cache:'),
+      h('ul', { class: 'tr-list' }, t.yours.map((y) => h('li', { class: 'tr-item' }, h('div', { class: 'tr-name' }, h('strong', { class: 'tr-path', title: visible(y.path) }, visible(homeRelative(y.path))), labelTag(y.label)),
+        h('div', { class: 'small tr-meta' }, y.bytes == null ? 'size unknown' : formatBytes(y.bytes))))),
+      p('Move ' + trashNames(t.yours) + ' to the Trash? Anything that uses it may stop working until you put it back. Confirming asks the server for a new preview that includes it.', 'small')];
   }
   const done = t.phase === 'done', moved = done ? sum.items.filter((i) => i.status === 'moved') : [], rest = sum.items.filter((i) => i.status !== 'moved');
   const lines = [p(trashHeadline(sum, !done), 'tr-head')];
+  if (sum.warning) lines.push(p(sum.warning, 'tr-warn'));
   if (done) lines.push(p(trashCounts(sum.counts), 'small mut'));
   if (sum.auditError) lines.push(p('History could not be written: ' + sum.auditError, 'small'));
   if (!done && sum.counts.refused) lines.push(p(plural(sum.counts.refused, 'item is', 'items are') + ' refused and stays where it is. The rest can still move.', 'small'));
-  if (!done && t.yours.length && !t.confirmYours) lines.push(p('Your own folder ' + t.yours.map((y) => '“' + y.name + '”').join(', ') + ' needs a separate confirmation on the next step.', 'small'));
-  lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per item' : 'What would move' }, [...moved, ...rest].map((i) => trashItemRow(i))));
+  if (!done && t.yours.length && !t.confirmYours) lines.push(p('Your own folder ' + trashNames(t.yours) + ' needs a separate confirmation on the next step.', 'small'));
+  lines.push(h('ul', { class: 'tr-list', 'aria-label': done ? 'Result per item' : 'What would move' }, [...moved, ...rest].map(trashItemRow)));
   lines.push(p(sum.note, 'small mut'));
   if (done) {
-    lines.push(sum.historyId == null ? p('No History entry was reported for this request.', 'small mut')
-      : p('Logged as History entry ' + sum.historyId + '. ', 'small'));
+    lines.push(p(sum.historyId == null ? 'The server did not report a History entry for this request.' : 'Recorded as request ' + sum.historyId + ' in History.', 'small'));
     lines.push(h('a', { class: 'small', href: writeHash({ view: 'history' }) }, 'Open History'));
-    lines.push(p('A fresh scan was requested so this page stops listing what moved. If the last scan was less than a minute ago the server reuses it, and the list can still show moved folders until you Rescan.', 'small mut'));
+    lines.push(p('The page asked for a fresh scan. The server reuses a scan under a minute old, so moved folders can stay listed until you Rescan.', 'small mut'));
   }
   return lines;
 }
@@ -455,7 +470,7 @@ function trashButtons(t) {
   if (t.phase === 'done') return [h('button', { class: 'btn btn-acc', type: 'button', onClick: trashClose }, 'Close')];
   if (t.phase === 'confirming-yours') {
     return [h('button', { class: 'btn', type: 'button', onClick: () => trashDispatch({ type: 'yours-back' }) }, 'Go back'),
-      h('button', { class: 'btn btn-danger', type: 'button', onClick: () => trashDispatch({ type: 'yours-yes' }) }, 'Include ' + t.yours.map((y) => '“' + y.name + '”').join(', ') + ' and preview again')];
+      h('button', { class: 'btn btn-danger', type: 'button', onClick: () => trashDispatch({ type: 'yours-yes' }) }, 'Include ' + trashNames(t.yours) + ' and preview again')];
   }
   const needsYours = t.yours.length > 0 && !t.confirmYours, can = needsYours || !!t.token;
   return [cancel(), h('button', { class: 'btn btn-danger', type: 'button', disabled: can ? null : true, 'aria-describedby': can ? null : 'trash-desc', onClick: () => trashDispatch({ type: 'move' }) },
@@ -472,3 +487,19 @@ function trashDialog() {
   h('div', { id: 'trash-desc', class: 'trash-body' }, trashBody(t)),
   h('div', { class: 'trash-buttons' }, trashButtons(t))));
 }
+// What render() puts in the layer. A dialog that cannot be drawn is closed with a message, because a page that stays
+// frozen under an invisible dialog (background updates are held while one is open) is worse than a lost preview.
+function trashLayer() {
+  const shell = document.querySelector('.shell');
+  if (trashOpen() && S.view !== 'storage' && S.trash.phase !== 'moving' && trashApply({ type: 'leave' })) setTimeout(trashFocusBack, 0);
+  let node = null;
+  try { node = trashDialog(); }
+  catch (e) {
+    const moving = S.trash && S.trash.phase === 'moving';
+    S.trash = trashIdle();
+    announce('The removal dialog could not be drawn and was closed. ' + (moving ? 'A move may have started: open History to check.' : 'Nothing was moved.'));
+  }
+  if (shell) shell.inert = !!node; // the page behind a dialog is out of reach of the keyboard and screen readers
+  return node;
+}
+/* storage-trash-view:end */

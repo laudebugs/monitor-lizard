@@ -4,6 +4,20 @@ function refusedText(a) {
   const r = jsonOr(a.refused, []);
   return r.length ? r.length + ' refused: ' + r[0].reason + (r.length > 1 ? ', ...' : '') : '-';
 }
+// Every item of every request the Storage page sent to the Trash, newest first, as History recorded it (the audit rows
+// are written before a move, so a request that stopped half way shows as interrupted, not as moved).
+function trashMovesTable(q) {
+  const all = trashHistoryRows(S.trashMoves), list = all.filter((r) => !q || (r.path + ' ' + r.stateText + ' ' + r.why + ' ' + r.requestText).toLowerCase().includes(q));
+  const shown = sortRows(list, 'trash', { when: (r) => r.ts, request: (r) => r.request == null ? -1 : r.request, folder: (r) => r.path, state: (r) => r.stateText, size: (r) => r.bytes });
+  const pg = paginate(shown, 'trash'), cols = 'grid-template-columns:140px 90px minmax(140px,2fr) minmax(130px,1fr) 84px minmax(100px,1.2fr)';
+  return h('section', { class: 'card tbl', style: 'margin-bottom:20px' },
+    sortHeader('trash', [{ label: 'When', sort: 'when' }, { label: 'Request', sort: 'request' }, { label: 'Folder', sort: 'folder' }, { label: 'State', sort: 'state' }, { label: 'Size', sort: 'size', cls: 'num' }, { label: 'Why' }], cols),
+    pg.slice.map((r) => h('div', { class: 'tr', style: cols + ';cursor:default' },
+      r.ts == null ? h('span', { class: 'mut small' }, '-') : timeCell(r.ts, 'mut small'), h('span', { class: 'mut small' }, r.requestText),
+      h('span', nameAttrs(r.path), h('span', { style: 'display:flex;min-width:0' }, r.head ? h('span', ST_HEAD, r.head) : null, h('span', ST_TAIL, r.tail))),
+      h('span', { class: 'small' }, r.stateText), h('span', { class: 'num' + (r.bytes == null ? ' mut small' : '') }, r.sizeText), h('span', { class: 'mut small', style: 'word-break:break-word' }, r.why || '-'))),
+    shown.length ? null : h('div', { class: 'item' }, h('p', {}, all.length ? 'No moves match the search. ' : 'Nothing has been moved to the Trash from this page yet.'), all.length ? clearBtn() : null), pg.pager);
+}
 // Not named history: a global function of that name replaces window.history and breaks pushState.
 function historyView() {
   const q = S.q.toLowerCase();
@@ -37,6 +51,6 @@ function historyView() {
       timeCell(c.ts, 'mut small'), h('span', {}, h('span', { class: 'tag ' + (c.note ? 'bad' : '') , title: c.note || '' }, c.note ? 'not saved' : c.marked ? 'expected' : 'unmarked')),
       h('span', { class: 'mut small' }, c.kind), h('span', { class: 'mut small', style: 'word-break:break-all' }, c.key)))
       : h('div', { class: 'item' }, h('p', {}, 'Nothing marked as expected yet.')), bp.pager);
-  return pageShell({ title: verdictTitle('history'), body: [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable, h('h2', { class: 'sec' }, 'Marked as expected'), changesTable] });
+  return pageShell({ title: verdictTitle('history'), body: [h('h2', { class: 'sec' }, 'New hosts'), hostsTable, h('h2', { class: 'sec' }, 'Actions you took'), actsTable, h('h2', { class: 'sec' }, 'Moves to the Trash'), trashMovesTable(q), h('h2', { class: 'sec' }, 'Marked as expected'), changesTable] });
 }
 

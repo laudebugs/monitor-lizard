@@ -9,8 +9,8 @@ const block = (name) => {
   assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)');
   return m[1];
 };
-const names = 'trashSelection trashSummary trashStep trashIdle trashUrl trashKey trashProblem trashHeadline TRASH_PUT_BACK TRASH_MAX_IDS'.split(' ');
-const P = new Function(block('url-state') + block('disk-net') + block('page-shell') + block('storage-page') + block('storage-trash') + '\nreturn { ' + names.join(', ') + ' };')();
+const names = 'trashHistoryRows trashSelection trashSummary trashStep trashIdle trashUrl trashKey trashProblem trashHeadline TRASH_PUT_BACK TRASH_MAX_IDS'.split(' ');
+const P = new Function(block('url-state') + block('requester') + block('disk-net') + block('page-shell') + block('storage-page') + block('storage-trash') + '\nreturn { ' + names.join(', ') + ' };')();
 
 const hex = (n) => n.toString(16).padStart(16, '0');
 const row = (n, extra = {}) => ({ kind: 'item', id: hex(n), name: 'cache' + n, path: '/Users/me/Library/Caches/c' + n, label: 'safe', bytes: n * 1e9, lowerBound: false, ...extra });
@@ -90,11 +90,12 @@ test('a token is not carried when the page asks again or the dialog closes', () 
 
 test('changing the selection clears the preview and the token', () => {
   const s = previewed([1, 2], [item(1, 'would_move'), item(2, 'would_move')]);
-  assert.equal(run(s, { type: 'selection', ids: [hex(2), hex(1)] }).s, s, 'the same ids in another order change nothing');
-  const r = run(s, { type: 'selection', ids: [hex(1)] });
+  assert.equal(run(s, { type: 'selection', key: sel(2, 1).key }).s, s, 'the same ids in another order change nothing');
+  const r = run(s, { type: 'selection', key: sel(1).key });
   assert.equal(r.s.phase, 'idle');
   assert.equal('token' in r.s, false);
-  assert.match(r.fx[0].text, /selection changed/);
+  assert.match(r.fx.find((f) => f.do === 'announce').text, /selection or a label changed/);
+  assert.ok(kinds(r.fx).includes('focus'), 'focus goes back');
   assert.equal(run(r.s, { type: 'move' }).fx.length, 0);
 });
 
@@ -279,4 +280,113 @@ test('the Put Back note is always present and server text is read as plain data'
   const evil = P.trashSummary(preview([{ id: '<img onerror=x>', path: '/Users/me/<b>', status: 'refused', reason: '<script>', bytes: 1 }]), {});
   assert.equal(evil.items[0].reason, '<script>', 'kept as text; the page builds it with textContent');
   assert.equal(P.trashUrl({ ids: ['a&b=c'], confirmYours: false }), '/api/trash?ids=a%26b%3Dc&dry=1', 'ids are encoded');
+});
+
+// ---- label flips, leaving the page, the server's second account of a request, and History rows
+const yoursRow = { ...row(1), label: 'yours' };
+test('a rescan that flips a label to YOURS clears the preview, because the key holds the label', () => {
+  const before = P.trashSelection([row(1)], [hex(1)]), after = P.trashSelection([yoursRow], [hex(1)]);
+  assert.notEqual(before.key, after.key);
+  assert.equal(before.key, P.trashSelection([row(1)], [hex(1)]).key, 'the same selection has the same key');
+  let { s } = run(P.trashIdle(), { type: 'open', selection: before });
+  ({ s } = run(s, reply(s, 200, preview([item(1, 'would_move')]))));
+  const r = run(s, { type: 'selection', key: after.key });
+  assert.equal(r.s.phase, 'idle');
+  assert.equal(run(r.s, { type: 'move' }).fx.length, 0, 'no commit can follow');
+  assert.ok(kinds(r.fx).includes('focus'));
+  assert.match(r.fx.find((f) => f.do === 'announce').text, /closed because the selection or a label changed/);
+});
+
+test('leaving the page closes the dialog with focus and a message, but never a move in flight', () => {
+  const s = previewed([1], [item(1, 'would_move')]);
+  const r = run(s, { type: 'leave' });
+  assert.equal(r.s.phase, 'idle');
+  assert.deepEqual(kinds(r.fx), ['focus']);
+  assert.match(r.fx.find((f) => f.do === 'announce').text, /left the Storage page/);
+  const moving = run(s, { type: 'move' }).s;
+  assert.equal(run(moving, { type: 'leave' }).s, moving);
+});
+
+test('totals that disagree with the item list raise a visible warning', () => {
+  const ok = commit([item(1, 'moved'), item(2, 'moved')], { counts: { moved: 2, refused: 0, failed: 0, not_attempted: 0, would_move: 0 }, failed: null, moved: [{}, {}] });
+  assert.equal(P.trashSummary(ok, {}).warning, null);
+  const bad = {
+    'ok true but one refused': commit([item(1, 'moved'), item(2, 'refused')], { ok: true }),
+    'ok false but all moved': commit([item(1, 'moved')], { ok: false }),
+    'counts differ': commit([item(1, 'moved'), item(2, 'moved')], { counts: { moved: 1 } }),
+    'failed set but none failed': commit([item(1, 'moved')], { failed: { id: hex(1) } }),
+    'failed missing but one failed': commit([item(1, 'moved'), item(2, 'failed')], { ok: false, failed: null }),
+    'moved list differs': commit([item(1, 'moved')], { moved: [] }),
+  };
+  for (const [name, body] of Object.entries(bad)) {
+    const sum = P.trashSummary(body, {});
+    assert.ok(sum.warning && /may be wrong/.test(sum.warning) && /History/.test(sum.warning), name);
+  }
+  assert.equal(P.trashSummary(commit([item(1, 'moved')], { ok: false, audit_error: 'disk full' }), {}).warning, null, 'ok false with an audit error is consistent');
+  const s = previewed([1, 2], [item(1, 'would_move'), item(2, 'would_move')]);
+  const m = run(s, { type: 'move' }).s;
+  const r = run(m, reply(m, 200, commit([item(1, 'moved'), item(2, 'refused')], { ok: true })));
+  assert.equal(r.s.phase, 'done');
+  assert.ok(r.s.summary.warning, 'the done state carries it');
+  assert.equal(r.s.summary.counts.moved, 1, 'the item list is still what is counted');
+});
+
+const HOSTILE = 'evil‮gnp.txt\nnext​line <b>&';
+test('hostile names, reasons and notes are escaped wherever the machine hands them on', () => {
+  const r = { ...row(1), name: HOSTILE, path: '/Users/me/' + HOSTILE };
+  const selected = P.trashSelection([r], [hex(1)]);
+  assert.ok(!/[‮\n​]/.test(selected.items[0].name + selected.items[0].path));
+  assert.ok(selected.items[0].name.includes('\\u{202e}') && selected.items[0].name.includes('\\u{a}') && selected.items[0].name.includes('\\u{200b}'));
+  assert.ok(selected.items[0].name.includes('<b>&'), 'markup characters stay plain text; the page writes text nodes');
+  const sum = P.trashSummary(commit([{ id: hex(1), path: '/Users/me/' + HOSTILE, status: 'failed', code: 'a‮b', reason: 'x\ny​z', bytes: 1 }], { note: 'n‮', audit_error: 'e\u0007' }), {});
+  const all = JSON.stringify([sum.items, sum.note, sum.auditError]);
+  assert.ok(!/[‮​\u0007]|\\n/.test(all.replace(/\\\\n/g, '')), 'no raw control or format character survives');
+  assert.ok(P.trashProblem(409, 'a‮b', true).includes('\\u{202e}'));
+});
+
+test('History rows: every state reads honestly, and nothing unknown is shown as moved', () => {
+  const moves = [{ request: 7, ts: 100, bytes: 5, items: [
+    { id: 'a', path: '~/a', label: 'safe', state: 'moved', code: null, reason: null, bytes: 5 },
+    { id: 'b', path: '~/b', label: 'review', state: 'refused', code: 'changed', reason: 'changed since the scan', bytes: null },
+    { id: 'c', path: '~/c', label: 'safe', state: 'interrupted', code: null, reason: 'the app stopped', bytes: null },
+    { id: 'd', path: '~/d', label: 'safe', state: 'pending', code: null, reason: null, bytes: null },
+    { id: 'e', path: '~/e', label: 'safe', state: 'moving', code: null, reason: null, bytes: null },
+    { id: 'f', path: '~/f', label: 'safe', state: 'teleported‮', code: null, reason: null, bytes: null }] },
+  { request: null, ts: 50, bytes: 0, items: [{ id: '', path: '', label: 'unknown', state: 'unreadable', code: null, reason: 'this old record is damaged', bytes: null }] }];
+  const rows = P.trashHistoryRows(moves);
+  assert.equal(rows.length, 7);
+  assert.equal(rows[0].requestText, 'Request 7');
+  assert.match(rows[2].stateText, /may or may not have moved/);
+  assert.match(rows[3].stateText, /no result recorded/);
+  assert.match(rows[4].stateText, /stopped while moving/);
+  assert.match(rows[5].stateText, /^Unknown state: teleported\\u\{202e\}$/);
+  assert.equal(rows[6].requestText, 'Earlier log');
+  assert.equal(rows[6].stateText, 'Unreadable record');
+  assert.equal(rows[6].path, '(no path)');
+  assert.equal(rows[1].why, 'changed since the scan');
+  assert.equal(rows[0].sizeText, '5 B');
+  assert.equal(rows[1].sizeText, '-');
+  assert.deepEqual(P.trashHistoryRows(null), []);
+  assert.deepEqual(P.trashHistoryRows([null, { items: 'x' }, { request: 1, items: [null, 5] }]), []);
+});
+
+test('History rows escape a hostile folder name and reason', () => {
+  const rows = P.trashHistoryRows([{ request: 1, ts: 1, items: [{ id: 'a', path: '~/' + HOSTILE, label: 'safe', state: 'refused', code: 'x', reason: HOSTILE, bytes: null }] }]);
+  const text = JSON.stringify(rows[0]);
+  assert.ok(!/[‮​]/.test(text) && !text.includes('\\n'.replace('\\n', '\n')), 'no raw bidi, zero-width or newline');
+  assert.ok(rows[0].path.includes('\\u{202e}') && rows[0].why.includes('\\u{a}'));
+});
+
+test('the result summary matches the History rows built from the same request', () => {
+  const items = [item(1, 'moved'), item(2, 'refused', { code: 'changed', reason: 'changed', bytes: null }), item(4, 'failed', { code: 'move_failed', reason: 'busy', bytes: null }), item(5, 'not_attempted', { code: 'earlier_move_failed', bytes: null })];
+  const sum = P.trashSummary(commit(items, { ok: false, history_id: 12 }), {});
+  // What GET /api/history returns for that request: the same items, with `state` where the reply says `status`.
+  const moves = [{ request: sum.historyId, ts: 1, bytes: 0, items: items.map((i) => ({ id: i.id, path: i.path, label: i.label, state: i.status, code: i.code, reason: i.reason, bytes: i.bytes })) }];
+  const rows = P.trashHistoryRows(moves);
+  const tally = (st) => rows.filter((r) => r.state === st).length;
+  for (const st of ['moved', 'refused', 'failed', 'not_attempted']) assert.equal(tally(st), sum.counts[st], st);
+  assert.equal(rows.length, sum.items.length);
+  assert.equal(rows.filter((r) => r.state === 'moved').reduce((n, r) => n + (r.bytes || 0), 0), sum.moved.bytes);
+  assert.deepEqual(rows.map((r) => r.requestText), Array(4).fill('Request 12'));
+  assert.deepEqual(rows.map((r) => r.state), sum.items.map((i) => i.status));
 });

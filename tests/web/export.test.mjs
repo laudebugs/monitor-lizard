@@ -146,7 +146,7 @@ test('every table column the page draws has an export value', () => {
     const ids = [...mm[2].matchAll(/\{ label: '([^']+)'(?:, sort: '(\w+)')?(?:, id: '(\w+)')?[^}]*\}/g)].filter((x) => !x[0].includes('action: true')).map((x) => X.colId({ id: x[3], sort: x[2], label: x[1] }));
     assert.deepEqual([...(have[mm[1]] || [])].sort(), ids.sort(), 'table ' + mm[1]);
   }
-  assert.equal(seen, 9);
+  assert.equal(seen, 10);
 });
 
 // The per-column export values, loaded with the small page helpers they call and stand-ins for the rest.
