@@ -27,6 +27,7 @@ pub const SOURCES: &[Source] = &[
     Source { path: "/js/page-persistence.js", content_type: JS, text: include_str!("../web/page-persistence.js") },
     Source { path: "/js/page-network.js", content_type: JS, text: include_str!("../web/page-network.js") },
     Source { path: "/js/page-history.js", content_type: JS, text: include_str!("../web/page-history.js") },
+    Source { path: "/js/chart-hover.js", content_type: JS, text: include_str!("../web/chart-hover.js") },
     Source { path: "/js/page-performance.js", content_type: JS, text: include_str!("../web/page-performance.js") },
     Source { path: "/js/page-storage.js", content_type: JS, text: include_str!("../web/page-storage.js") },
     Source { path: "/js/page-guide.js", content_type: JS, text: include_str!("../web/page-guide.js") },

@@ -56,6 +56,10 @@ const PAIRS = [
   ['fg2', 'bg', 4.5, 'secondary text'],
   ...['bg', 'panel', 'panel2', 'sel'].map((s) => ['mut', s, 4.5, 'muted text']),
   ...['bg', 'panel', 'panel2', 'sel'].map((s) => ['acc', s, 4.5, 'accent text (links, selected option)']),
+  ['fg', 'panel2', 4.5, 'chart tooltip value and label'],
+  ['fg2', 'panel2', 4.5, 'chart tooltip time'],
+  ['edge', 'panel', 3, 'chart tooltip border'],
+  ...['bg', 'panel'].map((s) => ['fg2', s, 3, 'chart guide line']),
   ['accfg', 'acc', 4.5, 'primary button label'],
   ['accfg', 'acchov', 4.5, 'primary button label on hover'],
   ['link', 'bg', 4.5, 'link text'],
@@ -208,4 +212,15 @@ test('forced colors name a border for every button variant and GrayText for a di
   assert.match(fc, /--bd:ButtonText/);
   assert.match(fc, /--bd:Highlight/);
   assert.match(fc, /--bd:GrayText;--fill:ButtonFace;--ink:GrayText/);
+});
+
+test('the chart tooltip reads only tokens the contrast pairs cover, and forced colors use system colors', () => {
+  const tip = css.match(/\.chart-tip\{([^}]*)\}/)[1];
+  assert.match(tip, /background:var\(--panel2\)/);
+  assert.match(tip, /color:var\(--fg\)/);
+  assert.match(tip, /border:1px solid var\(--edge\)/);
+  assert.match(css.match(/\.chart-tip-t\{([^}]*)\}/)[1], /color:var\(--fg2\)/);
+  assert.match(css.match(/\.chart-guide\{([^}]*)\}/)[1], /var\(--fg2\)/);
+  const fc = css.match(/@media\(forced-colors:active\)\{\.chart-tip\{[^\n]*/)[0];
+  for (const w of ['Canvas', 'CanvasText', 'Highlight']) assert.ok(fc.includes(w), w + ' is missing from the forced-colors chart rules');
 });

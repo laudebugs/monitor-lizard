@@ -71,11 +71,24 @@ a{color:var(--link)}
 .tile.stale{opacity:.6}
 .spark{display:block;width:100%;height:46px;margin-top:auto}
 .spark.big{height:90px;margin-top:0}
+.chart{position:relative;display:block;width:100%;touch-action:pan-y}
+.chart-tile{margin-top:auto}.chart .spark{margin-top:0}
+.chart:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.chart [hidden]{display:none!important}
+/* The marker layer sits over the chart (absolute, no pointer events), so showing it never resizes the chart or moves the page. */
+.chart-guide{position:absolute;top:0;bottom:0;width:0;border-left:1px solid var(--fg2);pointer-events:none}
+.chart-dot{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid var(--panel);pointer-events:none}
+.chart-tip{position:absolute;bottom:calc(100% + 6px);z-index:4;display:flex;flex-direction:column;gap:2px;padding:6px 8px;background:var(--panel2);color:var(--fg);border:1px solid var(--edge);font:12px/1.35 var(--font-sans);white-space:nowrap;pointer-events:none;transform:translateX(10px);text-align:left;font-weight:400;text-transform:none;letter-spacing:0}
+.chart-tip.flip{transform:translateX(calc(-100% - 10px))}
+.chart-tip-t{color:var(--fg2)}
+.chart-tip-r{display:flex;align-items:center;gap:4px}.chart-tip-r b{font:500 12px/1.35 var(--font-mono)}
+.chart-sw{display:inline-block;width:8px;height:8px;flex:none}
+@media(forced-colors:active){.chart-tip{background:Canvas;color:CanvasText;border-color:CanvasText}.chart-tip-t{color:CanvasText}.chart-guide{border-left-color:CanvasText}.chart-dot{forced-color-adjust:none;background:Highlight!important;border-color:Canvas}.chart-sw{forced-color-adjust:none;background:CanvasText!important}.chart:focus-visible{outline-color:Highlight}}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 /* Nothing on this page animates today, but this page polls and redraws every 2s indefinitely, so
    any transition added here later is exactly the kind of persistent motion this media query exists
    for; stated up front rather than left to be remembered when that first transition is added. */
-@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *,.btn,.chip,.tag,.sel-btn{transition:none!important;animation:none!important}}
+@media(prefers-reduced-motion:reduce){.tile,.spark,.spark *,.chart-guide,.chart-dot,.chart-tip,.btn,.chip,.tag,.sel-btn{transition:none!important;animation:none!important}}
 /* Outline buttons: a real 2px border and a transparent fill, so the edge shows in every theme and forced-colors needs no clip-path workaround.
    Variants set only --fill, --bd and --ink; hover, focus and disabled read them, so every variant shows every state. */
 .btn{--fill:transparent;--bd:var(--edge);--ink:var(--fg);display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:5px 18px;border:2px solid var(--bd);background:var(--fill);color:var(--ink);font:600 12px/1.3 var(--font-mono);text-transform:uppercase;letter-spacing:.08em;text-align:center}
