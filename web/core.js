@@ -376,7 +376,7 @@ function build(fn) {
 }
 const rec = (m) => { if ('sel' in m && m.sel !== S.sel) m = Object.assign({ expand: { procs: false, conns: false }, selFromUrl: false }, m); Object.assign(S, m); render(); };
 // Background polls must not rebuild the DOM under an open menu or dialog.
-const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && !trashOpen()) render(); };
+const quiet = (m) => { Object.assign(S, m); if (!S.menu && !S.modal && (vnodeMode() || !trashOpen())) render(); };
 const media = matchMedia('(prefers-color-scheme: light)');
 const applyTheme = () => { document.documentElement.dataset.theme = S.theme === 'system' ? (media.matches ? 'light' : 'dark') : S.theme; };
 const setTheme = (t) => { localStorage.setItem('monitor-lizard-theme', t); S.theme = t; applyTheme(); render(); };

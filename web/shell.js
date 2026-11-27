@@ -89,21 +89,24 @@ function render() {
     }
   }
   else show(pageShell({ title: 'Unknown view', body: h('p', { class: 'mut' }, 'Unknown view.') })); // every NAV id has a branch above; this only guards a future NAV entry added without one
-  const m = S.modal, layer = [];
+  let trash = null; const layer = [];
+  build(() => {
+  const m = S.modal;
   if (m) layer.push(h('div', { class: 'overlay' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Confirm stop' },
     h('h2', {}, (m.count > 1 ? 'Quit ' : 'Stop ') + m.label + '?'),
     h('p', { class: 'mut small', style: 'margin:0' }, evidenceLine(m.label, m.cpuPct)),
     h('p', { class: 'mut', style: 'margin:0;line-height:1.5' }, m.count > 1 ? 'All ' + m.count + ' of your processes in this app receive SIGTERM and get a chance to save. Unsaved work may be lost.' : 'This process receives SIGTERM. If it ignores it, use Force quit.'),
     h('div', { class: 'code' }, 'kill -TERM ' + m.pids.slice(0, 6).join(' ') + (m.pids.length > 6 ? ' ... (+' + (m.pids.length - 6) + ')' : '')),
     h('div', { style: 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap' }, h('button', { class: 'btn', onClick: () => rec({ modal: null }) }, 'Cancel'), h('button', { class: 'btn btn-danger quiet', onClick: () => stop('TERM') }, 'Quit (SIGTERM)'), h('button', { class: 'btn btn-danger', onClick: () => stop('KILL') }, 'Force quit (SIGKILL)')))));
-  const trash = trashLayer();
+  trash = trashLayer();
   if (trash) layer.push(trash);
   if (S.toast) layer.push(h('div', { class: 'toast', role: 'status' }, h('span', {}, S.toast), h('button', { class: 'btn sm', onClick: () => rec({ toast: null }) }, 'Dismiss')));
   if (S.copyText) layer.push(h('div', { class: 'copybox', role: 'dialog', 'aria-label': 'Copy blocked' }, h('p', { class: 'small', style: 'margin:0' }, 'The browser did not allow copying. The text is selected: press Cmd+C.'),
     h('textarea', { readonly: true, rows: 8, 'aria-label': 'Row as JSON' }, S.copyText), h('button', { class: 'btn sm', onClick: () => rec({ copyText: null }) }, 'Close')));
-  $('layer').replaceChildren(...layer);
+  });
+  if (vnodeMode()) commit($('layer'), layer); else { if (owned.has($('layer'))) { window.preact.render(null, $('layer')); owned.delete($('layer')); } $('layer').replaceChildren(...layer); }
   decorateTables();
-  const af = (trash || document).querySelector('[data-autofocus]'); if (af) af.focus();
+  const af = vnodeMode() ? null : (trash || document).querySelector('[data-autofocus]'); if (af) af.focus();
   else if (hadReq) { const el = [...document.querySelectorAll('[data-req]')].find((x) => x.dataset.req === hadReq); if (el) el.focus(); } // a poll redraws the page; keep the keyboard where it was
   syncHash(S, location, history, S.hashReplace);
   S.hashReplace = false;

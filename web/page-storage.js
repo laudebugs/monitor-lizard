@@ -390,6 +390,9 @@ function storage() {
 // newline or a zero-width character shows as an escape instead of rearranging what the confirmation says.
 const trashOpen = () => !!(S.trash && S.trash.phase !== 'idle');
 const trashFocusBack = () => { const t = $('st-trash-btn') || $('main'); if (t) t.focus(); };
+// Preact renderer: refs run when the dialog mounts and unmounts, which replaces the render-time focus and inert bookkeeping.
+const trashOverlayRef = (el) => { const sh = document.querySelector('.shell'); if (sh) sh.inert = !!el; if (!el) trashFocusBack(); };
+const trashHeadingRef = (el) => { if (el) el.focus(); };
 function openTrash(sel) { trashDispatch({ type: 'open', selection: sel }); }
 // Runs the machine and its effects without drawing. Returns true when focus should go back to where the dialog began.
 function trashApply(ev) {
@@ -407,7 +410,7 @@ function trashApply(ev) {
 function trashDispatch(ev) {
   const focus = trashApply(ev);
   render();
-  if (focus) trashFocusBack();
+  if (focus && !vnodeMode()) trashFocusBack();
 }
 async function trashRequest(fx) {
   let status = 0, body = null;
@@ -418,7 +421,7 @@ async function trashRequest(fx) {
 // A rescan or the address can change what is selected, or a folder's label, while the dialog is open. It is called from
 // inside render(), so focus is moved afterwards.
 function trashSync(selection) {
-  if (trashApply({ type: 'selection', key: selection.key })) setTimeout(trashFocusBack, 0);
+  if (trashApply({ type: 'selection', key: selection.key }) && !vnodeMode()) setTimeout(trashFocusBack, 0);
 }
 const trashClose = () => trashDispatch({ type: 'close' });
 // One Escape closes one layer: the Trash dialog if it is open, otherwise the Stop dialog.
@@ -494,9 +497,9 @@ function trashDialog() {
   if (!t || t.phase === 'idle') return null;
   const title = { previewing: 'Checking before anything moves', previewed: 'Move to the Trash?', 'confirming-yours': t.yours.length === 1 ? 'Include your own folder in the preview?' : 'Include your own folders in the preview?',
     moving: 'Moving to the Trash', done: 'Result', error: 'Could not finish' }[t.phase];
-  return h('div', { class: 'overlay' }, h('div', { class: 'modal trash-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'trash-title', 'aria-describedby': 'trash-desc',
+  return h('div', { class: 'overlay', ref: vnodeMode() ? trashOverlayRef : null }, h('div', { class: 'modal trash-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'trash-title', 'aria-describedby': 'trash-desc',
     'aria-busy': t.phase === 'previewing' || t.phase === 'moving' ? 'true' : null, tabindex: '-1', onKeydown: trashKeys },
-  h('h2', { id: 'trash-title', tabindex: '-1', 'data-autofocus': '' }, title),
+  h('h2', { id: 'trash-title', tabindex: '-1', 'data-autofocus': '', key: vnodeMode() ? t.phase : null, ref: vnodeMode() ? trashHeadingRef : null }, title),
   h('div', { id: 'trash-desc', class: 'trash-body' }, trashBody(t)),
   h('div', { class: 'trash-buttons' }, trashButtons(t))));
 }
@@ -504,7 +507,7 @@ function trashDialog() {
 // frozen under an invisible dialog (background updates are held while one is open) is worse than a lost preview.
 function trashLayer() {
   const shell = document.querySelector('.shell');
-  if (trashOpen() && S.view !== 'storage' && S.trash.phase !== 'moving' && trashApply({ type: 'leave' })) setTimeout(trashFocusBack, 0);
+  if (trashOpen() && S.view !== 'storage' && S.trash.phase !== 'moving' && trashApply({ type: 'leave' }) && !vnodeMode()) setTimeout(trashFocusBack, 0);
   let node = null;
   try { node = trashDialog(); }
   catch (e) {
@@ -512,7 +515,7 @@ function trashLayer() {
     S.trash = trashIdle();
     announce('The dialog could not be drawn and was closed. ' + (moving ? 'A move may have started: open History to check.' : 'Nothing was moved.'));
   }
-  if (shell) shell.inert = !!node; // the page behind a dialog is out of reach of the keyboard and screen readers
+  if (shell && !vnodeMode()) shell.inert = !!node; // the page behind a dialog is out of reach of the keyboard and screen readers
   return node;
 }
 /* storage-trash-view:end */
