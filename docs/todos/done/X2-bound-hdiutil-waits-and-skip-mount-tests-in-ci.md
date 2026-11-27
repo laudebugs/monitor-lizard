@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `X2` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [system-monitor](../../plans/system-monitor.md) |
 | Depends on | None |
 | ADRs | None |
@@ -109,8 +109,8 @@ hdiutil info
 - [x] Follows the applicable guidelines
 - [x] Two independent reviews (standards and spec) ran on PR #78; their findings are fixed in the follow-up commit
 - [x] `/writing-review` run on any prose
-- [x] `make check` and `make test` green locally (default, 1 and 8 threads); CI on the PR not yet seen
-- [ ] (waits for green CI on the PR) Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `make check` and `make test` green locally (default, 1 and 8 threads); CI on the PR green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
@@ -120,3 +120,5 @@ hdiutil info
 - The two trash mount tests skip when `GITHUB_ACTIONS` or `CI` is set, unless `ML_RUN_MOUNT_TESTS=1`. The mount-crossing refusal is verified on a developer's machine only; the device comparison itself is now `walk::crosses`, unit-tested in CI. No behaviour change: the same `!=` comparison, moved into a function.
 - Deviation from the sketch: the flake needed a product change in `src/requester_signal.rs` (`ended`/`gone`). Nobody has seen CONT fail on a process macOS had already ended; the mechanism is inferred from a local STOP then TERM check.
 - Still open: CI on the PR has not run, so the step timeout and the skip are unobserved on a hosted runner; the freeze cause is unproven; the ESRCH race was never reproduced locally.
+
+Result after merge, 2026-11-27: #78 merged as 60c5771; the next PR runs (#78's own and #73) passed `make test` in 1 to 3 minutes. The freeze was intermittent before (about 2 of 8 CI jobs), so a few green runs are not proof; its cause is still unproven. Watch the next ten PR runs; if a hang returns, the 12-minute step limit makes it fail fast.

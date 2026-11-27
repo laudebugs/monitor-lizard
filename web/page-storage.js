@@ -34,7 +34,6 @@ async function loadStorage(fresh) {
 function rescanNow() {
   const info = rescanInfo(S.stData, Date.now() / 1000);
   if (info.ok) { loadStorage(true); return; }
-  rec({ stNote: info.text });
   announce(info.text);
 }
 // Picking the tile that is already picked clears it. Focus goes back to the tile, since render() rebuilds it.
@@ -138,10 +137,10 @@ const stRelated = () => stPart('Related', h('a', { href: writeHash({ view: 'perf
 // Not a disabled attribute: that would take the button out of the tab order, and a keyboard user would never learn why.
 // `rows` are the selected rows; the button opens a preview and never moves anything itself.
 function stTrashButton(rows) {
-  const sel = trashSelection(rows || [], (rows || []).map((r) => r.id)), yours = sel.yours.length > 0;
+  const sel = trashSelection(rows || [], (rows || []).map((r) => r.id), !safeKnown(S.stData)), yours = sel.yours.length > 0;
   const help = sel.ok ? 'Shows what would move first. Nothing moves until you confirm.' + (yours ? ' Your own folder asks for a second confirmation.' : '') : sel.why;
   return h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
-    h('button', { class: 'btn btn-danger quiet sm', id: 'st-trash-btn', type: 'button', 'aria-disabled': sel.ok ? null : 'true',
+    h('button', { class: 'btn btn-danger quiet sm', id: 'st-trash-btn', 'data-req': 'st-trash-btn', type: 'button', 'aria-disabled': sel.ok ? null : 'true',
       'aria-describedby': 'st-trash-why', onClick: (e) => { if (!sel.ok) { e.preventDefault(); announce(sel.why); return; } openTrash(sel); } },
     'Move to Trash'),
     h('span', { class: 'small mut', id: 'st-trash-why' }, help));
@@ -268,12 +267,15 @@ function stBanner(d, state) {
 }
 function stActions(d, now) {
   const info = rescanInfo(d, now), busy = !!(d && d.scanning);
-  const hint = info.ok || busy ? 'Scans the known folders again. It only reads, and takes up to 20 seconds.'
-    : info.text;
-  return [busy ? h('span', { class: 'small mut' }, scanningText(d, now)) : null,
-    h('button', { class: 'btn sm', type: 'button', disabled: busy, title: hint, onClick: rescanNow },
-      busy ? 'Scanning...' : 'Rescan'),
-    d && typeof d.scanned_at === 'number' ? h('button', { class: 'btn sm', id: 'st-export-btn', type: 'button', 'aria-expanded': String(S.stAsk),
+  const hint = info.ok ? 'Scans the known folders again. It only reads, and takes up to 20 seconds.' : info.text;
+  // aria-disabled, not disabled: the button stays in the tab order and its reason is read from the text beside it.
+  // rescanNow reads the live scan state, so a click while it cannot act announces why and sends nothing.
+  // data-req: render() gives the keyboard back to this button after a poll or a click redraws the page.
+  return [info.ok ? null : h('span', { class: 'small mut', id: 'st-rescan-why' }, busy ? scanningText(d, now) : info.text),
+    h('button', { class: 'btn sm', id: 'st-rescan-btn', 'data-req': 'st-rescan-btn', type: 'button', 'aria-disabled': info.ok ? null : 'true',
+      'aria-describedby': info.ok ? null : 'st-rescan-why', title: hint, onClick: rescanNow },
+      'Rescan'),
+    d && typeof d.scanned_at === 'number' ? h('button', { class: 'btn sm', id: 'st-export-btn', 'data-req': 'st-export-btn', type: 'button', 'aria-expanded': String(S.stAsk),
       'aria-controls': 'st-export', onClick: () => stFocus(S.stAsk ? 'st-export-btn' : 'st-export-go', { stAsk: !S.stAsk }) }, 'Export HTML report') : null];
 }
 // Clean-ups list: the folders the scan labelled, largest first, top ST_CLEANUP_TOP unless "Show all" is on.
@@ -301,12 +303,14 @@ function cleanupRow(r, on) {
 const stPickSig = () => [S.stTile, S.stfilter, S.q].join('|');
 function storageCleanups(list, sel, picked) {
   const v = cleanupView(list, S.stAll), safe = safeIds(list), none = !safe.length;
-  const reviewAll = h('button', { class: 'btn sm', type: 'button', disabled: none, title: none ? 'Nothing safe to remove' : 'Select every safe folder in the inspector',
-    onClick: () => {
+  const reviewAll = h('button', { class: 'btn sm', type: 'button', 'data-req': 'st-review-all', 'aria-disabled': none ? 'true' : null, 'aria-describedby': none ? 'st-cleanups-sum' : null,
+    title: none ? 'Nothing safe to remove' : 'Select every safe folder in the inspector',
+    onClick: (e) => {
+      if (none) { e.preventDefault(); announce('Nothing safe to remove'); return; }
       // Every safe folder must be in the table the selection is tied to, so the filters go back to all.
       S.q = ''; $('q').value = ''; S.stTile = ST_ALL; S.stfilter = ST_ALL; S.stMultiSig = stPickSig();
       rec({ stMulti: safe, stItem: null, page: {} });
-      announce(plural(safe.length, 'safe folder', 'safe folders') + ' selected: ' + safeSubtotalText(list) + '. Details are in the inspector.');
+      announce(safeSelectedLine(S.stData, list));
     } }, 'Review all safe');
   const pickedIds = new Set(picked.map((r) => r.id));
   const colHead = h('div', { class: 'small mut', 'aria-hidden': 'true', style: CLEAN_COLS + ';display:grid;gap:12px;padding:0 16px 6px' },
@@ -314,8 +318,8 @@ function storageCleanups(list, sel, picked) {
   return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-label': 'Suggested clean-ups' },
     h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px' },
       h('h2', { class: 'sec', style: 'margin:0' }, 'Suggested clean-ups'), h('span', { class: 'grow' }), reviewAll),
-    h('p', { class: 'small mut', style: 'margin:0 0 10px' }, cleanupSummary(list) + '. ' + safeCleanupLine(list)
-      + (safe.length ? ', ' + safeSubtotalText(list) : '') + '.'),
+    h('p', { class: 'small mut', id: 'st-cleanups-sum', style: 'margin:0 0 10px' }, cleanupSummary(list) + '. ' + safeCleanupLine(list)
+      + safeSummaryTail(S.stData, list)),
     list.length ? [scrollBox('Suggested clean-ups', rowFloor(CLEAN_TRACKS), colHead,
         h('ul', { style: listReset, 'aria-label': 'Folders, largest first' }, v.shown.map((r) => cleanupRow(r, (!!sel && sel.id === r.id) || pickedIds.has(r.id))))),
       v.hidden ? h('div', { style: 'padding-top:10px;display:flex;gap:10px;align-items:center' },
@@ -348,11 +352,11 @@ function exportReport(d, rows, shown, now, filterText) {
   download(fileName('storage-report', 'html', new Date(now * 1000)), 'text/html', html);
   stFocus('st-export-btn', { stAsk: false, toast: 'Report downloaded.' });
 }
-function stMultiInspector(picked, total) {
+function stMultiInspector(picked, total) { // `total` is already text: a partial scan passes the withheld line
   return h('aside', { class: 'drawer card', 'aria-label': 'Selected folders' },
     h('div', { class: 'insp-head' }, h('h2', { class: 'grow', style: 'font-size:16px;font-weight:600;margin:0' }, plural(picked.length, 'safe folder', 'safe folders') + ' selected'),
       h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ stMulti: [] }) }, 'Clear')),
-    stKv(['Total', sumText(total)]),
+    stKv(['Total', total]),
     stPart('Folders', h('ul', { style: 'margin:0;padding:0;list-style:none;font-size:13px' }, picked.map((r) => h('li', { style: 'display:flex;gap:8px;justify-content:space-between;word-break:break-all' }, h('span', {}, r.name), h('span', { class: 'mut', style: 'flex:none' }, sizeText(r)))))),
     h('div', { style: 'padding:0 16px 14px' }, stTrashButton(picked)));
 }
@@ -373,14 +377,14 @@ function storage() {
   // A selection belongs to the filters it was made under: changing the section, label or search drops it.
   if (S.stMulti.length && S.stMultiSig !== stPickSig()) S.stMulti = [];
   const cleanList = stCleanups(rows), picked = sel ? [] : pickedRows(cleanList, S.stMulti);
-  if (trashOpen()) { const now = sel ? [sel] : picked; trashSync(trashSelection(now, now.map((r) => r.id))); }
+  if (trashOpen()) { const now = sel ? [sel] : picked; trashSync(trashSelection(now, now.map((r) => r.id), !safeKnown(S.stData))); }
   const filterText = (tile === ST_ALL ? 'All sections' : 'Section: ' + tile) + ', ' + (S.stfilter === ST_ALL ? 'all labels' : 'label ' + S.stfilter) + (S.q.trim() ? ', search "' + S.q.trim() + '"' : '');
   return pageShell({ title, subtitle: coverageText(d) + ', ' + measuredText(d.scanned_at, now), actions,
     filters: stFilterChips(labelCounts(found)),
     body: h('div', { style: 'flex:999 1 640px;min-width:0' }, note, failed, stStrip(d, state, now), stBanner(d,
       state), stExportPanel(d, rows, shown, now, filterText), stTreemap(tiles, tile, state),
       storageCleanups(cleanList, sel, picked), systemDataCard(d), stTable(shown, sel, tile)),
-    inspector: sel ? stItemInspector(sel) : picked.length ? stMultiInspector(picked, sumSizes(picked)) : stSectionInspector(d, state, rows, tiles, tile) });
+    inspector: sel ? stItemInspector(sel) : picked.length ? stMultiInspector(picked, safeSumFor(d, picked)) : stSectionInspector(d, state, rows, tiles, tile) });
 }
 
 /* storage-trash-view:begin */
@@ -489,7 +493,8 @@ function trashButtons(t) {
       h('button', { class: 'btn btn-danger', type: 'button', onClick: () => trashDispatch({ type: 'yours-yes' }) }, 'Include ' + trashNames(t.yours) + ' and preview again')];
   }
   const needsYours = t.yours.length > 0 && !t.confirmYours, can = needsYours || !!t.token;
-  return [cancel(), h('button', { class: 'btn btn-danger', type: 'button', disabled: can ? null : true, 'aria-describedby': can ? null : 'trash-desc', onClick: () => trashDispatch({ type: 'move' }) },
+  return [cancel(), h('button', { class: 'btn btn-danger', id: 'trash-move-btn', type: 'button', 'aria-disabled': can ? null : 'true', 'aria-describedby': can ? null : 'trash-desc',
+    onClick: (e) => { if (!can) { e.preventDefault(); announce('Nothing can be moved. The preview lists why.'); return; } trashDispatch({ type: 'move' }); } },
     needsYours ? 'Continue' : can ? 'Move ' + plural(sum.counts.would_move, 'folder', 'folders') + ' to the Trash' : 'Nothing can be moved')];
 }
 function trashDialog() {

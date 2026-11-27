@@ -30,6 +30,7 @@ pub const SOURCES: &[Source] = &[
     Source { path: "/js/page-performance.js", content_type: JS, text: include_str!("../web/page-performance.js") },
     Source { path: "/js/page-storage.js", content_type: JS, text: include_str!("../web/page-storage.js") },
     Source { path: "/js/page-guide.js", content_type: JS, text: include_str!("../web/page-guide.js") },
+    Source { path: "/js/search.js", content_type: JS, text: include_str!("../web/search.js") },
     Source { path: "/js/helpers.js", content_type: JS, text: include_str!("../web/helpers.js") },
     Source { path: "/js/page-storage-logic.js", content_type: JS, text: include_str!("../web/page-storage-logic.js") },
     Source { path: "/js/shell.js", content_type: JS, text: include_str!("../web/shell.js") },

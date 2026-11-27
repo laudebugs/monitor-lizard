@@ -174,9 +174,12 @@ function visibleRows(rows, tiles, tileId, label) {
   return rows.filter((r) => (cats == null ? true : r.kind === 'item' && cats.includes(r.category)) && (label === 'all' || r.label === label));
 }
 const labelCounts = (rows) => Object.assign({ all: rows.length }, ...ST_LABELS.map((l) => ({ [l]: rows.filter((r) => r.label === l).length })));
+// On a partial scan every size is a lower bound that can only grow, so one place decides when a safe total may be stated.
+const SAFE_WITHHELD = 'Safe total: not shown until the scan is complete';
+const safeKnown = (d) => storageState({ data: d }) === 'complete';
 // The "safe to remove" total exists only for a complete scan. Before that there is no number to misread.
 function safeTotalText(d, rows) {
-  if (storageState({ data: d }) !== 'complete') return 'Not shown until the scan is complete.';
+  if (!safeKnown(d)) return SAFE_WITHHELD;
   const safe = rows.filter((r) => r.kind === 'item' && r.label === ST_LABEL.safe);
   return atLeast(safe.reduce((n, r) => n + (r.bytes || 0), 0), safe.some((r) => r.bytes == null || r.lowerBound));
 }
@@ -306,6 +309,13 @@ const cleanupSummary = (list) => (list.length ? plural(list.length, 'folder', 'f
 // The safe subtotal and the inspector's total for "Review all safe" both come from sumText over the same rows, so the
 // wording ("at least", unavailable sizes) cannot differ between them.
 const safeSubtotalText = (list) => sumText(sumSizes(pickedRows(list, safeIds(list))));
+// On a partial scan every size is a lower bound that can only grow, so a safe total would read as final and be wrong.
+// Each place that states one (the list summary, the Review all safe announcement, the multi-select total) goes through here.
+const safeSumFor = (d, picked) => (safeKnown(d) ? sumText(sumSizes(picked)) : SAFE_WITHHELD);
+// The clean-ups summary tail and the Review all safe announcement, so the rule is read in one place.
+const safeSummaryTail = (d, list) => (!safeIds(list).length ? '.' : safeKnown(d) ? ', ' + safeSubtotalText(list) + '.' : '. ' + SAFE_WITHHELD + '.');
+const safeSelectedLine = (d, list) => plural(safeIds(list).length, 'safe folder', 'safe folders') + ' selected'
+  + (safeKnown(d) ? ': ' + safeSubtotalText(list) + '. ' : '. Total not shown until the scan is complete. ') + 'Details are in the inspector.';
 const safeCleanupLine = (list) => { const ids = safeIds(list); return ids.length ? plural(ids.length, 'safe folder', 'safe folders') : 'Nothing safe to remove'; };
 
 // One reading of a section for Inside System Data: a size, or the reason there is none. Never 0 for a section that could not be read.
@@ -384,10 +394,11 @@ const trashKey = (items) => (items || []).map((i) => i.id + ':' + i.label).sort(
 const trashIdle = () => ({ phase: 'idle', seq: 0 });
 // What the selected rows allow. `rows` are storageRows() items, whose labels already went through shownLabel, so a
 // label the page does not trust is never treated as safe here. `ids` empty or `ok: false` keeps the button inert.
-function trashSelection(rows, ids) {
+// `partial` is true while the scan is not complete: every size is then a lower bound, so the dialog says "at least".
+function trashSelection(rows, ids, partial) {
   const want = [...new Set(ids || [])], by = new Map((rows || []).map((r) => [r.id, r]));
   const picked = want.map((id) => by.get(id)).filter((r) => r && r.kind === 'item');
-  const named = (r) => ({ id: r.id, name: visible(r.name), path: visible(r.path), label: r.label === ST_LABEL.safe || r.label === ST_LABEL.yours ? r.label : ST_LABEL.review, bytes: r.bytes == null ? null : r.bytes, lowerBound: !!r.lowerBound });
+  const named = (r) => ({ id: r.id, name: visible(r.name), path: visible(r.path), label: r.label === ST_LABEL.safe || r.label === ST_LABEL.yours ? r.label : ST_LABEL.review, bytes: r.bytes == null ? null : r.bytes, lowerBound: !!r.lowerBound || !!partial });
   const items = picked.map(named), yours = items.filter((r) => r.label === ST_LABEL.yours);
   let why = null;
   if (!want.length) why = 'Select a folder first';
@@ -411,7 +422,9 @@ function trashSummary(body, known) {
   });
   const counts = Object.fromEntries(TRASH_STATUSES.map((s) => [s, items.filter((i) => i.status === s).length]));
   const sized = (s) => items.filter((i) => i.status === s);
-  const sum = (s) => ({ bytes: sized(s).reduce((n, i) => n + (i.bytes || 0), 0), unknown: sized(s).filter((i) => i.bytes == null).length });
+  // A folder the scan only partly measured counts as a lower bound, so the sum says "at least".
+  const sum = (s) => ({ bytes: sized(s).reduce((n, i) => n + (i.bytes || 0), 0), unknown: sized(s).filter((i) => i.bytes == null).length,
+    partial: sized(s).filter((i) => known && known[i.id] && known[i.id].lowerBound).length });
   return { items, counts, would: sum('would_move'), moved: sum('moved'), historyId: Number.isInteger(b.history_id) && b.history_id >= 0 ? b.history_id : null,
     token: typeof b.confirm_token === 'string' && b.confirm_token ? b.confirm_token : null, dryRun: b.dry_run !== false, okFlag: b.ok === true,
     note: typeof b.note === 'string' && b.note ? visible(b.note) : TRASH_PUT_BACK, auditError: typeof b.audit_error === 'string' && b.audit_error ? visible(b.audit_error) : null,
@@ -429,7 +442,7 @@ function trashDisagrees(b, items, counts) {
   if (Array.isArray(b.moved) && b.moved.length !== counts.moved) return true;
   return false;
 }
-const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0).replace(/^unavailable$/, 'unknown size');
+const trashBytes = (s) => atLeast(s.bytes, s.unknown > 0 || s.partial > 0).replace(/^unavailable$/, 'unknown size');
 // A refusal of the whole request: a plain sentence and the way forward. `moved` says whether a body listed anything moved.
 function trashProblem(status, code, committing) {
   const again = ' Nothing was moved. Preview again to continue.';
