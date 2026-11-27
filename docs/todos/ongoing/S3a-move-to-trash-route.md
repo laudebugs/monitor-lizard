@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `S3a` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D5, D10 |
 | Depends on | S1 |
 | ADRs | [0002](../../decisions/0002-rust-core-polling-collectors-local-web-ui.md) |
