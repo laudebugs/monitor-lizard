@@ -14,3 +14,4 @@ A plan is the design: what we build and why, the current state, the decisions, a
 | [resource-monitoring.md](resource-monitoring.md) | Draft |
 | [classifier-agent.md](classifier-agent.md) | Draft |
 | [storage-and-guide.md](storage-and-guide.md) | Draft |
+| [ui-components.md](ui-components.md) | Draft |

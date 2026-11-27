@@ -14,3 +14,4 @@ One file per hard-to-reverse decision. Agents must not assume a decision that is
 | [0002](0002-rust-core-polling-collectors-local-web-ui.md) | Rust core with polling collectors and a loopback web dashboard | Accepted | [system-monitor](../plans/system-monitor.md) |
 | [0003](0003-classifier-agent-rust-loop-buildanagent-evals.md) | The classifier loop lives in Rust; buildanagent is used for evals | Accepted | [system-monitor](../plans/system-monitor.md) |
 | [0004](0004-tauri-menu-bar-shell.md) | A Tauri menu-bar shell runs the existing server and page | Proposed | [storage-and-guide](../plans/storage-and-guide.md) |
+| [0005](0005-preact-vendored-no-build-step.md) | Build the dashboard UI with Preact, vendored, with no build step | Proposed | [ui-components](../plans/ui-components.md) |
