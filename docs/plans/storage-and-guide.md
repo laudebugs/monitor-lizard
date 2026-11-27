@@ -58,7 +58,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | S2a | Storage page: status strip, treemap, table, inspector | S1, B7, T1a |
 | S2b | Storage page: suggested clean-ups, Inside System Data | S2a |
 | S3a | Move to Trash route and audit log | S1 |
-| S3b | Move to Trash on the page (built; the real-move check on a throwaway folder is the owner's) | S2a, S3a |
+| S3b | Move to Trash on the page (done 2026-11-27; the owner's real-move check on a throwaway folder checked out, without further detail) | S2a, S3a |
 | S4 | Capacity history and forecast | S1 |
 | S5 | Per-app disk writes (opt-in) | S2a, B3, B9 |
 | G1 | Guide table, `help` and `/api/guide` | None |
