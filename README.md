@@ -2,6 +2,11 @@
 
 Local-first macOS monitor that groups every process and network socket by app and flags anything that is not yours.
 
+<p align="center">
+  <img src="docs/img/overview-dark.png" alt="Monitor Lizard's Overview page, dark theme" width="49%">
+  <img src="docs/img/overview-light.png" alt="Monitor Lizard's Overview page, light theme" width="49%">
+</p>
+
     cargo run --release              # grouped snapshot + findings
     cargo run --release -- serve          # dashboard at http://127.0.0.1:4747 (Stop/Quit need the per-run token the page carries)
     cargo run --release -- approve "/Applications/Notion.app"   # also: host:<app key>|<address>, startup:<plist path>, finding:<app key>:<rule>#<ports>

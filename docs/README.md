@@ -14,6 +14,7 @@ Everything the project knows, written down. Agents and humans read the same file
 | [standards/](standards/) | What good output looks like here: coding, writing, and so on | Tagged (Current) or (Target) |
 | [guides/](guides/) | Runbooks, setup, how-tos | Written when someone would otherwise ask |
 | [reference/](reference/) | External specs, vendored docs, reading lists | Cite version and date |
+| [img/](img/) | Screenshots embedded in top-level docs | Retaken when the UI it shows changes |
 
 ## Every folder needs a README index
 
