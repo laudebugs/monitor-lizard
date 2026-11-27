@@ -4,11 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { html } from './page.mjs';
+import { html, webFile } from './page.mjs';
 const block = (name) => { const m = html.match(new RegExp('/\\* ' + name + ':begin \\*/([\\s\\S]*?)/\\* ' + name + ':end \\*/')); assert.ok(m, name + ' block not found in the dashboard scripts (web/*.js)'); return m[1]; };
-const unprefixedSrc = "const unprefixed = (key) => key.replace(/^(apple|dev|other):/, '');";
+const unprefixedSrc = webFile('core.js').match(/^const unprefixed = .*;$/m)[0]; // the one definition, in core.js
 const G = new Function(unprefixedSrc + block('requester') + block('url-state') + block('guide-search') + block('global-search')
-  + '\nreturn { searchAll, searchKey, searchOpen, searchWords, searchFlat, searchSummary, parseHash, writeHash, SEARCH_CAP, SEARCH_QUERY_MAX };')();
+  + '\nreturn { searchAll, searchKey, searchOpen, searchWords, searchFlat, searchSummary, searchWell, parseHash, writeHash, SEARCH_CAP, SEARCH_KEEP, SEARCH_QUERY_MAX };')();
 
 const conn = (o) => Object.assign({ direction: 'outbound', scope: 'public', proto: 'TCP', exposed: false }, o);
 const grp = (label, conns, key) => ({ key: key || 'other:/Applications/' + label + '.app', label, conns, trust: 'unknown' });
@@ -90,6 +90,18 @@ test('at most five per group, and the best five', () => {
   assert.equal(r.items.length, G.SEARCH_CAP);
   assert.equal(r.items[0].label, 'app', 'the exact match beats 40 prefix matches');
 });
+test('the 200-per-tier keep: an exact match after 250 prefix matches is still offered first', () => {
+  const many = Array.from({ length: 250 }, (_, i) => grp('app' + String(i).padStart(3, '0'), [conn({})]));
+  many.push(grp('app', [conn({})]));
+  const r = find(G.searchAll('app', { groups: many, seen: [], pers: [], guide: {} }), 'apps');
+  assert.equal(r.items[0].label, 'app');
+  assert.equal(r.kept, 201, 'one exact plus 200 of the 250 prefix matches');
+});
+test('a lone surrogate in an app key becomes the replacement character, so the selection is not silently dropped', () => {
+  assert.equal(G.searchWell('a\ud800b'), 'a\ufffdb'); assert.equal(G.searchWell('a\udc00'), 'a\ufffd'); assert.equal(G.searchWell('\ud83d\ude00'), '\ud83d\ude00');
+  const res = G.searchAll('bad', { groups: [grp('bad', [conn({})], 'other:/x\ud800')], seen: [], pers: [], guide: {} });
+  assert.ok(G.parseHash(res.groups[0].items[0].hash).sel.endsWith('\ufffd'));
+});
 test('regex metacharacters are plain text', () => {
   for (const q of ['.*', '(', '[', '\\', '^$', '(?<a>', '+', '?', '{1,2}', '|', 'a++']) assert.doesNotThrow(() => G.searchAll(q, data));
   assert.equal(G.searchAll('.*', data).groups.length, 0);
@@ -123,18 +135,21 @@ test('width and case variants match (NFKC, lower case)', () => {
   assert.equal(G.searchAll('\uFF23hrome', data).count > 0, true);
   assert.equal(G.searchAll('CHROME', data).count > 0, true);
 });
-test('10,000 apps, ports and startup items: one search stays under 50 ms', () => {
+test('10,000 apps, ports, hosts, history and startup items: the work is bounded, and a generous time limit is a smoke check', () => {
   const groups = Array.from({ length: 10000 }, (_, i) => grp('Application ' + i, [conn({ direction: 'listen', local_port: 1024 + (i % 60000) }), conn({ remote_addr: '10.' + (i >> 8 & 255) + '.' + (i & 255) + '.1' })]));
-  const big = { groups, seen: [], pers: Array.from({ length: 10000 }, (_, i) => ({ label: 'item.' + i, program: '/p/' + i, kind: 'LaunchAgent', scope: 'user' })), guide };
-  const qs = ['application', 'application 99', '10.1', '1500', 'item'];
-  for (const q of qs) G.searchAll(q, big); // warm up every path
-  for (const q of qs) {
-    // The fastest of five runs: one slow run is a garbage collection or a busy machine, not the search.
+  const seen = Array.from({ length: 10000 }, (_, i) => ({ group_key: 'k' + i, label: 'Old ' + i, remote: '172.16.' + (i >> 8 & 255) + '.' + (i & 255) }));
+  const big = { groups, seen, pers: Array.from({ length: 10000 }, (_, i) => ({ label: 'item.' + i, program: '/p/' + i, kind: 'LaunchAgent', scope: 'user' })), guide };
+  const cases = [['application', 'apps'], ['application 99', 'apps'], ['10.1', 'hosts'], ['172.16', 'hosts'], ['10', 'ports'], ['item', 'startup']];
+  for (const [q, id] of cases) {
     let ms = Infinity, res;
     for (let k = 0; k < 5; k++) { const t = performance.now(); res = G.searchAll(q, big); ms = Math.min(ms, performance.now() - t); }
-    assert.ok(ms < 50, q + ' took ' + ms.toFixed(1) + ' ms');
-    for (const g of res.groups) assert.ok(g.items.length <= G.SEARCH_CAP);
+    const g = find(res, id);
+    assert.ok(g, q + ' finds ' + id);
+    assert.equal(g.items.length, G.SEARCH_CAP, q + ': the menu shows five');
+    assert.ok(g.kept <= 4 * G.SEARCH_KEEP, q + ': candidates kept stay bounded (' + g.kept + ')');
+    assert.ok(ms < 300, q + ' took ' + ms.toFixed(1) + ' ms');
   }
+  assert.equal(find(G.searchAll('application', big), 'apps').kept, G.SEARCH_KEEP, 'a tier keeps its first 200 and no more');
 });
 test('odd data does not throw: missing fields, odd types', () => {
   assert.doesNotThrow(() => G.searchAll('a', { groups: [null, { key: 'k', label: 'a', conns: [{}] }, grp(undefined, [conn({ remote_addr: 5 })])], seen: [{}], pers: [{ label: 'a' }], guide: { commands: [{ id: 'x' }] } }));
@@ -142,40 +157,45 @@ test('odd data does not throw: missing fields, odd types', () => {
   assert.doesNotThrow(() => G.searchAll('a'));
 });
 test('the summary names the count and the groups, or says nothing matches', () => {
-  assert.equal(G.searchSummary(G.searchAll('zzzz', data)), 'Nothing matches');
-  assert.match(G.searchSummary(G.searchAll('3000', data)), /^2 results in Ports/);
-  assert.match(G.searchSummary({ count: 1, groups: [{ title: 'Apps' }] }), /^1 result in Apps$/);
+  assert.equal(G.searchSummary(G.searchAll('zzzz', data)), 'Nothing matches \u201czzzz\u201d');
+  assert.equal(G.searchAll('<b>\u202e', data).query, '<b>\\u{202e}', 'the query read aloud is escaped like the results');
+  assert.match(G.searchSummary(G.searchAll('3000', data)), /^2 results: Ports/);
+  assert.match(G.searchSummary({ count: 1, groups: [{ title: 'Apps' }] }), /^1 result: Apps$/);
 });
 
 const st = (o) => Object.assign({ open: true, active: -1, count: 3, hasText: true }, o);
+const key = (o, k, composing = false, mod = false) => G.searchKey(o, k, composing, mod);
 test('keys: Down and Up cycle through the results and the "no selection" state', () => {
   let s = st({});
-  const seq = []; for (let i = 0; i < 5; i++) { s = Object.assign(st({}), G.searchKey(s, 'ArrowDown', false)); seq.push(s.active); }
+  const seq = []; for (let i = 0; i < 5; i++) { s = Object.assign(st({}), key(s, 'ArrowDown')); seq.push(s.active); }
   assert.deepEqual(seq, [0, 1, 2, -1, 0]);
-  assert.equal(G.searchKey(st({ active: 0 }), 'ArrowUp', false).active, -1);
-  assert.equal(G.searchKey(st({ active: -1 }), 'ArrowUp', false).active, 2);
-  assert.equal(G.searchKey(st({ count: 0 }), 'ArrowDown', false).active, -1);
+  assert.equal(key(st({ active: 0 }), 'ArrowUp').active, -1);
+  assert.equal(key(st({ active: -1 }), 'ArrowUp').active, 2);
+  assert.equal(key(st({ count: 0 }), 'ArrowDown').active, -1);
 });
-test('keys: Down on a closed menu with text opens it; with no text nothing happens', () => {
-  assert.equal(G.searchKey(st({ open: false }), 'ArrowDown', false).open, true);
-  assert.equal(G.searchKey(st({ open: false, hasText: false }), 'ArrowDown', false).open, false);
+test('keys: Down on a closed menu opens it with no row chosen; Up opens it on the last row; with no text nothing happens', () => {
+  assert.deepEqual(key(st({ open: false }), 'ArrowDown'), { open: true, active: -1, act: null, handled: true });
+  assert.deepEqual(key(st({ open: false }), 'ArrowUp'), { open: true, active: 2, act: null, handled: true });
+  assert.equal(key(st({ open: false, hasText: false }), 'ArrowDown').handled, false);
 });
 test('keys: Enter opens the active result, or with none chosen asks for the page filter', () => {
-  assert.deepEqual(G.searchKey(st({ active: 1 }), 'Enter', false), { open: false, active: 1, act: 'open' });
-  assert.equal(G.searchKey(st({ active: -1 }), 'Enter', false).act, 'filter');
-  assert.equal(G.searchKey(st({ open: false }), 'Enter', false).act, 'filter');
-  assert.equal(G.searchKey(st({ count: 0 }), 'Enter', false).act, 'filter', 'the "nothing matches" row is not a result');
+  assert.deepEqual(key(st({ active: 1 }), 'Enter'), { open: false, active: 1, act: 'open', handled: true });
+  assert.equal(key(st({ active: -1 }), 'Enter').act, 'filter');
+  assert.equal(key(st({ open: false }), 'Enter').act, 'filter');
+  assert.equal(key(st({ count: 0 }), 'Enter').act, 'filter', 'the "nothing matches" row is not a result');
 });
-test('keys: Escape closes an open menu and passes through when it is closed', () => {
-  assert.equal(G.searchKey(st({ active: 1 }), 'Escape', false).act, 'close');
-  assert.equal(G.searchKey(st({ open: false }), 'Escape', false).act, null);
+test('keys: Escape closes an open menu, then empties the box, and passes through with no text', () => {
+  assert.equal(key(st({ active: 1 }), 'Escape').act, 'close');
+  assert.equal(key(st({ open: false }), 'Escape').act, 'clear');
+  assert.equal(key(st({ open: false, hasText: false }), 'Escape').handled, false);
 });
-test('keys: while an input method is composing, no key is ours', () => {
-  for (const k of ['Enter', 'ArrowDown', 'ArrowUp', 'Escape']) assert.deepEqual(G.searchKey(st({ active: 1 }), k, true), { open: true, active: 1, act: null });
+test('keys: while an input method is composing, or with a modifier held, no key is ours', () => {
+  for (const k of ['Enter', 'ArrowDown', 'ArrowUp', 'Escape']) {
+    assert.equal(key(st({ active: 1 }), k, true).handled, false);
+    assert.equal(key(st({ active: 1 }), k, false, true).handled, false);
+  }
 });
-test('keys: other keys change nothing', () => {
-  assert.deepEqual(G.searchKey(st({ active: 1 }), 'a', false), { open: true, active: 1, act: null });
-});
+test('keys: other keys are not ours', () => { assert.equal(key(st({ active: 1 }), 'a').handled, false); });
 
 const fakeNav = (hash) => { const log = []; return { log, loc: { get hash() { return hash; }, set hash(v) { log.push(['push', v]); hash = v; } }, hist: { replaceState: (_, __, v) => { log.push(['replace', v]); hash = v; } } }; };
 test('back button: a result on another page is a new history entry', () => {

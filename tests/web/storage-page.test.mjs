@@ -322,7 +322,7 @@ test('the folder search matches name, path and label, every word', () => {
 test('Storage is searchable, so typing in the box stays on the page', () => {
   const m = html.match(/const FILTERABLE = \[([^\]]*)\]/);
   assert.match(m[1], /'storage'/);
-  assert.match(html, /S\.view === 'storage' \? 'Search folders'/);
+  assert.match(html, /storage: \['Search folders'/);
 });
 
 // ---- refresh failures and replies

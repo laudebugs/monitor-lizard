@@ -51,9 +51,10 @@ function render() {
   document.querySelector('.shell').classList.toggle('nav-open', S.navOpen);
   $('navtoggle').setAttribute('aria-expanded', String(S.navOpen));
   const hadReq = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.req : null;
-  const searchHint = S.view === 'guide' ? 'Search commands and terms' : S.view === 'storage' ? 'Search folders' : 'Search apps, ports';
-  $('q').placeholder = searchHint + ' (/)';
-  $('q').setAttribute('aria-label', S.view === 'guide' ? 'Search commands and terms, or apps, ports, hosts and startup items' : S.view === 'storage' ? 'Search folders on this page, or apps, ports, hosts, startup items and the Guide' : 'Search apps, ports, hosts, startup items and the Guide');
+  const hint = { guide: ['Search commands and terms', 'Search commands and terms, or apps, ports, hosts, startup items and the Guide'], storage: ['Search folders', 'Search folders, or apps, ports, hosts, startup items and the Guide'] }[S.view]
+    || (FILTERABLE.includes(S.view) ? ['Search this page, or everything', 'Search this page, or apps, ports, hosts, startup items and the Guide'] : ['Search everything', 'Search apps, ports, hosts, startup items and the Guide']);
+  $('q').placeholder = hint[0] + ' (press /)'; $('q').setAttribute('aria-label', hint[1]);
+  searchSyncBox();
   $('notif').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Notify', dropdown('notif', S.settings.notifications, [['off', 'Off'], ['high', 'High only'], ['all', 'All']], setNotifications, 'Notification level')));
   $('theme').replaceChildren(h('div', { class: 'theme-row small mut' }, 'Theme', dropdown('theme', S.theme, [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], setTheme, 'Color theme')));
   const c = $('content');
@@ -110,8 +111,7 @@ function render() {
 }
 // A button, not a #link: a link would change the address, and the address is the page's state.
 $('skip').addEventListener('click', () => $('main').focus());
-// The box filters the page you are on where it can and offers results from every page (web/search.js); on a page with no
-// filter, typing no longer jumps to Apps: Enter with no result chosen does that.
+// The box filters the page you are on where it can and offers results from every page (web/search.js).
 searchInit();
 // Below the breakpoint where the sidebar collapses behind this button (860px, also in web/app.css -- change both
 // together); above it the button is hidden by CSS and neither of these fires from a click.
@@ -125,13 +125,9 @@ $('navtoggle').addEventListener('click', () => (S.navOpen ? closeNav() : openNav
 window.addEventListener('resize', () => { if (S.navOpen && window.innerWidth > 860) rec({ navOpen: false }); });
 // Back and Forward, a pasted link and a clicked crumb all arrive here; the address is the source of truth.
 const fromHash = () => { Object.assign(S, patchFromHash(parseHash(location.hash), S)); Object.assign(S, selPatch(S, S.snap)); $('q').value = S.q; };
-window.addEventListener('hashchange', () => { searchClose(); fromHash(); SEARCH.text = $('q').value; render(); loadVolume(); loadProcesses(); loadStorage(); });
+window.addEventListener('hashchange', () => { searchClose(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && closeTopLayer()) e.preventDefault(); }); // one Escape closes one layer
-// "/" jumps to the search box on any page unless a field has focus (the key must still type a slash there) or a dialog is open.
-document.addEventListener('keydown', (e) => {
-  const t = e.target, typing = t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable);
-  if (e.key === '/' && !S.modal && !trashOpen() && !sigOpen() && !typing && !e.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); $('q').focus(); $('q').select(); }
-});
+document.addEventListener('keydown', searchSlash);
 document.addEventListener('click', () => { if (S.menu) rec({ menu: null }); });
 applyTheme(); fromHash(); render(); loadVolume(); loadProcesses(); loadStorage(); load(); loadPriv(); loadSudo(); loadPers(); loadHist(); loadSettings(); loadMetrics();
 setInterval(load, 10000); setInterval(loadPriv, 30000); setInterval(loadSudo, 10000); setInterval(loadPers, 60000); setInterval(loadHist, 30000); setInterval(loadReqLive, 5000);
