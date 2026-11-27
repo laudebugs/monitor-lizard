@@ -52,7 +52,7 @@ All checks ran on a local Mac, as of November 2026.
 
 ## Left for later
 
-- The `code` job on a hosted runner has not yet passed on this branch. The stall was never reproduced, so it is not proven fixed.
+- The `code` job on a hosted runner passed once on this branch, with `make test` taking 50 s (as of November 2026). The stall was intermittent and never reproduced, so one pass does not prove it fixed.
 - If the waiting test ever times out, its writer thread stays blocked on the lock while holding the baseline's in-process lock. Later baseline tests in that run would then wait too. This can only follow an earlier failure. Changing it would mean changing the program's lock code, so it is left as it is.
 - Other tests still wait with no limit, though none waits on a start file. `unblock_ends_the_request_loop_instead_of_blocking_forever` and `concurrent_marks_from_threads_all_land` join threads. The web tests' `fetch` helper joins its server thread and reads its reply with no timeout. Each test that starts a process waits on a short shell command, kills its child first, or polls with a time limit.
 
