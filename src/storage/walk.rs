@@ -43,6 +43,10 @@ pub fn io_reason(e: &io::Error) -> &'static str {
     }
 }
 
+/// True when an entry is on another device than the folder being walked: a mount point, or something below one. The walker
+/// does not descend into it, and the trash refuses an item whose device differs from its parent's.
+pub(crate) fn crosses(parent_dev: u64, dev: u64) -> bool { parent_dev != dev }
+
 /// Sizes one location. `None` when it does not exist (the caller omits it, never shows 0).
 pub fn walk(root: &Path, lim: Limits) -> Option<Result<Walked, &'static str>> {
     let meta = match std::fs::symlink_metadata(root) {
@@ -74,7 +78,7 @@ pub fn walk(root: &Path, lim: Limits) -> Option<Result<Walked, &'static str>> {
             // `DirEntry::metadata` is an `lstat`: a symlink is sized as itself and never followed.
             let Ok(m) = entry.metadata() else { w.unreadable += 1; continue };
             if m.is_dir() {
-                if m.dev() != dev { w.crossed += 1; continue; }
+                if crosses(dev, m.dev()) { w.crossed += 1; continue; }
                 count(&mut w, &m);
                 pending.push(entry.path());
             } else if m.nlink() > 1 && !linked.insert((m.dev(), m.ino())) {
@@ -223,9 +227,22 @@ pub fn project_idle(home: &Path, project: &Path, modules: &Path, now: u64) -> bo
 mod tests {
     use super::*;
     use crate::storage::tests::temp;
+    use crate::storage::trash::tests::run_within;
     use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::process::Command;
+
+    #[test]
+    fn crosses_is_true_only_for_a_different_device() {
+        assert!(!crosses(7, 7) && crosses(7, 8));
+        // A real pair without mounting anything: a folder and its child share a device; `/` and `/dev` (devfs) do not.
+        let d = temp("crosses");
+        let own = |p: &Path| fs::symlink_metadata(p).unwrap().dev();
+        fs::create_dir(d.join("sub")).unwrap();
+        assert!(!crosses(own(&d), own(&d.join("sub"))));
+        assert!(crosses(own(Path::new("/")), own(Path::new("/dev"))));
+        fs::remove_dir_all(&d).unwrap();
+    }
 
     fn lim(max_entries: u64) -> Limits { Limits { deadline: Instant::now() + Duration::from_secs(30), max_entries } }
 
@@ -322,29 +339,37 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
-    /// Removes the temp folder and detaches the image even when an assert fails.
+    /// Removes the temp folder and detaches the image (with `-force`, within a time limit) even when an assert fails. The
+    /// temp folder holds the `.dmg`, so removing it deletes the image; if the detach fails the folder is left alone rather
+    /// than walked into.
     struct Mounted { dir: PathBuf, mount: PathBuf }
     impl Drop for Mounted {
         fn drop(&mut self) {
-            let _ = Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(&self.mount).output();
-            let _ = fs::remove_dir_all(&self.dir);
+            match run_within(Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&self.mount), 30) {
+                Ok(()) => { let _ = fs::remove_dir_all(&self.dir); }
+                Err(why) => eprintln!("could not detach the test volume at {:?}; leaving {:?} in place: {why}", self.mount, self.dir),
+            }
         }
     }
 
     /// Mounts a tiny disk image inside a folder and checks the walk stays on the folder's own volume.
-    /// Ignored by default because mounting needs a session that allows `hdiutil` (hosted CI runners
-    /// may not); run it with `cargo test -- --ignored`. It fails, not skips, if the mount fails.
+    /// Ignored by default, so it never runs in CI, where `hdiutil` has frozen a hosted runner; run it locally with
+    /// `cargo test -- --ignored`. Every `hdiutil` call has a time limit. It fails, not skips, if the mount fails.
     #[test]
-    #[ignore = "mounts a disk image with hdiutil; run with --ignored"]
+    #[ignore = "mounts a disk image with hdiutil; run locally with --ignored"]
     fn a_walk_never_crosses_into_another_volume() {
         let dir = temp("device");
         let mount = dir.join("root/mnt");
-        let guard = Mounted { dir: dir.clone(), mount: mount.clone() };
         fs::create_dir_all(&mount).unwrap();
         let image = dir.join("v.dmg");
-        let run = |c: &mut Command| { let o = c.output().expect("hdiutil runs"); assert!(o.status.success(), "hdiutil failed: {}", String::from_utf8_lossy(&o.stderr)); };
-        run(Command::new("/usr/bin/hdiutil").args(["create", "-size", "4m", "-fs", "HFS+", "-volname", "t", "-ov"]).arg(&image));
-        run(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-mountpoint"]).arg(&mount).arg(&image));
+        // Nothing is attached yet, so a failed create only needs the temp folder removed before the test fails.
+        if let Err(why) = run_within(Command::new("/usr/bin/hdiutil").args(["create", "-size", "4m", "-fs", "HFS+", "-volname", "t", "-ov"]).arg(&image), 30) {
+            let _ = fs::remove_dir_all(&dir);
+            panic!("hdiutil create failed: {why}");
+        }
+        // The guard exists before the attach, so a timed-out attach that half mounted is still detached.
+        let guard = Mounted { dir: dir.clone(), mount: mount.clone() };
+        run_within(Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-mountpoint"]).arg(&mount).arg(&image), 30).unwrap();
         fs::write(mount.join("big"), vec![1u8; 1024 * 1024]).unwrap();
         fs::write(dir.join("root/own"), b"x").unwrap();
         let w = walk(&dir.join("root"), lim(1000)).unwrap().unwrap();
