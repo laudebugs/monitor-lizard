@@ -9,9 +9,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// The least time between two scans that requests start.
 pub const MIN_INTERVAL: Duration = Duration::from_secs(60);
 
-/// Total time for one background scan the server runs. Longer than the command line's 20 s because the
-/// scan is partial on a developer home and each run adds to what the last one learned; the 20% CPU
-/// limit and the low priority stay. The owner approved the work and 120 s is the proposal in the plan, so this is the one constant to change.
+/// Total time for one background scan the server runs. Longer than the command line's 20 s because a
+/// developer home takes more than that, and each run adds to what the last one learned. The 20% CPU
+/// limit and the low priority stay.
 pub const SERVER_TIME_BUDGET: Duration = Duration::from_secs(120);
 
 pub type ScanFn = Arc<dyn Fn() -> Storage + Send + Sync>;

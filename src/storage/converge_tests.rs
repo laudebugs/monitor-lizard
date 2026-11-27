@@ -2,6 +2,7 @@
 //! merging, and the per-bundle caps. Everything runs on folders under the temp directory.
 use super::tests::temp;
 use super::*;
+use results::Entry;
 use std::fs;
 
 fn in_secs(s: u64) -> Instant { Instant::now() + Duration::from_secs(s) }
@@ -174,5 +175,36 @@ fn repeated_scans_converge_to_complete_and_the_saved_map_carries_over() {
     let mut again = Results::load(&store);
     let o = scan_items(&home, &apps, in_secs(30), t + 2, &mut again);
     assert!(o.complete() && o.items.iter().all(|i| i.reused), "everything came from the saved map");
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_location_that_changed_after_the_order_was_decided_is_walked_not_reused() {
+    let home = temp("changed-meanwhile");
+    let logs = home.join("Library/Logs");
+    fs::create_dir_all(&logs).unwrap();
+    fs::write(logs.join("f"), vec![1u8; 8192]).unwrap();
+    let text = logs.display().to_string();
+    let mut r = Results::default();
+    // The map says "complete, unchanged" but with a time the folder does not have.
+    r.insert(&text, Entry { bytes: 1, apparent: Some(1), entries: 1, unreadable: 0, complete: true, stale: false, measured_at: 1, mtime_hint: Some(1) });
+    let mut s = Scan { home: &home, deadline: in_secs(30), items: vec![], missed: vec![], max_entries: 1000, now: now_secs() };
+    s.visit(&Candidate { path: logs.clone(), category: Category::Logs, project_idle: false }, Rank::Fresh, &mut r);
+    let item = &s.items[0];
+    assert!(!item.reused && matches!(item.size, Reading::Value(b) if b >= 8192));
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_location_deleted_while_the_scan_is_out_of_time_is_dropped_not_shown() {
+    let home = temp("deleted-late");
+    let logs = home.join("Library/Logs");
+    fs::create_dir_all(&logs).unwrap();
+    let (apps, t) = (home.join("none"), now_secs());
+    let mut r = Results::default();
+    scan_items(&home, &apps, in_secs(30), t, &mut r);
+    fs::remove_dir_all(&logs).unwrap();
+    let o = scan_items(&home, &apps, Instant::now() - Duration::from_secs(1), t + 5, &mut r);
+    assert!(r.get(&logs.display().to_string()).is_none() && !o.items.iter().any(|i| i.path.ends_with("Library/Logs")));
     fs::remove_dir_all(&home).unwrap();
 }

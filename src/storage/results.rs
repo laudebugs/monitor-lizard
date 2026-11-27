@@ -35,8 +35,18 @@ pub struct Fresh { pub bytes: u64, pub apparent: Option<u64>, pub entries: u64, 
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct Results { entries: BTreeMap<String, Entry> }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct File { version: u32, entries: BTreeMap<String, Entry> }
+
+/// `File` for writing, borrowing the map so a save copies nothing.
+#[derive(Serialize)]
+struct FileRef<'a> { version: u32, entries: &'a BTreeMap<String, Entry> }
+
+impl Entry {
+    /// True when this complete measurement still describes the location: its own modification time is
+    /// what it was then. A hint only, since a change deep inside leaves the top-level time alone.
+    pub fn unchanged_at(&self, mtime: Option<u64>) -> bool { self.complete && self.mtime_hint.is_some() && self.mtime_hint == mtime }
+}
 
 impl Results {
     pub fn get(&self, path: &str) -> Option<&Entry> { self.entries.get(path) }
@@ -100,7 +110,7 @@ impl Results {
         let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder to save in"))?;
         crate::paths::create_private_dir(dir)?;
         let tmp = path.with_extension("json.tmp");
-        let body = serde_json::to_vec(&File { version: VERSION, entries: self.entries.clone() }).map_err(std::io::Error::other)?;
+        let body = serde_json::to_vec(&FileRef { version: VERSION, entries: &self.entries }).map_err(std::io::Error::other)?;
         let mut f = crate::paths::create_private_file_truncating(&tmp)?;
         f.write_all(&body)?;
         f.sync_all()?;

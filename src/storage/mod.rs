@@ -204,17 +204,21 @@ impl Scan<'_> {
         let text = c.path.display().to_string();
         let hint = trash::modified_ns(&c.path);
         let prior = results.get(&text).cloned();
-        let confirmed = |e: &Entry| e.complete && e.mtime_hint.is_some() && e.mtime_hint == hint;
+                // The order was decided earlier in a scan that can run for minutes, so the hint is checked again
+        // here: a location that changed meanwhile is walked instead of shown with an old size.
         if rank == Rank::Fresh {
-            if let Some(e) = prior { self.push_entry(c, &text, &e, true); }
-            return;
+            match prior {
+                Some(e) if e.unchanged_at(hint) => { self.push_entry(c, &text, &e, true); return; }
+                _ => {}
+            }
         }
         let now = Instant::now();
         if now >= self.deadline {
+            if hint.is_none() && std::fs::symlink_metadata(&c.path).is_err() { results.forget(&text); return; }
             // Out of time: what an earlier scan knows is shown (marked stale unless the top level is
             // unchanged), and only a location never measured is "not reached".
             match prior {
-                Some(e) if confirmed(&e) => self.push_entry(c, &text, &e, true),
+                Some(e) if e.unchanged_at(hint) => self.push_entry(c, &text, &e, true),
                 Some(_) => { if let Some(e) = results.mark_stale(&text) { self.push_entry(c, &text, &e, true); } }
                 None => self.missed.push((text, c.category)),
             }
@@ -227,7 +231,7 @@ impl Scan<'_> {
                 // A skipped subfolder makes the size too small, so it is as partial as a cut-off walk.
                 let fresh = Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: w.stop.is_none() && w.unreadable == 0, mtime_hint: hint };
                 let e = results.merge(&text, fresh, self.now);
-                let reused = e.measured_at != self.now;
+                let reused = e.measured_at != self.now || e.stale;
                 self.push_entry(c, &text, &e, reused);
             }
             Some(Err(why)) => match results.mark_stale(&text) {
@@ -280,14 +284,13 @@ fn app_bundles(dir: &Path) -> Vec<PathBuf> {
 /// The order to visit `cands` in, with each one's rank. Never-measured locations come first, in the
 /// fixed order; then stale ones, largest known size first; then unchanged ones, which cost nothing.
 /// Of the largest unchanged locations, the two measured longest ago (and at least ten minutes ago) are
-/// walked again each scan, so a
-/// change deep inside a folder whose own time did not move is still found, in turn.
+/// walked again each scan, so a change deep inside a folder whose own time did not move is still found, in turn.
 fn visit_order(cands: &[Candidate], results: &Results, now: u64) -> Vec<(usize, Rank)> {
     // (index, rank, last known size, measured_at)
     let mut ranked: Vec<(usize, Rank, u64, u64)> = cands.iter().enumerate().map(|(i, c)| match results.get(&c.path.display().to_string()) {
         None => (i, Rank::Never, 0, 0),
         Some(e) => {
-            let unchanged = e.complete && e.mtime_hint.is_some() && e.mtime_hint == trash::modified_ns(&c.path);
+            let unchanged = e.unchanged_at(trash::modified_ns(&c.path));
             (i, if unchanged { Rank::Fresh } else { Rank::Stale }, e.bytes, e.measured_at)
         }
     }).collect();
@@ -453,6 +456,8 @@ fn scan_stored(budget: Duration) -> Storage {
     let home = home_or_reason();
     let store = home.is_ok().then(|| crate::paths::data_dir().join(STORE_FILE));
     let mut guard = RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    // A refused home must not fill the map with an empty one that a later call would then keep.
+    if store.is_none() { return scan_for(home, budget, &mut Results::default()); }
     let results = guard.get_or_insert_with(|| store.as_deref().map(Results::load).unwrap_or_default());
     let out = scan_for(home, budget, results);
     if let Some(p) = store.as_deref().filter(|_| out.refused.is_none()) {
