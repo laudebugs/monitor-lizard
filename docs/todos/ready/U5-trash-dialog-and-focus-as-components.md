@@ -18,7 +18,7 @@ Move the Stop dialog, the Move-to-Trash dialog, the toast and the copy box onto 
 
 ## Context
 
-- The spike converted the Trash dialog: refs on the overlay (sets `inert` and returns focus on unmount) and on a heading keyed by phase (focuses it on mount) replaced `trashFocusBack`'s `setTimeout`, the focus branch in `trashDispatch`, the `data-autofocus` query and the `shell.inert` assignment. An unrelated `rec()` and a poll kept focus and the dialog node.
+- The spike converted the Trash dialog: refs on the overlay (sets `inert` and returns focus on unmount) and on a heading keyed by phase (focuses it on mount) make `trashFocusBack`'s `setTimeout`, the focus branch in `trashDispatch`, the `data-autofocus` query and the `shell.inert` assignment obsolete. The spike deleted none of them: it added `!vnodeMode()` guards so the old renderer still works, plus two ref functions. An unrelated `rec()` and a poll kept focus and the dialog node.
 - `web/page-storage.js` `storage-trash-view` block (133 lines), `web/shell.js` layer code. The code from S3b (#69) is on `main`; its todo file stays in `ongoing/`.
 - The pure state machine in `storage-trash` stays; its three `{ do: 'focus' }` effects become unnecessary and are removed with their tests.
 
@@ -29,7 +29,7 @@ Move the Stop dialog, the Move-to-Trash dialog, the toast and the copy box onto 
 - Components `TrashDialog`, `StopDialog`, `Toast`, `CopyBox` and `Layer()`.
 - Focus and `inert` through refs, never as a side effect inside a render function: the overlay ref sets `.shell.inert` and returns focus to `#st-trash-btn` on unmount; a heading with `key` = phase takes focus on mount. Because Preact calls a ref again when its function identity changes, the ref functions are module-level constants.
 - The draw-failure guard: the existing try/catch stays, closes the dialog, announces, and leaves the page usable.
-- Delete on the Preact renderer: `trashFocusBack`'s timers, the `data-autofocus` query, the `!trashOpen()` clause in `quiet()`. `trashKeys` (the Tab trap) stays.
+- Skip on the Preact renderer (behind `vnodeMode()` guards, deleted in U7): `trashFocusBack`'s timers, the `data-autofocus` query, the `shell.inert` assignment, the `!trashOpen()` clause in `quiet()`. `trashKeys` (the Tab trap) stays.
 - Poll-while-focused tests for the Trash dialog and for the column menu (checked in a browser and recorded; the vnode tests assert the refs and keys exist).
 
 **Out of scope** (name the todo that covers it):
@@ -64,7 +64,7 @@ Move the Stop dialog, the Move-to-Trash dialog, the toast and the copy box onto 
 ## Acceptance criteria
 
 - All dialog behaviour as before; on the Preact renderer no timer or manual focus restore remains for dialogs.
-- Maintainability: record lines and workaround counts for the `storage-trash-view` block before and after (the spike measured about 14 lines of 133 removable), and that the dialog markup tests need no fake DOM.
+- Maintainability: record lines and workaround counts for the `storage-trash-view` block before and after (the spike found about 5 or 6 of its 133 lines obsolete; the earlier estimate of 14 was an upper bound), and say plainly that the gain is behavioural, not line count, and that the dialog markup tests need no fake DOM.
 
 ## Tests
 
@@ -88,8 +88,8 @@ node --test tests/web/storage-trash*.test.mjs
 
 ## Rollback and how the dashboard keeps working
 
-- **Rollback:** Remove the key or revert the PR; the old dialog code is untouched until U7.
-- **Why the dashboard works at every step:** The old renderer keeps its dialog code; the components run only with the key set.
+- **Rollback:** Remove the key and reload, or revert the PR. With the key off the old renderer behaves as before; the PR adds `vnodeMode()` guards inside the old dialog functions and U7 removes them with the old renderer.
+- **Why the dashboard works at every step:** The old renderer keeps working with its guards inert; the components and refs run only with the key set.
 
 ## Definition of done
 

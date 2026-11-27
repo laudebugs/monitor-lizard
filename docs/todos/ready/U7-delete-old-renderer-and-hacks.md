@@ -63,7 +63,7 @@ Make Preact the default, delete the old renderer and the workarounds it needed, 
 ## Acceptance criteria
 
 - The grep is empty; every page, dialog and menu works; the menu test exists and passes.
-- Maintainability: the PR shows before and after counts for the workaround list above and for lines of `web/*.js`. The target is that every row marked "removed" in the ADR table is zero, and the rows marked "stays" are unchanged and named as such. If a row did not shrink, the PR says so.
+- Maintainability: the PR shows before and after counts for the workaround list above and for lines of `web/*.js`. The target is that every row the ADR marks "Removed" or "Partly" has its removed part at zero (for `quiet()`, zero call sites), and the rows marked "Stays" are unchanged and named as such. If a row did not shrink, the PR says so.
 
 ## Tests
 

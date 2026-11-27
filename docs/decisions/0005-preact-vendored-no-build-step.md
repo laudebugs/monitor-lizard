@@ -19,7 +19,7 @@ Each row is code that exists because the old renderer discards the DOM on every 
 
 | Workaround | Where, how much | Component model |
 |---|---|---|
-| Suppress redraws under open UI | `quiet()` in `core.js:371` with its guard `!S.menu && !S.modal && !trashOpen()`; 16 call sites in 4 files; the comment says polls "must not rebuild the DOM under an open menu or dialog" | Removed for dialogs (spike: a poll through `quiet()` kept focus and the same dialog node). Menus: to be verified in U7 before the guard goes. |
+| Suppress redraws under open UI | `quiet()` in `core.js:371` with its guard `!S.menu && !S.modal && !trashOpen()`; 16 call sites in 4 files; the comment says polls "must not rebuild the DOM under an open menu or dialog" | **Partly.** Dialogs: removed in U5 (spike: a poll through `quiet()` kept focus and the same dialog node). Menus: `quiet()` stays through U4 to U6 and goes in U7, after a test shows a poll leaves an open menu open. |
 | Restore focus after a redraw by hand | `hadReq` and `data-req` (`shell.js:51,97`, `page-privilege.js:16`), `had` and `data-nav` in `drawNav()`, `stFocus` (page-storage), `guideAct` (page-guide): 7 call sites; `trashFocusBack` (4 references) and `data-autofocus` (4) besides. 22 `.focus()` calls and 10 `document.activeElement` reads in all | Removed for these; a few `.focus()` calls (first focus of a dialog, return after close) stay, as `ref` callbacks. |
 | Skip rebuilding to keep state | Nav signature `navSig` (3 uses), Guide signature `gsig` (7 uses): "a poll must not drop focus or the selected command" (`shell.js:72`) | Removed: diffing is the skip. |
 | Layout driven by the redraw | The breadcrumb and search sit outside `#content` because "the search box must keep focus while a poll redraws the page" (`shell.js:10-11`) | Not forced any more; a later page layout could change. Not done in this plan. |
@@ -41,7 +41,7 @@ The owner chose Preact, vendored, with no build step. This record states what th
 
 | Fact | Source |
 |---|---|
-| Current stable release is **11.2.0**, published 2026-11-06, licence **MIT** (Copyright Jason Miller). The last 10.x, 10.29.8, is from 2026-08-01; five 11.x releases followed in five weeks. | `npm view preact`; GitHub releases, 2026-11-27 |
+| Current stable release is **11.2.0**, published 2026-11-06, licence **MIT** (Copyright Jason Miller). The last 10.x, 10.29.8, is from 2026-08-01; six 11.x releases (11.0.0 to 11.2.0) came between 2026-09-30 and 2026-11-06. | `npm view preact`; GitHub releases, 2026-11-27 |
 | `h(type, props, ...children)`. `class` works; `className` also. Event props follow the DOM (`onClick`, `onInput`); an unknown `onTabChange` listens for `TabChange` as written. | llms-full.txt |
 | Lowercase `onclick` fires. The documentation does not say so; the spike checked it. | spike |
 | `style` strings work. In 11, automatic `px` for numbers moved to `preact/compat`; we pass strings only. | llms-full.txt, spike |
@@ -49,16 +49,16 @@ The owner chose Preact, vendored, with no build step. This record states what th
 | Browsers for 11 without polyfills: Chrome 71, Safari 12.1, Firefox 69, Edge 79. | llms-full.txt |
 | `render()` lost its `replaceNode` argument. The text is silent on rendering into a container that has children, on focus, and on `inert`; the spike measured all three. | llms-full.txt, spike |
 | htm (template strings) is optional; npm lists its licence as **Apache-2.0**. | llms-full.txt, `npm view htm` |
-| 11.2.0 has a registry **SLSA provenance** attestation. | `npm view preact@11.2.0 dist.attestations` |
+| 11.2.0 has a registry **SLSA provenance** attestation. It shows the tarball was built by a CI pipeline from a named repository; it says nothing about whether the code is benign. | `npm view preact@11.2.0 dist.attestations` |
 
 ## Decision
 
 Use **Preact 11.2.0** for the dashboard's components.
 
 1. **One vendored module.** `web/vendor/preact.mjs`, copied unmodified from the npm tarball, with `web/vendor/PREACT-LICENSE` (the MIT text as published), `VENDORED.md` and `SHA256SUMS`. No source map is served. `preact/hooks`, `compat` and signals are not vendored: hooks import the bare name `preact`, which would need an import map, and the code keeps its state in `S` and `rec()`.
-2. **Loaded by `import()` from a classic script, with no import map and no module script.** All 16 scripts stay classic. `shell.js` starts the page exactly as today. If the switch is on, it runs `import('/vendor/preact.mjs').then(m => { window.preact = m; render(); })`. Until that resolves `h()` builds Nodes, so the first paint is unchanged; afterwards `h()` builds vnodes and `render()` hands the page to `preact.render`. Preact is a global (`window.preact`) only after that point, and nothing touches it earlier.
-3. **The switch** is a `localStorage` key, `monitor-lizard-ui`, set to `preact` in the browser's developer tools. There is no visible control. Removing the key restores the old renderer. U7 deletes the key and the old renderer.
-4. **Served like any other file.** One more `Source` in `src/web.rs` (`include_str!`), so the Host check, the `Sec-Fetch-Site` refusal, `no-store` and `nosniff` apply unchanged. The file is served as `text/javascript`.
+2. **Loaded by `import()` from a classic script, with no import map and no module script.** All 16 scripts stay classic. `shell.js` starts the page exactly as today. If the switch is on, it runs `import('/vendor/preact.mjs').then(ok).catch(err)`. Until it resolves `h()` builds Nodes, so the first paint is unchanged. Readiness is a module-scoped flag in `shell.js` set by `ok`, not a `typeof window.preact` test. The first Preact render replaces everything the old renderer drew, so it happens only when nothing is focused or open (no focused element in the page, no menu, dialog, copy box or Trash state); otherwise the old renderer draws again and the next `render()` retries. On handover the Guide's `gsig` is reset so the Guide redraws. If `ok` or the first Preact render throws, `err` hands the containers back to the old renderer. Details are in todo U4.
+3. **The switch** is a `localStorage` key, `monitor-lizard-ui`, set to `preact` in the browser's developer tools. There is no visible control. It is read once when `shell.js` loads, so setting or removing it takes effect on the next page load; removing it restores the old renderer. U7 deletes the key and the old renderer.
+4. **Served like any other file.** One more `Source` in `src/web.rs` (`include_str!`), so the Host check, the `Sec-Fetch-Site` refusal, `no-store` and `nosniff` apply unchanged. The `Source` reuses the existing JavaScript type, so the header is `text/javascript; charset=utf-8`. The file stays byte-identical to the tarball, including its last line `//# sourceMappingURL=preact.mjs.map`; the map is not served, so DevTools logs a 404 for it when open (harmless).
 5. **No remote assets, no CDN, no npm and no bundler in the repository.** No `package.json`. A human downloads a tarball only during a review.
 6. **htm and signals are not adopted.** The code has about 680 `h(` calls (683 by `grep -o '\bh('`); they already read as hyperscript. htm would add a second licence (Apache-2.0) and a template dialect for no gain.
 7. **`h` keeps its name and signature** (`h(tag, attrs, ...kids)`, `class`, `onClick`, `style` strings). Migration is incremental behind the switch; both renderers coexist until the last page moves (todos U3 to U7).
@@ -96,31 +96,35 @@ Not tested: the Tauri window, Safari and Firefox, the Trash dialog and every pag
 
 **Two costs the owner decides on.**
 
-1. **Third-party code in the page that holds the token.** About 12 kB of someone else's JavaScript will run in the page that holds the per-run write token. Any script in the page could read the token before, as now; this is the first script we did not write. The vendored file is minified, CI has no network, and `SHA256SUMS` in the same PR as the file detects accidental drift only: a malicious PR would change both. The real controls are the review steps below.
-2. **A manual review at least every 90 days, and at once on a security advisory.** Dependabot has no ecosystem for vendored files (`.github/dependabot.yml` lists `github-actions` and `cargo`). A CI **warning** (not a failing test) appears when the review date in `VENDORED.md` is more than 90 days old. The warning is printed by `scripts/check-vendor.mjs`.
+1. **Third-party code in the page that holds the token.** About 12 kB of someone else's JavaScript will run in the page that holds the per-run write token. Any script in the page could read the token before, as now; this is the first script we did not write. The vendored file is minified and CI has no network. The offline `check-vendor` compares the file only with `SHA256SUMS` in the same PR, so it detects accidental drift; it cannot tie `preact.mjs` to the npm tarball, and a malicious PR would change both files. The upgrade routine below, run by a person with network access, is what ties the file to the registry (`npm view preact@X dist.integrity`) and reads the source.
+2. **A manual review at least every 90 days, and at once on a security advisory.** Dependabot has no ecosystem for vendored files (`.github/dependabot.yml` lists `github-actions` and `cargo`). `VENDORED.md` carries a `Reviewed on: YYYY-MM-DD` line. `scripts/check-vendor.mjs`, run by `make check-docs` (so the always-on `docs` CI job executes it, including in a PR that only changes `VENDORED.md`), prints a GitHub `::warning::` annotation, and exits 0, when today is more than 90 days after `Reviewed on`. A missing or unparsable date fails.
 
 **Review steps at every upgrade** (written in `web/vendor/VENDORED.md`, so the commands live next to the file):
 
 - Choose a release at least a week old (`docs/guidelines/maintainability.md`).
 - Recompute the tarball integrity: `npm view preact@X dist.integrity`, then `npm pack preact@X` in a new empty folder, and compare the sha512 of the tarball.
-- Check provenance: `npm view preact@X dist.attestations` must list a SLSA provenance; stop if a release that had one no longer does.
-- Diff the shipped `src/` files between the old and new tarball and read the release notes (the minified file is not reviewable by eye; the source is).
+- Check provenance: `npm view preact@X dist.attestations` lists a SLSA provenance. That shows a CI build from the expected repository; it does not show the code is safe. Stop if a release that had one no longer does.
+- **Read the shipped `src/` diff between the old and new tarball, and the release notes.** This is the real control: the minified file is not reviewable by eye, and the grep below is a denylist that obfuscated code can evade.
 - Confirm `web/vendor/preact.mjs` is byte-identical to the tarball's `dist/preact.mjs`.
-- Run the recorded grep and expect no match (0 matches for 11.2.0 on 2026-11-27): `grep -En 'fetch|XMLHttpRequest|eval\(|new Function|document\.cookie|localStorage|sessionStorage|sendBeacon|WebSocket|import\(' web/vendor/preact.mjs`.
-- Replace the files, `VENDORED.md` and `SHA256SUMS` in one PR; set the next review date.
+- Run the recorded grep: `grep -En 'fetch|XMLHttpRequest|eval\(|Function\(|document\.cookie|localStorage|sessionStorage|sendBeacon|WebSocket|import\(|\.src=|\.href=|createElement|innerHTML' web/vendor/preact.mjs`. For 11.2.0 on 2026-11-27 the only matches are `createElement` (2) and `.innerHTML` (2), both Preact building and filling DOM elements. Any other match, or a different count, means stop and read the diff.
+- Replace `preact.mjs`, `PREACT-LICENSE`, `VENDORED.md` and `SHA256SUMS` in one PR and set `Reviewed on` to today. `SHA256SUMS` lists `preact.mjs` and `PREACT-LICENSE` only (not itself and not `VENDORED.md`).
 
 **What gets easier.** Components keep focus and DOM state across updates, so the focus-restore code and `quiet()` can go, one at a time, each with its own browser check. A dialog can be a component whose open state lives in `S`; if it fails to draw, the page stays usable and the dialog closes. The "no build step" rule is kept: the files in `web/vendor/` are what the browser runs.
 
 **Other consequences.**
 
 - The binary grows by about 12 kB (`include_str!`).
-- Preact 11 needs Safari 12.1 and `import()` needs Safari 11.1; see the platform floor below.
+- Preact adds no WebKit requirement beyond what the page already has; see the platform floor below.
 - The token, meta tag and `Sec-Fetch` rules do not change. If a Content-Security-Policy is added later it needs `script-src 'self'`; `import()` of a same-origin file needs nothing else, since there is no inline script besides the theme bootstrap that already exists.
 - The first paint is unchanged because the Preact renderer starts after `import()` resolves.
 
 ## Platform floor
 
-The repository declares no minimum macOS version. `src-tauri/tauri.conf.json` has no `minimumSystemVersion`, and Tauri's documented default is `10.13` ([config reference](https://v2.tauri.app/reference/config/), fetched 2026-11-27). The Tauri window uses the system WebKit, so the floor is the WebKit of the macOS release. Preact 11 needs Safari 12.1 (macOS 10.14.4 and later) and `import()` needs Safari 11.1. The dashboard already sets `inert` on `.shell` (`page-storage.js`), which I recall shipping in Safari 15.5 (not verified here); if so, the existing floor is higher than Preact's. **The owner decides** whether to declare a floor. U1 includes a step to load the vendored file in the Tauri window and record the result (the shell is Amber's: the todo says who runs it).
+The repository declares no minimum macOS version, and `src-tauri/tauri.conf.json` has no `minimumSystemVersion` (Tauri's documented default is `10.13`, [config reference](https://v2.tauri.app/reference/config/), fetched 2026-11-27). The Tauri window uses the system WebKit, so the floor is the WebKit of the macOS release.
+
+The page already needs newer WebKit than Preact does. `web/app.css` uses `color-mix()` (2 uses) and `:has()` (1), and `page-storage.js` sets `inert`. From MDN's browser-compat-data (fetched 2026-11-27) Safari first supports `:has()` in 15.4, `inert` in 15.5 and `color-mix()` in 16.2. Preact 11 needs Safari 12.1 and `import()` needs Safari 11.1, so **the real floor is already about Safari 16.2 and Preact changes nothing.** Apple's security notes for Safari 16.2 (released 2022-12-13) list it for macOS Big Sur and Monterey; macOS Ventura (13) ships Safari 16.x. Whether a Tauri window on Big Sur or Monterey receives the Safari update's WebKit is not verified. A reasonable declared floor would be macOS 13 (Ventura); the owner decides.
+
+Adding `minimumSystemVersion` to `tauri.conf.json` is a separate small change in Amber's shell, proposed as its own todo; it is not part of this plan. U1 includes a step to load the vendored file in the Tauri window and record the result.
 
 ## Tests
 
@@ -143,12 +147,14 @@ Judged by maintainability first (what a future agent or person must learn, how m
 | Lit and web components | No | Web-component and template-literal concepts; shadow DOM rules | Light-DOM Lit would fit; shadow DOM breaks `app.css` and `decorateTables()` (`document.querySelectorAll('.tr.h[data-table]')` does not enter shadow roots) | Every page template | Medium | Lost on fit with the global stylesheet and table code |
 | Alpine | No (from memory, not rechecked) | Directive attributes in HTML, evaluated at run time | Our markup is built in JavaScript, not written in HTML; the standard build uses `new Function`, which blocks a strict CSP later | Every page | Medium | Lost on fit |
 | Mithril | No | Hyperscript like our `h` (`m(tag, attrs, kids)`), plus its own redraw and lifecycle model | Fits (no build) | Close to Preact for the markup | Medium | Close second. Its auto-redraw and own vnode shape would mean the incremental path of this plan does not carry over unchanged, and fewer people and tools know it |
-| Preact 10.29.8 with its UMD file as a plain `<script>` | Size only | Same as Preact 11 | Fits, and avoids `import()` | Same | Same | **Fallback** if `import()` fails in the Tauri window. Not chosen first because 10.x has had no release since 2026-08-01 while 11.x had five in five weeks |
+| Preact 10.29.8 with its UMD file as a plain `<script>` | Size only | Same as Preact 11 | Fits, and avoids `import()` | Same | Same | **Fallback** if `import()` fails in the Tauri window. Not chosen first because 10.x has had no release since 2026-08-01 while 11.x had six releases in five weeks |
 | Preact with htm or `@preact/signals` | No | Adds a template dialect or a second state model | Fits | More | Higher | Deferred, not rejected (Decision 6) |
 
 Costs weighed against the maintainability gain: third-party code in the token page (see Consequences); the review routine (about one review per quarter); migration effort of ten pull requests (3 of size L and 7 of size M in the plan, roughly 3,500 changed lines by those size classes, an estimate).
 
-What the spike measured on maintainability, for the most workaround-heavy part (the Trash dialog, 133 lines in the `storage-trash-view` block): moving it to the Preact renderer let the page delete `trashFocusBack`'s `setTimeout` in `trashSync` and the focus branch in `trashDispatch`, the `data-autofocus` query and the `shell.inert` assignment in `trashLayer` and `render()`, and the `!trashOpen()` clause in `quiet()`: **about 14 lines** (roughly 10 percent of the block), replaced by two small `ref` functions (about 3 lines) and a `key` on the heading. What stays: the markup functions (about 60 lines), the focus trap `trashKeys`, the try/catch, and the pure state machine with its three `{ do: 'focus' }` effects (which become unnecessary but are still emitted until U5 removes them). So the line gain on this component is small. The gains that matter are behavioural: an unrelated `rec()` no longer rebuilds the open dialog or moves focus, and a poll cannot disturb it, which removes the reason `quiet()` has to know about dialogs. A test can now build the dialog as a plain vnode object with no fake DOM: the spike's `trash-vnode.test.mjs` is 29 lines with 4 helper lines, where `storage-trash-view.test.mjs` carries about 40 lines of fake DOM and selector support (the `El` stand-in), but the vnode test cannot check focus or `inert`, because refs run only in a browser.
+What the spike measured on maintainability, for the most workaround-heavy part (the Trash dialog, 133 lines in the `storage-trash-view` block). The spike **deleted nothing** from the block: it added `!vnodeMode()` guards (so the old renderer still works) and two small `ref` functions. Reading the diff, about **5 or 6 lines** become obsolete once the old renderer is gone: the `setTimeout(trashFocusBack, 0)` in `trashSync`, the focus branch in `trashDispatch`, the `data-autofocus` query in `render()`, the `shell.inert` assignment in `trashLayer`, and the `!trashOpen()` clause in `quiet()`. An earlier figure of "about 14 lines" was an estimate that also counted the `trashFocusBack` definition and the three `{ do: 'focus' }` effects in the state machine; treat it as an upper bound. The line gain is small. What stays: the markup functions (about 60 lines), the focus trap `trashKeys`, the try/catch, and the pure state machine.
+
+The gain is behavioural. On the old renderer an unrelated `rec()` while the dialog is open rebuilds the dialog and pulls focus off the button the person tabbed to; on the Preact renderer the dialog node and the focus are kept, and a poll cannot disturb them, which removes the reason `quiet()` has to know about dialogs. A test can build the dialog as a plain vnode object with no fake DOM: the spike's `trash-vnode.test.mjs` is 29 lines with 4 helper lines, where `storage-trash-view.test.mjs` carries about 40 lines of fake DOM and selector support (the `El` stand-in). The vnode test cannot check focus or `inert`, because refs run only in a browser.
 
 ## Documents that change when this is accepted
 
@@ -163,7 +169,7 @@ These edits ship in the todos, not in this PR.
 | `docs/agents/layout.md`, `tests/web/` rows | The vnode stand-in; the `El` stand-in retires | U2, U7 |
 | `docs/agents/layout.md`, new `web/vendor/` row beside `web/fonts/` | What is vendored; checksums; the review rule | U1 |
 | `docs/agents/ci-and-release.md` | Dependabot cannot watch vendored files; the review steps | U1 |
-| `Makefile` | New target `check-vendor`, added to `check` (so CI runs it) | U1 |
+| `Makefile` | New target `check-vendor`, run by `check-docs` (the CI `docs` job runs `make check-docs` on every PR) | U1 |
 | `THIRD-PARTY-NOTICES.md`, `SECURITY.md`, `docs/guidelines/maintainability.md` | Notice; one sentence on the one vendored library; one link | U1 |
 
 ## The ask
