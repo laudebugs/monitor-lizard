@@ -1,6 +1,6 @@
 # ci-test-job-stalls-after-the-requester-tests
 
-The CI `code` job sometimes stopped printing test results for over half an hour and was cancelled at its 35-minute limit. One test wrote 10,005 separate database commits. It now seeds the rows in one statement.
+The CI `code` job sometimes stopped printing test results and was cancelled at its 35-minute limit. Two database tests each made 10,005 separate commits. They now seed the rows in one statement.
 
 | File | What it holds |
 |---|---|

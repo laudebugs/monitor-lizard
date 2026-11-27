@@ -1,21 +1,22 @@
-# Resolution: the CI test job stalls after the last requester test
+# Resolution: the CI test job stalls after `real_a_root_owned_process_is_refused_by_its_owner`
 
 Detail: [detail.md](detail.md)
 
 ## The fix
 
-The test now inserts the first 10,000 requests with one SQL statement and sends only the last five through `begin_trash`. The cap and the pruning are still what the test checks: the table ends at 10,000 rows and the newest survives.
+Each audit test now inserts its first 10,000 rows with one SQL statement and sends only the last five through the real function (`begin_trash` or `record_baseline_change`). The cap and the pruning are still what the tests check: the table ends at 10,000 rows and the newest row survives.
 
 ## How it was checked
 
 | Check | Before | After |
 |---|---|---|
-| `the_trash_audit_keeps_only_the_newest_rows` on the local Mac | about 10 s | 0.06 s |
+| `the_trash_audit_keeps_only_the_newest_rows`, local Mac | about 10 s | 0.06 s |
 | Rows left after 10,005 requests | 10,000 | 10,000 |
 | Newest row survives | yes | yes |
+| The `code` job on a hosted runner | stalled | not yet run on this branch |
 
-The test itself is the regression test: it still fails if the pruning stops working, and it no longer depends on disk speed.
+The two tests still fail if the pruning stops working. Nothing guards against the slowdown coming back, because the old version passed too, only slowly.
 
-## Left for later
+## One loop of about 200 commits remains
 
-Other tests that commit in a loop would have the same problem on a slow disk. None was found: the next slowest tests are the two mount tests that CI already skips.
+`trash.rs` has a test that commits about 200 times, to check the item cap. At a few hundred milliseconds per sync that takes about a minute, so it is left as it is. If the job stalls again, look first for tests that commit in a loop.
