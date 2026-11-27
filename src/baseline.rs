@@ -470,7 +470,7 @@ mod tests {
 
     // Another process writing the baseline is kept out only by the lock file. A flock belongs to
     // the open file, so a second handle in this process stands in for that other process. The
-    // tests below use no child processes and no wait without a limit, so a broken lock fails an
+    // tests below start no process and every wait has a limit, so a broken lock fails an
     // assertion instead of hanging the test run.
 
     /// A second handle on the lock file, as another process would open it.

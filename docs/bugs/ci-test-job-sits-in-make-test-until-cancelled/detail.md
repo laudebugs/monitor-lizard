@@ -21,8 +21,8 @@ Two tests started two copies of the test binary and waited for them with no time
 
 Both had the same shape. Each copy polled every millisecond for a start file, with no time limit. The parent test slept 300 ms, wrote the start file, then called `wait()` on each copy, also with no time limit.
 
-That shape can wait forever in two ways. First, a copy that never finishes, for any reason, keeps the parent in `wait()` and the test never ends. Second, a parent that fails before it writes the start file leaves both copies polling forever. Whether either happened on the runner is unknown, because the log stops without naming a test.
+That shape can wait forever in two ways. First, a copy that never finishes, for any reason, keeps the parent in `wait()` and the test never ends. Second, a parent that fails before it writes the start file leaves both copies polling forever. Their output went nowhere, so whether polling copies could hold the CI step open is unknown. Whether either case happened on the runner is also unknown, because the log stops without naming a test.
 
-## The process tests checked two things that need no second process
+## The process tests needed a second process only for a second lock owner
 
-The tests needed a second process only to get a second lock owner. Both lock files use `flock`, and a `flock` belongs to the open file, not to the process. So two handles opened separately in one process exclude each other exactly as two processes would. The existing test `the_open_lock_excludes_other_holders_in_the_same_process` already relied on this.
+Both lock files use `flock`, and a `flock` belongs to the open file, not to the process. So two handles opened separately in one process exclude each other exactly as two processes would. The existing test `the_open_lock_excludes_other_holders_in_the_same_process` already relied on this.
