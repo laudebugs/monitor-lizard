@@ -200,6 +200,24 @@
       "undo": "Delete the file under ~/.monitor-lizard/models/."
     },
     {
+      "appears_in": null,
+      "command": "monitor-lizard agent on|off",
+      "description": "The agent's kill switch, off by default. On: a running `serve` starts supervising llama-server (loopback only, cleared environment) once the model is installed and memory pressure allows it, and `/api/classify` can get a model-backed verdict. Off: any running llama-server stops, and every classification is the rule label alone.",
+      "example": null,
+      "id": "sm-agent",
+      "safety": "changes files",
+      "tags": [
+        "agent",
+        "llm",
+        "model",
+        "classify",
+        "kill switch"
+      ],
+      "title": "Turn the local agent on or off",
+      "topic": "monitor-lizard",
+      "undo": "Run `monitor-lizard agent off` (or the other way, to undo turning it off)."
+    },
+    {
       "appears_in": "Apps",
       "command": "monitor-lizard approve <key>...",
       "description": "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path>#<fingerprint> (as the dashboard sends it; a startup entry that is only the path matches any version of that item, and exists only if you wrote it by hand) or finding:<app key>:<rule>#<ports>.",

@@ -49,6 +49,11 @@ pub struct Settings {
     /// in, same as every other disk-persisted feature in this app.
     #[serde(default)]
     pub metrics_history: bool,
+    /// The local classifier agent's kill switch: off by default, same as every other opt-in
+    /// feature here. Set only via `monitor-lizard agent on`/`off`, not `/api/settings`, since there
+    /// is no page control to drive it yet.
+    #[serde(default)]
+    pub agent_enabled: bool,
 }
 impl Default for Level {
     fn default() -> Self {
@@ -57,7 +62,7 @@ impl Default for Level {
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false }
+        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_enabled: false }
     }
 }
 
@@ -86,6 +91,17 @@ pub(crate) fn save_at_for_test(path: &std::path::Path) { save_at(path, &Settings
 
 pub fn save(s: &Settings) -> std::io::Result<()> {
     save_at(&file(), s)
+}
+
+/// `monitor-lizard agent on`/`off`'s whole job: read-modify-write just this one field, leaving
+/// every other setting as it was.
+pub fn set_agent_enabled(enabled: bool) -> std::io::Result<()> {
+    set_agent_enabled_at(&file(), enabled)
+}
+fn set_agent_enabled_at(path: &std::path::Path, enabled: bool) -> std::io::Result<()> {
+    let mut s = load_at(path);
+    s.agent_enabled = enabled;
+    save_at(path, &s)
 }
 fn save_at(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
     use std::io::Write;
@@ -224,6 +240,19 @@ mod tests {
         let s = update_at(&p, None, None, None, None, Some("false")).unwrap();
         assert!(!s.metrics_history);
         assert_eq!(update_at(&p, None, None, None, None, Some("maybe")).unwrap_err(), "metrics_history must be true or false");
+    }
+
+    #[test]
+    fn agent_enabled_defaults_off_and_set_agent_enabled_flips_only_that_field() {
+        assert!(!Settings::default().agent_enabled);
+        let p = tmp_settings_path("agent-enabled");
+        update_at(&p, Some("high"), None, None, None, None).unwrap(); // some other field already set
+        set_agent_enabled_at(&p, true).unwrap();
+        let s = load_at(&p);
+        assert!(s.agent_enabled);
+        assert_eq!(s.notifications, Level::High, "flipping the kill switch must not disturb other settings");
+        set_agent_enabled_at(&p, false).unwrap();
+        assert!(!load_at(&p).agent_enabled);
     }
 
     #[test]
