@@ -2,6 +2,7 @@
 //! merging, and the per-bundle caps. Everything runs on folders under the temp directory.
 use super::tests::temp;
 use super::*;
+use order::{REFRESH_MIN_AGE_SECS, REFRESH_PER_SCAN, TAIL_SHARE};
 use results::Entry;
 use std::fs;
 
@@ -18,7 +19,7 @@ fn entry(bytes: u64, complete: bool, measured_at: u64, mtime_hint: Option<u64>) 
 fn order_tails(home: &Path, results: &Results, now: u64) -> Vec<(String, Rank)> {
     let (cands, _) = discover(home, &home.join("none"), in_secs(30), now, 1000);
     let prefix = format!("{}/", home.display());
-    visit_order(&cands, results, now).into_iter().map(|(i, r)| (cands[i].path.display().to_string().replace(&prefix, ""), r)).collect()
+    visit_order(&cands, results, now, false).into_iter().map(|(i, r)| (cands[i].path.display().to_string().replace(&prefix, ""), r)).collect()
 }
 
 #[test]
@@ -97,10 +98,10 @@ fn a_partial_walk_of_a_changed_location_keeps_the_earlier_complete_size_and_mark
     for i in 0..50 { fs::write(app.join(format!("f{i}")), vec![1u8; 4096]).unwrap(); }
     let (apps, t) = (home.join("none"), now_secs());
     let mut r = Results::default();
-    let first = scan_items_with(&home, &apps, in_secs(30), t, &mut r, 1000);
+    let first = scan_items_with(&home, &apps, in_secs(30), t, &mut r, 1000, false);
     let Reading::Value(full) = by_suffix(&first.items, "com.x").size else { panic!() };
     fs::write(app.join("new"), b"x").unwrap();
-    let second = scan_items_with(&home, &apps, in_secs(30), t + 5, &mut r, 10);
+    let second = scan_items_with(&home, &apps, in_secs(30), t + 5, &mut r, 10, false);
     let x = by_suffix(&second.items, "com.x");
     assert_eq!(x.size, Reading::Value(full), "never lowered");
     assert!(x.stale && !x.complete && x.reused && x.measured_at == t);
@@ -150,7 +151,7 @@ fn each_app_bundle_has_its_own_entry_cap_so_the_folder_can_exceed_the_cap_in_tot
         fs::create_dir_all(apps.join(name)).unwrap();
         for i in 0..files { fs::write(apps.join(name).join(format!("f{i}")), b"x").unwrap(); }
     }
-    let o = scan_items_with(&home, &apps, in_secs(30), now_secs(), &mut Results::default(), 40);
+    let o = scan_items_with(&home, &apps, in_secs(30), now_secs(), &mut Results::default(), 40, false);
     let in_apps: Vec<_> = o.items.iter().filter(|i| i.category == Category::Applications).collect();
     assert_eq!(in_apps.len(), 4, "one item per bundle, not one for the folder");
     assert!(in_apps.iter().filter(|i| i.complete).count() == 3 && !by_suffix(&o.items, "Huge.app").complete);
@@ -207,4 +208,82 @@ fn a_location_deleted_while_the_scan_is_out_of_time_is_dropped_not_shown() {
     let o = scan_items(&home, &apps, Instant::now() - Duration::from_secs(1), t + 5, &mut r);
     assert!(r.get(&logs.display().to_string()).is_none() && !o.items.iter().any(|i| i.path.ends_with("Library/Logs")));
     fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_folder_that_shrank_with_one_unreadable_child_falls_instead_of_keeping_its_old_size() {
+    use std::os::unix::fs::PermissionsExt;
+    // SAFETY: `geteuid` takes no arguments and cannot fail.
+    if unsafe { libc::geteuid() } == 0 { eprintln!("skipped: root ignores mode 000"); return; }
+    let home = temp("shrink-unreadable");
+    let mail = home.join("Library/Mail");
+    fs::create_dir_all(mail.join("locked")).unwrap();
+    for i in 0..50 { fs::write(mail.join(format!("f{i}")), vec![1u8; 4096]).unwrap(); }
+    fs::set_permissions(mail.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
+    let (apps, t) = (home.join("none"), now_secs());
+    let mut r = Results::default();
+    let first = scan_items(&home, &apps, in_secs(30), t, &mut r);
+    let Reading::Value(before) = by_suffix(&first.items, "Library/Mail").size else { panic!() };
+    assert!(before >= 200_000 && !by_suffix(&first.items, "Library/Mail").complete);
+    for i in 0..50 { fs::remove_file(mail.join(format!("f{i}"))).unwrap(); }
+    let second = scan_items(&home, &apps, in_secs(30), t + 5, &mut r);
+    fs::set_permissions(mail.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+    let m = by_suffix(&second.items, "Library/Mail");
+    assert!(matches!(m.size, Reading::Value(b) if b < before / 10), "the size fell with the folder: {:?} vs {before}", m.size);
+    assert!(!m.complete && !m.stale && m.unreadable == 1, "shown as at least, with the unreadable marker, not as an old larger number");
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_fresh_request_reuses_nothing() {
+    let home = temp("full");
+    fs::create_dir_all(home.join("Library/Logs")).unwrap();
+    let (apps, t) = (home.join("none"), now_secs());
+    let mut r = Results::default();
+    scan_items(&home, &apps, in_secs(30), t, &mut r);
+    let (cands, _) = discover(&home, &apps, in_secs(30), t, 1000);
+    assert!(visit_order(&cands, &r, t + 1, false).iter().any(|(_, k)| *k == Rank::Fresh), "an ordinary scan reuses");
+    assert!(!visit_order(&cands, &r, t + 1, true).iter().any(|(_, k)| *k == Rank::Fresh), "a fresh one walks everything");
+    let o = scan_items_with(&home, &apps, in_secs(30), t + 1, &mut r, 1000, true);
+    assert!(o.items.iter().all(|i| !i.reused));
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_deep_change_in_a_small_location_is_found_within_the_stated_number_of_scans() {
+    let home = temp("tail");
+    let n = 60;
+    for i in 0..n {
+        let d = home.join(format!("Library/Caches/com.app{i:02}/sub"));
+        fs::create_dir_all(&d).unwrap();
+        // One large location and many small ones, so the small ones fall outside the largest-eight pool.
+        fs::write(d.join("f"), vec![1u8; if i < 8 { 64 * 1024 } else { 1024 }]).unwrap();
+    }
+    let target = home.join("Library/Caches/com.app40/sub/f");
+    let (apps, t) = (home.join("none"), now_secs());
+    let mut r = Results::default();
+    scan_items(&home, &apps, in_secs(60), t, &mut r);
+    let before = fs::metadata(home.join("Library/Caches/com.app40")).unwrap().modified().unwrap();
+    // Rewriting a file inside leaves the folder's own modification time where it was.
+    fs::write(&target, vec![1u8; 32 * 1024]).unwrap();
+    assert_eq!(fs::metadata(home.join("Library/Caches/com.app40")).unwrap().modified().unwrap(), before);
+    let mut found_after = None;
+    for k in 1..=TAIL_SHARE as u64 + 2 {
+        let o = scan_items(&home, &apps, in_secs(60), t + k * (REFRESH_MIN_AGE_SECS + 1), &mut r);
+        if matches!(by_suffix(&o.items, "com.app40").size, Reading::Value(b) if b > 30 * 1024) { found_after = Some(k); break; }
+    }
+    let k = found_after.expect("the change was never found");
+    assert!(k <= TAIL_SHARE as u64, "found after {k} scans, more than the {TAIL_SHARE} the todo states");
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn the_server_scan_gets_the_long_budget_and_the_command_line_keeps_twenty_seconds() {
+    assert_eq!(Budget::CommandLine.duration(), Duration::from_secs(20));
+    assert_eq!(Budget::Server.duration(), cache::SERVER_TIME_BUDGET);
+    assert_eq!(cache::SERVER_TIME_BUDGET, Duration::from_secs(120));
+    // The wiring is two one-line functions; check that each caller uses the right one.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert!(fs::read_to_string(root.join("server.rs")).unwrap().contains("Arc::new(storage::scan_in_background)"));
+    assert!(fs::read_to_string(root.join("main.rs")).unwrap().contains("storage::scan()"));
 }

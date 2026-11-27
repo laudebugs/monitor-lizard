@@ -23,6 +23,7 @@ Add the Storage nav item and the first half of the page from design direction D:
 - Show a Partial banner while `complete` is false, and "at least" before a total whose `lower_bound` is true.
 - Show a row's age from `measured_at` ("measured N min ago"). When `reused` is true, say the size comes from an earlier scan. When `stale` is true, the size is an earlier complete value that the latest scan could not confirm: show it as "at least" with its age. Show "not yet scanned" rows for `not_reached`.
 - Never show a final treemap or a "safe to remove" total while `complete` is false. Rows with `complete` false cannot be moved to the Trash.
+- S2a must render `measured_at`, `reused`, `stale` and `unreadable`: nothing in `web/` reads them yet. A row with `unreadable` above 0 is "at least" (a folder inside could not be read); it is the size of what could be read now.
 - Expect `scanned_at` to be newer than most rows' `measured_at`: a scan reuses locations whose top-level modification time has not changed, and walks the two oldest of the largest again each scan.
 - B7 builds the capacity bar; reuse it, do not copy it.
 - Conventions in `web/*.js`: `h()` helper, `rec()` state, `sortHeader`, `paginate`, bundled fonts, no remote assets.

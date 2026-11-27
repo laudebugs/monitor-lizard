@@ -7,6 +7,7 @@ pub mod forecast;
 pub mod trash;
 #[cfg(test)]
 mod converge_tests;
+mod order;
 mod results;
 mod rules;
 mod volume;
@@ -31,7 +32,8 @@ fn triple_of(c: &Capacity) -> Option<(u64, u64, u64)> {
 
 use crate::sampler::Reading;
 use serde::Serialize;
-use results::{Entry, Fresh, Results};
+use order::{discover, visit_order, Candidate, Rank};
+use results::{key_of, Entry, Fresh, Results};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -47,13 +49,6 @@ const RESERVE: Duration = Duration::from_millis(750);
 const MAX_ENTRIES_PER_LOCATION: u64 = 200_000;
 /// Name of the saved result map in the data folder.
 const STORE_FILE: &str = "storage-results.json";
-/// How many of the largest unchanged locations take part in the round-robin refresh, and how many of
-/// them one scan walks again. The rest are reused until their own modification time changes.
-const REFRESH_POOL: usize = 8;
-const REFRESH_PER_SCAN: usize = 2;
-/// An unchanged location is not walked again for a refresh until it is this old (seconds), so scans
-/// run back to back reuse everything.
-const REFRESH_MIN_AGE_SECS: u64 = 600;
 
 /// Why a size could not be read. The text is shown to the user.
 pub mod reason {
@@ -154,7 +149,7 @@ pub(crate) fn item_id(path: &str) -> String {
 }
 
 /// The most one location may take: a quarter of what is left.
-fn slice(remaining: Duration) -> Duration { remaining / 4 }
+pub(crate) fn slice(remaining: Duration) -> Duration { remaining / 4 }
 
 struct Outcome { items: Vec<Item>, missed: Vec<(String, Category)> }
 
@@ -165,20 +160,6 @@ impl Outcome {
         let (c, _) = coverage(&self.items, &self.missed);
         c.locations_measured == c.locations_total
     }
-}
-
-/// One location to measure, before the order is known.
-struct Candidate { path: PathBuf, category: Category, project_idle: bool }
-
-/// Where a location stands against what earlier scans learned. The derived order is the visit order.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum Rank {
-    /// Never measured: walked first, in the fixed order.
-    Never,
-    /// Incomplete before, changed since, or due for its round-robin refresh: walked next, largest first.
-    Stale,
-    /// Complete and unchanged at the top level: reused without a walk.
-    Fresh,
 }
 
 struct Scan<'a> { home: &'a Path, deadline: Instant, items: Vec<Item>, missed: Vec<(String, Category)>, max_entries: u64, now: u64 }
@@ -204,7 +185,7 @@ impl Scan<'_> {
         let text = c.path.display().to_string();
         let hint = trash::modified_ns(&c.path);
         let prior = results.get(&text).cloned();
-                // The order was decided earlier in a scan that can run for minutes, so the hint is checked again
+        // The order was decided earlier in a scan that can run for minutes, so the hint is checked again
         // here: a location that changed meanwhile is walked instead of shown with an old size.
         if rank == Rank::Fresh {
             match prior {
@@ -228,8 +209,10 @@ impl Scan<'_> {
         match walk::walk(&c.path, lim) {
             None => results.forget(&text),
             Some(Ok(w)) => {
-                // A skipped subfolder makes the size too small, so it is as partial as a cut-off walk.
-                let fresh = Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: w.stop.is_none() && w.unreadable == 0, mtime_hint: hint };
+                // A skipped subfolder makes the size too small, so the location is not complete; but a walk
+                // that reached the end is exact for what could be read, and the merge treats it so.
+                let exhausted = w.stop.is_none();
+                let fresh = Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: exhausted && w.unreadable == 0, exhausted, mtime_hint: hint };
                 let e = results.merge(&text, fresh, self.now);
                 let reused = e.measured_at != self.now || e.stale;
                 self.push_entry(c, &text, &e, reused);
@@ -242,75 +225,13 @@ impl Scan<'_> {
     }
 }
 
-/// Every location this scan may measure, in the fixed order of usefulness per second spent. It is
-/// also the visit order on a first run, and it matters because the budget usually runs out:
-/// Xcode's DerivedData and the Docker folder are large and safe to act on; app caches come next,
-/// biggest first by a cheap one-level size; simulators and logs follow; the `node_modules` search is
-/// slow and comes after them; the user's own folders and the apps in `/Applications` cannot be
-/// `safe` and go last. Each app bundle is its own location with its own entry cap.
-fn discover(home: &Path, applications: &Path, deadline: Instant, now: u64, max_entries: u64) -> (Vec<Candidate>, Vec<(String, Category)>) {
-    let (mut out, mut missed) = (Vec::new(), Vec::new());
-    let add = |out: &mut Vec<Candidate>, path: PathBuf, category, project_idle| out.push(Candidate { path, category, project_idle });
-    let lib = |rel: &str| home.join("Library").join(rel);
-    add(&mut out, lib("Developer/Xcode/DerivedData"), Category::Developer, false);
-    add(&mut out, lib("Containers/com.docker.docker"), Category::Developer, false);
-    for child in caches_by_size(&lib("Caches"), Instant::now() + slice(deadline.saturating_duration_since(Instant::now()))) { add(&mut out, child, Category::Caches, false); }
-    add(&mut out, lib("Developer/CoreSimulator"), Category::Developer, false);
-    add(&mut out, lib("Logs"), Category::Logs, false);
-    if Instant::now() >= deadline {
-        missed.push(("node_modules search".into(), Category::Developer));
-    } else {
-        let limit = Limits { deadline: Instant::now() + slice(deadline.saturating_duration_since(Instant::now())), max_entries };
-        let (modules, cut) = walk::find_node_modules(home, limit, now);
-        if cut { missed.push(("node_modules search (cut short)".into(), Category::Developer)); }
-        for (path, idle) in modules { add(&mut out, path, Category::Developer, idle); }
-    }
-    add(&mut out, home.join("Downloads"), Category::Downloads, false);
-    add(&mut out, lib("Mail"), Category::Mail, false);
-    for bundle in app_bundles(applications) { add(&mut out, bundle, Category::Applications, false); }
-    (out, missed)
-}
-
-/// The entries of the applications folder, by name. A folder that cannot be listed is returned
-/// itself, so the reason shows up as one unavailable item; a missing one has no entries.
-fn app_bundles(dir: &Path) -> Vec<PathBuf> {
-    match std::fs::read_dir(dir) {
-        Ok(rd) => { let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect(); v.sort(); v }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(_) => vec![dir.to_path_buf()],
-    }
-}
-
-/// The order to visit `cands` in, with each one's rank. Never-measured locations come first, in the
-/// fixed order; then stale ones, largest known size first; then unchanged ones, which cost nothing.
-/// Of the largest unchanged locations, the two measured longest ago (and at least ten minutes ago) are
-/// walked again each scan, so a change deep inside a folder whose own time did not move is still found, in turn.
-fn visit_order(cands: &[Candidate], results: &Results, now: u64) -> Vec<(usize, Rank)> {
-    // (index, rank, last known size, measured_at)
-    let mut ranked: Vec<(usize, Rank, u64, u64)> = cands.iter().enumerate().map(|(i, c)| match results.get(&c.path.display().to_string()) {
-        None => (i, Rank::Never, 0, 0),
-        Some(e) => {
-            let unchanged = e.unchanged_at(trash::modified_ns(&c.path));
-            (i, if unchanged { Rank::Fresh } else { Rank::Stale }, e.bytes, e.measured_at)
-        }
-    }).collect();
-    let mut pool: Vec<usize> = (0..ranked.len()).filter(|&k| ranked[k].1 == Rank::Fresh).collect();
-    pool.sort_by(|&a, &b| ranked[b].2.cmp(&ranked[a].2).then(ranked[a].0.cmp(&ranked[b].0)));
-    pool.truncate(REFRESH_POOL);
-    pool.sort_by_key(|&k| (ranked[k].3, ranked[k].0));
-    let due: Vec<usize> = pool.into_iter().filter(|&k| now.saturating_sub(ranked[k].3) >= REFRESH_MIN_AGE_SECS).take(REFRESH_PER_SCAN).collect();
-    for k in due { ranked[k].1 = Rank::Stale; }
-    ranked.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| if a.1 == Rank::Never { a.0.cmp(&b.0) } else { b.2.cmp(&a.2).then(a.0.cmp(&b.0)) }));
-    ranked.into_iter().map(|(i, r, _, _)| (i, r)).collect()
-}
-
-fn scan_items_with(home: &Path, applications: &Path, deadline: Instant, now: u64, results: &mut Results, max_entries: u64) -> Outcome {
+fn scan_items_with(home: &Path, applications: &Path, deadline: Instant, now: u64, results: &mut Results, max_entries: u64, full: bool) -> Outcome {
     let (cands, missed) = discover(home, applications, deadline, now, max_entries);
-    let order = visit_order(&cands, results, now);
+    let order = visit_order(&cands, results, now, full);
     let mut s = Scan { home, deadline, items: Vec::new(), missed, max_entries, now };
     let mut seen = HashSet::new();
     for (i, rank) in order {
-        seen.insert(cands[i].path.display().to_string());
+        seen.extend(key_of(&cands[i].path).map(str::to_string));
         s.visit(&cands[i], rank, results);
     }
     results.prune_missing(&seen);
@@ -318,22 +239,11 @@ fn scan_items_with(home: &Path, applications: &Path, deadline: Instant, now: u64
 }
 
 /// Everything except capacity and snapshots, which describe the volume rather than a folder.
+#[cfg(test)]
 fn scan_items(home: &Path, applications: &Path, deadline: Instant, now: u64, results: &mut Results) -> Outcome {
-    scan_items_with(home, applications, deadline, now, results, MAX_ENTRIES_PER_LOCATION)
+    scan_items_with(home, applications, deadline, now, results, MAX_ENTRIES_PER_LOCATION, false)
 }
 
-/// The children of the caches folder, largest first. When the folder cannot be listed the folder
-/// itself is returned, so the reason shows up as one unavailable item.
-fn caches_by_size(dir: &Path, deadline: Instant) -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return vec![dir.to_path_buf()] };
-    let mut sized: Vec<(u64, PathBuf)> = Vec::new();
-    for e in rd.flatten() {
-        let bytes = if Instant::now() < deadline { walk::one_level_bytes(&e.path(), deadline) } else { 0 };
-        sized.push((bytes, e.path()));
-    }
-    sized.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    sized.into_iter().map(|(_, p)| p).collect()
-}
 
 /// The total for `c`, added to the list when it is the first location seen in that category.
 fn total_for(out: &mut Vec<CategoryTotal>, c: Category) -> &mut CategoryTotal {
@@ -441,40 +351,75 @@ fn trusted_home(candidate: &Path, uid: u32, account: Option<&Path>) -> Option<Pa
 
 fn now_secs() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
 
+/// How long a scan may run, by who asked for it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Budget { CommandLine, Server }
+
+impl Budget {
+    fn duration(self) -> Duration { match self { Budget::CommandLine => TIME_BUDGET, Budget::Server => cache::SERVER_TIME_BUDGET } }
+}
+
 /// One full scan for the command line, `tmutil` included, within `TIME_BUDGET`. Blocking: call it off
 /// the request thread.
-pub fn scan() -> Storage { scan_stored(TIME_BUDGET) }
+pub fn scan() -> Storage { scan_stored(Budget::CommandLine) }
 
 /// The server's background scan: the same scan with the longer budget, so repeated runs converge.
-pub fn scan_in_background() -> Storage { scan_stored(cache::SERVER_TIME_BUDGET) }
+pub fn scan_in_background() -> Storage { scan_stored(Budget::Server) }
+
+/// What the process knows about each location, loaded from the data folder on the first scan.
+static RESULTS: Mutex<Option<Results>> = Mutex::new(None);
+/// Set by a request for a fresh scan: the next scan reuses nothing and walks every location.
+static FULL_RESCAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Makes the next scan walk every location instead of reusing unchanged ones.
+pub(crate) fn request_full_rescan() { FULL_RESCAN.store(true, std::sync::atomic::Ordering::SeqCst); }
 
 /// Runs a scan against the result map kept for this process and saved in the data folder, so each
 /// run starts from what the last one learned. Scans never overlap (the cache starts one at a time),
 /// and the lock only guards the command line against a second caller.
-fn scan_stored(budget: Duration) -> Storage {
-    static RESULTS: Mutex<Option<Results>> = Mutex::new(None);
+fn scan_stored(budget: Budget) -> Storage {
     let home = home_or_reason();
+    let full = FULL_RESCAN.swap(false, std::sync::atomic::Ordering::SeqCst);
     let store = home.is_ok().then(|| crate::paths::data_dir().join(STORE_FILE));
-    let mut guard = RESULTS.lock().unwrap_or_else(|e| e.into_inner());
     // A refused home must not fill the map with an empty one that a later call would then keep.
-    if store.is_none() { return scan_for(home, budget, &mut Results::default()); }
-    let results = guard.get_or_insert_with(|| store.as_deref().map(Results::load).unwrap_or_default());
-    let out = scan_for(home, budget, results);
-    if let Some(p) = store.as_deref().filter(|_| out.refused.is_none()) {
-        if let Err(e) = results.save(p) { eprintln!("monitor-lizard: could not save the storage results: {e}"); }
-    }
+    let Some(store) = store else { return scan_for(home, budget.duration(), &mut Results::default(), full) };
+    let mut guard = RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    let results = guard.get_or_insert_with(|| Results::load(&store));
+    let out = scan_for(home, budget.duration(), results, full);
+    if let Err(e) = results.save(&store) { eprintln!("monitor-lizard: could not save the storage results: {e}"); }
     out
 }
 
+/// Measures `items` again now, before a preview shows their size: a reused row whose folder changed
+/// deep inside would otherwise carry its old size, and the move would be refused as changed. An item
+/// that cannot be walked is returned as it was, so the move's own checks say why.
+pub(crate) fn remeasure(items: &[Item]) -> Vec<Item> {
+    let mut map = RESULTS.try_lock().ok();
+    items.iter().map(|item| {
+        let path = Path::new(&item.path);
+        let hint = trash::modified_ns(path);
+        let lim = Limits { deadline: Instant::now() + trash::REMEASURE_BUDGET, max_entries: MAX_ENTRIES_PER_LOCATION };
+        let Some(Ok(w)) = walk::walk(path, lim) else { return item.clone() };
+        let exhausted = w.stop.is_none();
+        let fresh = Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: exhausted && w.unreadable == 0, exhausted, mtime_hint: hint };
+        let now = now_secs();
+        let e = match map.as_mut().and_then(|g| g.as_mut()) {
+            Some(r) => r.merge(&item.path, fresh, now),
+            None => Entry { bytes: fresh.bytes, apparent: fresh.apparent, entries: fresh.entries, unreadable: fresh.unreadable, complete: fresh.complete, stale: false, measured_at: now, mtime_hint: hint },
+        };
+        Item { size: Reading::Value(e.bytes), apparent_bytes: e.apparent, entries: e.entries, complete: e.complete, unreadable: e.unreadable, measured_at: e.measured_at, reused: false, stale: e.stale, modified_ns: trash::modified_ns(path), ..item.clone() }
+    }).collect()
+}
+
 /// `scan` for a given home, so a refused home can be tested without changing the environment.
-fn scan_for(home: Result<PathBuf, &'static str>, budget: Duration, results: &mut Results) -> Storage {
+fn scan_for(home: Result<PathBuf, &'static str>, budget: Duration, results: &mut Results, full: bool) -> Storage {
     run_in_background();
     walk::pace_reset();
     let started = Instant::now();
     // `tmutil` runs beside the walk instead of after it, so it adds no wall time.
     let tmutil = std::thread::spawn(volume::local_snapshots);
     let (o, refused) = match home {
-        Ok(h) => (scan_items(&h, Path::new("/Applications"), started + budget - RESERVE, now_secs(), results), None),
+        Ok(h) => (scan_items_with(&h, Path::new("/Applications"), started + budget - RESERVE, now_secs(), results, MAX_ENTRIES_PER_LOCATION, full), None),
         Err(why) => (Outcome { items: Vec::new(), missed: Vec::new() }, Some(why)),
     };
     let capacity = volume::split_capacity(crate::iokit::boot_volume_capacity(), volume::available_and_important());
@@ -670,7 +615,7 @@ mod tests {
     #[test]
     fn without_a_usable_home_nothing_is_scanned_and_the_reason_is_given() {
         for why in [reason::HOME_UNKNOWN, reason::HOME_UNTRUSTED] {
-            let s = scan_for(Err(why), TIME_BUDGET, &mut Results::default());
+            let s = scan_for(Err(why), TIME_BUDGET, &mut Results::default(), false);
             assert!(s.items.is_empty() && !s.complete, "{why}");
             assert_eq!(s.refused, Some(why));
             let v: serde_json::Value = serde_json::from_str(&to_json(Some(&s), false, false)).unwrap();

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 /// The most ids one request may name.
 pub const MAX_IDS: usize = 50;
 /// Re-measuring one item must not hold a request for long.
-const REMEASURE_BUDGET: Duration = Duration::from_secs(10);
+pub(super) const REMEASURE_BUDGET: Duration = Duration::from_secs(10);
 /// The whole request, checks and moves together. Items not reached by then are reported as not attempted.
 pub const REQUEST_BUDGET: Duration = Duration::from_secs(45);
 

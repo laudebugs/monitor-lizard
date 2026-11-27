@@ -206,7 +206,14 @@ pub fn reply(query: &str, ctx: &Ctx) -> (u16, String) {
 fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
     let req = parse(query)?;
     let home = ctx.home.clone().map_err(|why| fail(400, "home_untrusted", why))?;
-    let (generation, items) = ctx.cache.find_in_generation(&req.ids).map_err(|e| fail(400, "unknown_id", e))?;
+    let (generation, mut items) = ctx.cache.find_in_generation(&req.ids).map_err(|e| fail(400, "unknown_id", e))?;
+    if matches!(req.mode, Mode::Preview) {
+        // A row the scan reused may be out of date inside the folder. Measure the previewed items now, so
+        // the size shown and the size the move later checks against are the same fresh one.
+        let fresh = storage::remeasure(&items);
+        ctx.cache.replace_items(fresh.clone());
+        items = fresh;
+    }
     let policy = |previewed| Policy { home: &home, apps: ctx.apps, uid: ctx.uid, confirm_yours: req.confirm_yours, previewed, deadline: ctx.now + ctx.budget };
     let bound = binding(generation, &items, req.confirm_yours);
     match req.mode {
@@ -311,6 +318,19 @@ mod tests {
         assert!(v["confirm_token"].as_str().unwrap().len() >= 32 && v["note"].as_str().unwrap().contains("Put Back"));
         assert!(f.exists(0) && f.exists(1));
         assert!(!f.db.exists() || f.audit_rows().is_empty(), "a dry run writes no audit row");
+    }
+
+    #[test]
+    fn a_preview_measures_the_item_again_so_a_deep_change_does_not_make_it_unmovable() {
+        let f = fx("deep-change", &[Label::Safe]);
+        // The folder's own time does not move when a file inside is rewritten, so a scan would reuse the old size.
+        fs::write(Path::new(&f.items[0].path).join("blob"), vec![1u8; 120_000]).unwrap();
+        let (code, v) = f.call(&format!("ids={}", f.ids(1)), &never);
+        assert_eq!(code, 200, "{v}");
+        assert_eq!((v["counts"]["would_move"].clone(), v["counts"]["refused"].clone()), (1.into(), 0.into()), "{v}");
+        assert!(v["confirm_token"].as_str().is_some());
+        let shown = f.cache.find(&[f.items[0].id.clone()]).unwrap();
+        assert!(matches!(shown[0].size, crate::sampler::Reading::Value(b) if b > 100_000), "the cached row now holds the fresh size");
     }
 
     #[test]

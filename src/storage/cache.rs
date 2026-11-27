@@ -74,6 +74,8 @@ impl Cache {
         let allowed = st.last_started.is_none_or(|(at, _)| at.elapsed() >= self.interval);
         let start = (fresh || st.result.is_none()) && !st.scanning && allowed;
         if start {
+            // A request for a fresh scan means everything is walked, not reused (the first scan has nothing to reuse).
+            if fresh { super::request_full_rescan(); }
             st.scanning = true;
             let unix = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             st.last_started = Some((Instant::now(), unix));
@@ -103,6 +105,15 @@ impl Cache {
         let Some(result) = st.result.as_ref() else { return Err("no scan has finished yet; scan first".into()) };
         let items = ids.iter().map(|id| result.items.iter().find(|i| &i.id == id).cloned().ok_or_else(|| format!("id {id} is not in the latest scan"))).collect::<Result<Vec<_>, _>>()?;
         Ok((st.generation, items))
+    }
+
+    /// Replaces the stored items with these for the same ids, in the same scan: the ids, labels and
+    /// scan number a confirmation is bound to do not change, only the sizes. Used by a preview, which
+    /// measures the items it is about to show.
+    pub fn replace_items(&self, fresh: Vec<Item>) {
+        let mut st = self.lock();
+        let Some(result) = st.result.as_mut() else { return };
+        for f in fresh { if let Some(slot) = result.items.iter_mut().find(|i| i.id == f.id) { *slot = f; } }
     }
 
     #[cfg(test)]
