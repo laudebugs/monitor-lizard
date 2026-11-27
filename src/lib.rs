@@ -25,4 +25,5 @@ pub mod server;
 pub mod settings;
 pub mod snapshot;
 pub mod storage;
+pub mod trash_route;
 pub mod watcher;

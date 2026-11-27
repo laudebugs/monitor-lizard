@@ -1,4 +1,5 @@
 //! Process actions. Deliberately narrow: signal only your own processes, never launchd or ourselves.
+use crate::storage::trash::MoveError;
 use serde::Serialize;
 use std::process::Command;
 
@@ -56,11 +57,19 @@ pub fn execute(pids: &[u32], sig: Sig) -> Outcome {
 /// Moves one path to the user's Trash through `NSFileManager`. The Finder route keeps "Put Back" but
 /// asks for an Automation permission the first time, so it is not used. The caller has already
 /// checked the path; this only does the move and returns the OS's reason when it fails.
-pub fn trash(path: &std::path::Path) -> Result<(), String> {
+pub fn trash(path: &std::path::Path) -> Result<(), MoveError> {
     use trash::macos::{DeleteMethod, TrashContextExtMacos};
     let mut ctx = trash::TrashContext::default();
     ctx.set_delete_method(DeleteMethod::NsFileManager);
-    ctx.delete(path).map_err(|e| e.to_string())
+    ctx.delete(path).map_err(move_error)
+}
+
+fn move_error(e: trash::Error) -> MoveError {
+    match &e {
+        trash::Error::Os { code, .. } if *code == libc::ENOENT => MoveError::NotFound,
+        trash::Error::Os { code, description } if *code == libc::EPERM || *code == libc::EACCES => MoveError::NotPermitted(description.clone()),
+        _ => MoveError::Other(e.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -78,6 +87,14 @@ mod tests {
         let o = execute(&[1, std::process::id()], Sig::Term);
         assert!(o.sent.is_empty() && o.refused.len() == 2);
     }
+    #[test]
+    fn mover_errors_are_typed_by_their_os_code() {
+        let os = |code| trash::Error::Os { code, description: "d".into() };
+        assert_eq!(move_error(os(libc::ENOENT)), MoveError::NotFound);
+        assert_eq!(move_error(os(libc::EPERM)), MoveError::NotPermitted("d".into()));
+        assert_eq!(move_error(os(libc::EACCES)), MoveError::NotPermitted("d".into()));
+        assert!(matches!(move_error(os(libc::EBUSY)), MoveError::Other(_)));
+    }
     /// Touches the real Trash, so it only runs on request: `cargo test --lib real_trash -- --ignored`.
     #[test]
     #[ignore = "puts a file in the real Trash"]
@@ -86,6 +103,6 @@ mod tests {
         std::fs::write(&p, "monitor-lizard trash test").unwrap();
         trash(&p).unwrap();
         assert!(!p.exists());
-        assert!(trash(&p).is_err());
+        assert_eq!(trash(&p).map_err(|e| matches!(e, MoveError::NotFound | MoveError::Other(_))), Err(true));
     }
 }

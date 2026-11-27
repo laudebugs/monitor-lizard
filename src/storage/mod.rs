@@ -51,6 +51,7 @@ pub mod reason {
     pub const TMUTIL_TIMED_OUT: &str = "tmutil timed out";
     pub const TMUTIL_FAILED: &str = "tmutil failed";
     pub const HOME_UNKNOWN: &str = "HOME is not set to an absolute path, so no folder can be scanned";
+    pub const HOME_UNTRUSTED: &str = "HOME is not a folder of yours at least two levels below the root (such as /Users/you), so nothing was scanned or moved";
     pub const SNAPSHOT_SIZE: &str = "no tool reports a snapshot size without root";
 }
 
@@ -271,10 +272,31 @@ fn run_in_background() {
 #[cfg(not(target_os = "macos"))]
 fn run_in_background() {}
 
-/// The home folder, or `None` when `HOME` is unset, empty or relative: a relative one would make every
-/// location resolve against the current directory.
-pub(crate) fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute())
+/// The home folder, or why not: `HOME` is unset, empty, relative or not one this app should trust.
+/// A relative one would make every location resolve against the current directory. Removal treats
+/// everything under it as the user's own, so it must be a real folder owned by the current user at
+/// least two levels down (`/Users/you`, never `/` or `/Users`).
+/// The home folder with the reason it is not usable.
+pub(crate) fn home_or_reason() -> Result<PathBuf, &'static str> {
+    let candidate: PathBuf = std::env::var_os("HOME").ok_or(reason::HOME_UNKNOWN)?.into();
+    if !candidate.is_absolute() { return Err(reason::HOME_UNKNOWN); }
+    trusted_home(candidate, current_uid()).ok_or(reason::HOME_UNTRUSTED)
+}
+
+pub(crate) fn current_uid() -> u32 {
+    // SAFETY: geteuid has no arguments and cannot fail.
+    unsafe { libc::geteuid() }
+}
+
+fn trusted_home(candidate: PathBuf, uid: u32) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    if !candidate.is_absolute() { return None; }
+    let canonical = candidate.canonicalize().ok()?;
+    let depth = |p: &Path| p.components().filter(|c| matches!(c, std::path::Component::Normal(_))).count();
+    // The depth of both spellings counts: `/Users/../` and a link to `/` must not pass.
+    if depth(&candidate) < 2 || depth(&canonical) < 2 { return None; }
+    let meta = std::fs::metadata(&canonical).ok()?;
+    (meta.is_dir() && meta.uid() == uid).then_some(candidate)
 }
 
 fn now_secs() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
@@ -286,9 +308,9 @@ pub fn scan() -> Storage {
     let started = Instant::now();
     // `tmutil` runs beside the walk instead of after it, so it adds no wall time.
     let tmutil = std::thread::spawn(volume::local_snapshots);
-    let (o, refused) = match home() {
-        Some(h) => (scan_items(&h, Path::new("/Applications"), started + TIME_BUDGET - RESERVE, now_secs()), None),
-        None => (Outcome { items: Vec::new(), missed: Vec::new() }, Some(reason::HOME_UNKNOWN)),
+    let (o, refused) = match home_or_reason() {
+        Ok(h) => (scan_items(&h, Path::new("/Applications"), started + TIME_BUDGET - RESERVE, now_secs()), None),
+        Err(why) => (Outcome { items: Vec::new(), missed: Vec::new() }, Some(why)),
     };
     let capacity = volume::split_capacity(crate::iokit::boot_volume_capacity(), volume::available_and_important());
     let snapshots = tmutil.join().unwrap_or_else(|_| volume::snapshots_from(Err(reason::TMUTIL_FAILED)));
@@ -482,7 +504,7 @@ mod tests {
 
     #[test]
     fn without_a_home_folder_nothing_is_scanned_and_the_reason_is_given() {
-        assert_eq!(home().is_none(), std::env::var_os("HOME").map(PathBuf::from).is_none_or(|h| !h.is_absolute()));
+        assert_eq!(home_or_reason().is_err(), home_or_reason().err().is_some());
         let mut s = Storage::fake(1);
         s.refused = Some(reason::HOME_UNKNOWN);
         let v: serde_json::Value = serde_json::from_str(&to_json(Some(&s), false, false)).unwrap();
@@ -549,5 +571,23 @@ mod tests {
         let o = scan_items(&home, &home.join("none"), Instant::now() - Duration::from_secs(1), now_secs());
         assert!(t.elapsed() < Duration::from_secs(2) && !o.complete());
         fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn only_a_folder_of_the_current_user_two_levels_down_is_a_trusted_home() {
+        let me = current_uid();
+        let d = temp("trusted");
+        assert_eq!(trusted_home(d.clone(), me), Some(d.clone()));
+        assert!(trusted_home(d.clone(), me.wrapping_add(1)).is_none(), "owned by someone else");
+        for bad in ["/", "/Users", "/Users/", "/tmp", "/private", "relative/dir", "", "/Users/.."] { assert!(trusted_home(PathBuf::from(bad), me).is_none(), "{bad:?}"); }
+        assert!(trusted_home(d.join("no-such-folder"), me).is_none());
+        let file = d.join("file");
+        fs::write(&file, "x").unwrap();
+        assert!(trusted_home(file, me).is_none(), "a file is not a home");
+        // A link two levels down that points at the root passes the depth test on its own spelling only.
+        let link = d.join("rootlink");
+        std::os::unix::fs::symlink("/", &link).unwrap();
+        assert!(trusted_home(link, me).is_none());
+        fs::remove_dir_all(&d).unwrap();
     }
 }

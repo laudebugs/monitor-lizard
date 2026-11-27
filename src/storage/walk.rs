@@ -29,6 +29,9 @@ pub struct Walked {
     pub entries: u64,
     /// Subfolders or entries that could not be read; their size is missing from the total.
     pub unreadable: u32,
+    /// Subfolders on another device (a mount point) that the walk did not enter, so their content is
+    /// not in the total.
+    pub crossed: u32,
     pub stop: Option<Stop>,
 }
 
@@ -71,7 +74,7 @@ pub fn walk(root: &Path, lim: Limits) -> Option<Result<Walked, &'static str>> {
             // `DirEntry::metadata` is an `lstat`: a symlink is sized as itself and never followed.
             let Ok(m) = entry.metadata() else { w.unreadable += 1; continue };
             if m.is_dir() {
-                if m.dev() != dev { continue; }
+                if m.dev() != dev { w.crossed += 1; continue; }
                 count(&mut w, &m);
                 pending.push(entry.path());
             } else if m.nlink() > 1 && !linked.insert((m.dev(), m.ino())) {

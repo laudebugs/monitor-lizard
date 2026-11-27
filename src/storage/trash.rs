@@ -1,6 +1,10 @@
 //! Moving scanned items to the Trash: the only way this app removes files. Every guard here runs
 //! on the server, because the page that asks is untrusted. A request carries ids from the latest
 //! scan, never paths, and each item is checked again against the disk as it is now.
+//!
+//! The order for a real move is fixed: check the item, write an audit row saying it is about to move
+//! (`Audit::attempting`), check the path once more, move, then record the result. If the audit row
+//! cannot be written the item is not moved.
 use super::{walk::{self, Limits}, Item, Label, MAX_ENTRIES_PER_LOCATION};
 use crate::sampler::Reading;
 use serde::Serialize;
@@ -10,9 +14,12 @@ use std::time::{Duration, Instant};
 
 /// The most ids one request may name.
 pub const MAX_IDS: usize = 50;
-/// Re-measuring an item must not hold a request for long.
+/// Re-measuring one item must not hold a request for long.
 const REMEASURE_BUDGET: Duration = Duration::from_secs(10);
+/// The whole request, checks and moves together. Items not reached by then are reported as not attempted.
+pub const REQUEST_BUDGET: Duration = Duration::from_secs(45);
 
+/// The text shown to the user for each refusal. `Code` is the machine-readable twin.
 pub mod reason {
     pub const GONE: &str = "no longer exists; rescan";
     pub const SYMLINK: &str = "is a symbolic link now, so it was not moved";
@@ -20,8 +27,54 @@ pub mod reason {
     pub const YOURS: &str = "is labelled yours and needs the second confirmation";
     pub const UNMEASURED: &str = "was not measured completely, so a change cannot be ruled out; rescan";
     pub const CHANGED: &str = "changed since the scan; rescan";
+    pub const NOT_OWNED: &str = "is owned by another user (for example root), so this app cannot move it to your Trash";
+    pub const MOUNT_INSIDE: &str = "has another volume mounted inside it, so it was not moved";
     pub const NOT_ATTEMPTED: &str = "not attempted: an earlier move in this request failed";
+    pub const TIME_BUDGET: &str = "not attempted: the time allowed for this request ran out; ask again";
+    pub const AUDIT: &str = "not attempted: the audit log could not be written";
 }
+
+/// Why an item was not moved, as a stable word for the page and the audit log.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Code { Gone, Symlink, Outside, NeedsYoursConfirmation, Unmeasured, Changed, NotOwned, MountInside, Unreadable, TimeBudget, EarlierMoveFailed, AuditFailed, MoveNotPermitted, MoveFailed }
+
+impl Code {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Code::Gone => "gone", Code::Symlink => "symlink", Code::Outside => "outside_allowed_folders",
+            Code::NeedsYoursConfirmation => "needs_yours_confirmation", Code::Unmeasured => "unmeasured",
+            Code::Changed => "changed", Code::NotOwned => "not_owned", Code::MountInside => "mount_inside",
+            Code::Unreadable => "unreadable", Code::TimeBudget => "time_budget", Code::EarlierMoveFailed => "earlier_move_failed",
+            Code::AuditFailed => "audit_failed", Code::MoveNotPermitted => "move_not_permitted", Code::MoveFailed => "move_failed",
+        }
+    }
+}
+
+/// What the mover reports when it cannot move an item.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MoveError {
+    NotFound,
+    NotPermitted(String),
+    Other(String),
+}
+
+impl std::fmt::Display for MoveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MoveError::NotFound => f.write_str("no longer exists"),
+            MoveError::NotPermitted(s) | MoveError::Other(s) => f.write_str(s),
+        }
+    }
+}
+
+impl MoveError {
+    fn code(&self) -> Code {
+        match self { MoveError::NotFound => Code::Gone, MoveError::NotPermitted(_) => Code::MoveNotPermitted, MoveError::Other(_) => Code::MoveFailed }
+    }
+}
+
+pub type Mover<'a> = &'a dyn Fn(&Path) -> Result<(), MoveError>;
 
 /// Nanoseconds since the epoch of the path's own modification (a symlink is not followed).
 pub fn modified_ns(p: &Path) -> Option<u64> {
@@ -40,76 +93,191 @@ pub fn parse_ids(raw: &str) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Status { WouldMove, Moved, Refused, Failed, NotAttempted }
+
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self { Status::WouldMove => "would_move", Status::Moved => "moved", Status::Refused => "refused", Status::Failed => "failed", Status::NotAttempted => "not_attempted" }
+    }
+}
+
+/// What happened to one requested item.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct ItemResult {
+    pub id: String,
+    pub path: String,
+    pub label: Label,
+    pub status: Status,
+    pub code: Option<Code>,
+    pub reason: Option<String>,
+    pub bytes: Option<u64>,
+}
+
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Entry { pub id: String, pub path: String, pub bytes: u64, pub label: Label }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct Refusal { pub id: String, pub path: String, pub reason: String }
+pub struct Refusal { pub id: String, pub path: String, pub reason: String, pub code: Code, pub status: Status }
 
-/// What a request did. In a dry run `moved` is what would move and nothing was touched.
-#[derive(Serialize, Debug, Default)]
-pub struct Outcome { pub dry_run: bool, pub moved: Vec<Entry>, pub refused: Vec<Refusal>, pub bytes: u64 }
+#[derive(Serialize, Debug, Default, PartialEq)]
+pub struct Counts { pub would_move: usize, pub moved: usize, pub refused: usize, pub failed: usize, pub not_attempted: usize }
 
-/// Why this item must not be moved right now, or its size when it may. The cheap checks of the path
-/// itself come first and the re-measure last.
-fn check(item: &Item, home: &Path, apps: &Path, confirm_yours: bool) -> Result<u64, String> {
+/// What a request did, one result per requested id in request order. In a dry run nothing was touched.
+#[derive(Debug, Default)]
+pub struct Outcome {
+    pub dry_run: bool,
+    pub items: Vec<ItemResult>,
+    /// Bytes moved, or that would move in a dry run.
+    pub bytes: u64,
+    /// Set when the audit log could not be written during the run.
+    pub audit_error: Option<String>,
+}
+
+impl Outcome {
+    pub fn counts(&self) -> Counts {
+        let n = |s| self.items.iter().filter(|i| i.status == s).count();
+        Counts { would_move: n(Status::WouldMove), moved: n(Status::Moved), refused: n(Status::Refused), failed: n(Status::Failed), not_attempted: n(Status::NotAttempted) }
+    }
+    /// True when every requested item moved (or would, in a dry run) and the audit log was written.
+    pub fn ok(&self) -> bool { self.audit_error.is_none() && self.items.iter().all(|i| matches!(i.status, Status::Moved | Status::WouldMove)) }
+    pub fn moved(&self) -> Vec<Entry> {
+        self.items.iter().filter(|i| matches!(i.status, Status::Moved | Status::WouldMove))
+            .map(|i| Entry { id: i.id.clone(), path: i.path.clone(), bytes: i.bytes.unwrap_or(0), label: i.label }).collect()
+    }
+    pub fn refused(&self) -> Vec<Refusal> {
+        self.items.iter().filter(|i| !matches!(i.status, Status::Moved | Status::WouldMove))
+            .filter_map(|i| Some(Refusal { id: i.id.clone(), path: i.path.clone(), reason: i.reason.clone()?, code: i.code?, status: i.status })).collect()
+    }
+}
+
+/// Where a real run records itself. `attempting` runs before an item is moved and must succeed for it
+/// to move; `finished` records the result and may fail without undoing anything.
+pub trait Audit {
+    fn attempting(&mut self, item: &Item) -> Result<(), String>;
+    fn finished(&mut self, result: &ItemResult) -> Result<(), String>;
+}
+
+/// For a dry run, which records nothing.
+pub struct NoAudit;
+impl Audit for NoAudit {
+    fn attempting(&mut self, _: &Item) -> Result<(), String> { Ok(()) }
+    fn finished(&mut self, _: &ItemResult) -> Result<(), String> { Ok(()) }
+}
+
+/// What an item is checked against.
+pub struct Policy<'a> {
+    pub home: &'a Path,
+    pub apps: &'a Path,
+    /// The user running this app: an item owned by anyone else is refused.
+    pub uid: u32,
+    pub confirm_yours: bool,
+    /// When the request's time runs out; items not reached are not attempted.
+    pub deadline: Instant,
+}
+
+type Refuse = (Code, &'static str);
+
+/// The checks of the path itself, cheap enough to repeat right before the move.
+fn path_checks(item: &Item, pol: &Policy) -> Result<(), Refuse> {
     let path = Path::new(&item.path);
     let meta = match std::fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(reason::GONE.into()),
-        Err(e) => return Err(walk::io_reason(&e).into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err((Code::Gone, reason::GONE)),
+        Err(e) => return Err((Code::Unreadable, walk::io_reason(&e))),
     };
-    if meta.file_type().is_symlink() { return Err(reason::SYMLINK.into()); }
-    // The path must be its own canonical form: no symlinked folder above it and no `..` in it.
-    let canonical = path.canonicalize().map_err(|e| walk::io_reason(&e).to_string())?;
+    if meta.file_type().is_symlink() { return Err((Code::Symlink, reason::SYMLINK)); }
+    // The path must be its own canonical form: no symlinked folder above it, no `..` in it, and the
+    // same letter case the disk has (a case-insensitive volume would otherwise accept `library`).
+    let canonical = path.canonicalize().map_err(|e| (Code::Unreadable, walk::io_reason(&e)))?;
     let inside = |root: &Path| root.canonicalize().is_ok_and(|r| canonical != r && canonical.starts_with(&r));
-    if canonical != path || !(inside(home) || inside(apps)) { return Err(reason::OUTSIDE.into()); }
-    if item.label == Label::Yours && !confirm_yours { return Err(reason::YOURS.into()); }
-    let (Reading::Value(scanned), true) = (&item.size, item.complete) else { return Err(reason::UNMEASURED.into()) };
-    if item.modified_ns.is_none() || modified_ns(path) != item.modified_ns { return Err(reason::CHANGED.into()); }
-    let lim = Limits { deadline: Instant::now() + REMEASURE_BUDGET, max_entries: MAX_ENTRIES_PER_LOCATION };
-    match walk::walk(path, lim) {
-        None => Err(reason::GONE.into()),
+    if canonical != path || !(inside(pol.home) || inside(pol.apps)) { return Err((Code::Outside, reason::OUTSIDE)); }
+    if meta.uid() != pol.uid { return Err((Code::NotOwned, reason::NOT_OWNED)); }
+    if item.label == Label::Yours && !pol.confirm_yours { return Err((Code::NeedsYoursConfirmation, reason::YOURS)); }
+    if !matches!(item.size, Reading::Value(_)) || !item.complete { return Err((Code::Unmeasured, reason::UNMEASURED)); }
+    if item.modified_ns.is_none() || modified_ns(path) != item.modified_ns { return Err((Code::Changed, reason::CHANGED)); }
+    Ok(())
+}
+
+/// Why this item must not be moved right now, or its size when it may. The cheap checks of the path
+/// itself come first and the re-measure last.
+fn check(item: &Item, pol: &Policy) -> Result<u64, Refuse> {
+    path_checks(item, pol)?;
+    let Reading::Value(scanned) = &item.size else { return Err((Code::Unmeasured, reason::UNMEASURED)) };
+    let now = Instant::now();
+    if now >= pol.deadline { return Err((Code::TimeBudget, reason::TIME_BUDGET)); }
+    let lim = Limits { deadline: (now + REMEASURE_BUDGET).min(pol.deadline), max_entries: MAX_ENTRIES_PER_LOCATION };
+    match walk::walk(Path::new(&item.path), lim) {
+        None => Err((Code::Gone, reason::GONE)),
+        Some(Ok(w)) if w.stop == Some(walk::Stop::Time) && Instant::now() >= pol.deadline => Err((Code::TimeBudget, reason::TIME_BUDGET)),
+        Some(Ok(w)) if w.crossed > 0 => Err((Code::MountInside, reason::MOUNT_INSIDE)),
         // Allocated bytes are in whole blocks and a folder's own time ignores edits inside a file, so
         // the exact length and the entry count must match as well. A same-length overwrite still passes;
         // the Trash is the backstop for that.
         Some(Ok(w)) if w.stop.is_none() && w.unreadable == 0 && w.allocated == *scanned && Some(w.apparent) == item.apparent_bytes && w.entries == item.entries => Ok(*scanned),
-        Some(Ok(w)) if w.stop.is_some() || w.unreadable > 0 => Err(reason::UNMEASURED.into()),
-        Some(_) => Err(reason::CHANGED.into()),
+        Some(Ok(w)) if w.stop.is_some() || w.unreadable > 0 => Err((Code::Unmeasured, reason::UNMEASURED)),
+        Some(Err(why)) => Err((Code::Unreadable, why)),
+        Some(Ok(_)) => Err((Code::Changed, reason::CHANGED)),
     }
 }
 
 /// Checks every item, then (unless `dry`) moves the ones that passed with `mover`, in request order.
-/// A failed move stops the request: the rest are listed as not attempted, so a half-failed batch never
-/// looks like it finished.
-pub fn run(items: &[Item], home: &Path, apps: &Path, confirm_yours: bool, dry: bool, mover: &dyn Fn(&Path) -> Result<(), String>) -> Outcome {
+/// A refusal of one item never stops the others. A failed move, a failed audit write or the end of the
+/// time budget stops the request: the rest are listed as not attempted, so a half-done batch never
+/// looks like it finished, and nothing is moved without its audit row.
+pub fn run(items: &[Item], pol: &Policy, dry: bool, mover: Mover, audit: &mut dyn Audit) -> Outcome {
     let mut out = Outcome { dry_run: dry, ..Outcome::default() };
-    let mut failed = false;
+    // Why every remaining item is not attempted, once the request has stopped.
+    let mut stopped: Option<(Code, &'static str)> = None;
     for item in items {
-        let refuse = |reason: String| Refusal { id: item.id.clone(), path: item.path.clone(), reason };
-        if failed { out.refused.push(refuse(reason::NOT_ATTEMPTED.into())); continue; }
-        let accepted = |bytes| Entry { id: item.id.clone(), path: item.path.clone(), bytes, label: item.label };
-        match check(item, home, apps, confirm_yours) {
-            Err(why) => out.refused.push(refuse(why)),
-            Ok(bytes) if dry => { out.bytes += bytes; out.moved.push(accepted(bytes)); }
-            Ok(bytes) => match mover(Path::new(&item.path)) {
-                Ok(()) => { out.bytes += bytes; out.moved.push(accepted(bytes)); }
-                Err(why) => { failed = true; out.refused.push(refuse(why)); }
-            },
+        let result = |status: Status, code: Option<Code>, why: Option<String>, bytes: Option<u64>| ItemResult { id: item.id.clone(), path: item.path.clone(), label: item.label, status, code, reason: why, bytes };
+        let not_attempted = |(code, why): (Code, &'static str)| result(Status::NotAttempted, Some(code), Some(why.to_string()), None);
+        let r = if let Some(s) = stopped { not_attempted(s) } else if Instant::now() >= pol.deadline {
+            stopped = Some((Code::TimeBudget, reason::TIME_BUDGET));
+            not_attempted((Code::TimeBudget, reason::TIME_BUDGET))
+        } else {
+            match check(item, pol) {
+                Err((Code::TimeBudget, why)) => { stopped = Some((Code::TimeBudget, why)); not_attempted((Code::TimeBudget, why)) }
+                Err((code, why)) => result(Status::Refused, Some(code), Some(why.to_string()), None),
+                Ok(bytes) if dry => result(Status::WouldMove, None, None, Some(bytes)),
+                Ok(bytes) => move_one(item, pol, bytes, mover, audit, &mut stopped, &result, &not_attempted),
+            }
+        };
+        if matches!(r.status, Status::Moved | Status::WouldMove) { out.bytes = out.bytes.saturating_add(r.bytes.unwrap_or(0)); }
+        if !dry {
+            if let Err(e) = audit.finished(&r) { out.audit_error.get_or_insert(e); }
         }
+        out.items.push(r);
     }
     out
 }
 
+/// The audited part of a real move: row first, path check again, then the move.
+#[allow(clippy::too_many_arguments)]
+fn move_one(item: &Item, pol: &Policy, bytes: u64, mover: Mover, audit: &mut dyn Audit, stopped: &mut Option<(Code, &'static str)>,
+    result: &dyn Fn(Status, Option<Code>, Option<String>, Option<u64>) -> ItemResult, not_attempted: &dyn Fn((Code, &'static str)) -> ItemResult) -> ItemResult {
+    if audit.attempting(item).is_err() {
+        *stopped = Some((Code::AuditFailed, reason::AUDIT));
+        return not_attempted((Code::AuditFailed, reason::AUDIT));
+    }
+    // The time between the first check and now is where a path could be swapped for a link.
+    if let Err((code, why)) = path_checks(item, pol) { return result(Status::Refused, Some(code), Some(why.to_string()), None); }
+    match mover(Path::new(&item.path)) {
+        Ok(()) => result(Status::Moved, None, None, Some(bytes)),
+        Err(e) => { *stopped = Some((Code::EarlierMoveFailed, reason::NOT_ATTEMPTED)); result(Status::Failed, Some(e.code()), Some(e.to_string()), None) }
+    }
+}
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::storage::{item_id, Cache, Category, Rule, Storage};
     use std::cell::RefCell;
     use std::fs;
     use std::path::PathBuf;
 
-    fn temp(name: &str) -> PathBuf {
+    pub(crate) fn temp(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("ml-trash-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
@@ -117,18 +285,31 @@ mod tests {
     }
 
     /// An item as a scan of `path` would have produced it.
-    fn scanned(path: &Path, label: Label) -> Item {
+    pub(crate) fn scanned(path: &Path, label: Label) -> Item {
         let text = path.display().to_string();
         let w = walk::walk(path, Limits { deadline: Instant::now() + Duration::from_secs(5), max_entries: 1000 }).unwrap().unwrap();
         Item { id: item_id(&text), path: text, category: Category::Caches, label, rule: Rule::AppCache, size: Reading::Value(w.allocated), apparent_bytes: Some(w.apparent), entries: w.entries, complete: true, unreadable: 0, modified_ns: modified_ns(path) }
     }
 
-    /// A mover that records what it was given and removes it, in place of the Trash.
-    fn recording(log: &RefCell<Vec<PathBuf>>) -> impl Fn(&Path) -> Result<(), String> + '_ {
-        move |p| { log.borrow_mut().push(p.to_path_buf()); fs::remove_dir_all(p).or_else(|_| fs::remove_file(p)).map_err(|e| e.to_string()) }
+    fn me() -> u32 {
+        // SAFETY: geteuid has no arguments and cannot fail.
+        unsafe { libc::geteuid() }
     }
 
-    fn cache_dir(home: &Path, name: &str) -> PathBuf {
+    fn pol<'a>(home: &'a Path, apps: &'a Path) -> Policy<'a> {
+        Policy { home, apps, uid: me(), confirm_yours: false, deadline: Instant::now() + Duration::from_secs(60) }
+    }
+
+    fn go(items: &[Item], p: &Policy, dry: bool, mover: Mover) -> Outcome { run(items, p, dry, mover, &mut NoAudit) }
+
+    /// A mover that records what it was given and removes it, in place of the Trash.
+    fn recording(log: &RefCell<Vec<PathBuf>>) -> impl Fn(&Path) -> Result<(), MoveError> + '_ {
+        move |p| { log.borrow_mut().push(p.to_path_buf()); fs::remove_dir_all(p).or_else(|_| fs::remove_file(p)).map_err(|e| MoveError::Other(e.to_string())) }
+    }
+
+    fn never(_: &Path) -> Result<(), MoveError> { panic!("must not move") }
+
+    pub(crate) fn cache_dir(home: &Path, name: &str) -> PathBuf {
         let d = home.join("Library/Caches").join(name);
         fs::create_dir_all(&d).unwrap();
         fs::write(d.join("blob"), vec![1u8; 40_000]).unwrap();
@@ -137,14 +318,17 @@ mod tests {
 
     fn item_bytes(i: &Item) -> u64 { if let Reading::Value(b) = i.size { b } else { 0 } }
 
+    fn why(o: &Outcome, i: usize) -> (Status, Option<Code>, &str) { (o.items[i].status, o.items[i].code, o.items[i].reason.as_deref().unwrap_or("")) }
+
     #[test]
     fn a_safe_item_moves_and_is_reported_with_its_size() {
         let (home, apps) = (temp("moves"), temp("moves-apps"));
         let d = cache_dir(&home, "app");
         let item = scanned(&d, Label::Safe);
         let log = RefCell::new(vec![]);
-        let o = run(&[item.clone()], &home, &apps, false, false, &recording(&log));
-        assert_eq!((o.moved.len(), o.refused.len(), o.bytes), (1, 0, item_bytes(&item)));
+        let o = go(&[item.clone()], &pol(&home, &apps), false, &recording(&log));
+        assert_eq!((o.counts().moved, o.refused().len(), o.bytes), (1, 0, item_bytes(&item)));
+        assert!(o.ok());
         assert_eq!(*log.borrow(), vec![d.clone()]);
         assert!(!d.exists());
     }
@@ -154,8 +338,8 @@ mod tests {
         let (home, apps) = (temp("dry"), temp("dry-apps"));
         let d = cache_dir(&home, "app");
         let log = RefCell::new(vec![]);
-        let o = run(&[scanned(&d, Label::Safe)], &home, &apps, false, true, &recording(&log));
-        assert!(o.dry_run && o.moved.len() == 1 && o.bytes > 0);
+        let o = go(&[scanned(&d, Label::Safe)], &pol(&home, &apps), true, &recording(&log));
+        assert!(o.dry_run && o.counts().would_move == 1 && o.bytes > 0 && o.ok());
         assert!(log.borrow().is_empty() && d.exists());
     }
 
@@ -168,10 +352,45 @@ mod tests {
         fs::create_dir_all(&precious).unwrap();
         fs::remove_dir_all(&d).unwrap();
         std::os::unix::fs::symlink(&precious, &d).unwrap();
-        let log = RefCell::new(vec![]);
-        let o = run(&[item], &home, &apps, false, false, &recording(&log));
-        assert!(o.moved.is_empty() && o.refused[0].reason == reason::SYMLINK, "{o:?}");
-        assert!(log.borrow().is_empty() && precious.exists());
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::Symlink), reason::SYMLINK), "{o:?}");
+        assert!(precious.exists());
+    }
+
+    /// Swaps the item for a link to something precious after the first check passed and before the
+    /// move: the second check, right before the mover, must catch it.
+    struct SwapOnAttempt { swap: Box<dyn Fn()> }
+    impl Audit for SwapOnAttempt {
+        fn attempting(&mut self, _: &Item) -> Result<(), String> { (self.swap)(); Ok(()) }
+        fn finished(&mut self, _: &ItemResult) -> Result<(), String> { Ok(()) }
+    }
+
+    #[test]
+    fn a_path_swapped_for_a_symlink_between_the_check_and_the_move_is_refused() {
+        let (home, apps) = (temp("toctou"), temp("toctou-apps"));
+        let d = cache_dir(&home, "app");
+        let item = scanned(&d, Label::Safe);
+        let precious = home.join("precious");
+        fs::create_dir_all(&precious).unwrap();
+        fs::write(precious.join("keep"), "x").unwrap();
+        let (dd, pp) = (d.clone(), precious.clone());
+        let mut audit = SwapOnAttempt { swap: Box::new(move || { fs::remove_dir_all(&dd).unwrap(); std::os::unix::fs::symlink(&pp, &dd).unwrap(); }) };
+        let o = run(&[item], &pol(&home, &apps), false, &never, &mut audit);
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::Symlink), reason::SYMLINK), "{o:?}");
+        assert!(precious.join("keep").exists());
+    }
+
+    #[test]
+    fn a_folder_rewritten_between_the_check_and_the_move_is_refused_by_the_second_time_check() {
+        let (home, apps) = (temp("toctou-mtime"), temp("toctou-mtime-apps"));
+        let d = cache_dir(&home, "app");
+        let item = scanned(&d, Label::Safe);
+        let dd = d.clone();
+        // Adding an entry changes the folder's own modification time.
+        let mut audit = SwapOnAttempt { swap: Box::new(move || fs::write(dd.join("late"), "x").unwrap()) };
+        let o = run(&[item], &pol(&home, &apps), false, &never, &mut audit);
+        assert_eq!(why(&o, 0).1, Some(Code::Changed), "{o:?}");
+        assert!(d.exists());
     }
 
     #[test]
@@ -180,11 +399,24 @@ mod tests {
         let real = cache_dir(&elsewhere, "app");
         fs::create_dir_all(home.join("Library")).unwrap();
         std::os::unix::fs::symlink(elsewhere.join("Library/Caches"), home.join("Library/Caches")).unwrap();
-        let via = home.join("Library/Caches/app");
-        let item = scanned(&via, Label::Safe);
-        let o = run(&[item], &home, &apps, false, false, &|_| panic!("must not move"));
-        assert_eq!(o.refused[0].reason, reason::OUTSIDE);
+        let item = scanned(&home.join("Library/Caches/app"), Label::Safe);
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0).1, Some(Code::Outside));
         assert!(real.exists());
+    }
+
+    #[test]
+    fn a_path_in_a_different_letter_case_is_refused() {
+        let (home, apps) = (temp("case"), temp("case-apps"));
+        let d = cache_dir(&home, "App");
+        let wrong = home.join("library/caches/app");
+        // On a case-sensitive volume the other spelling does not exist, which is refused as gone.
+        let exists = wrong.exists();
+        let mut item = scanned(&d, Label::Safe);
+        item.path = wrong.display().to_string();
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0).1, Some(if exists { Code::Outside } else { Code::Gone }), "{o:?}");
+        assert!(d.exists());
     }
 
     #[test]
@@ -194,8 +426,8 @@ mod tests {
         let item = scanned(&d, Label::Safe);
         // Rewriting a file leaves the folder's own time alone; the size check catches it.
         fs::write(d.join("blob"), vec![2u8; 400_000]).unwrap();
-        let o = run(&[item], &home, &apps, false, false, &|_| panic!("must not move"));
-        assert_eq!(o.refused[0].reason, reason::CHANGED);
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::Changed), reason::CHANGED));
         assert!(d.exists());
     }
 
@@ -206,8 +438,8 @@ mod tests {
         let item = scanned(&d, Label::Safe);
         let mut f = fs::OpenOptions::new().append(true).open(d.join("blob")).unwrap();
         std::io::Write::write_all(&mut f, b"more").unwrap();
-        let o = run(&[item], &home, &apps, false, false, &|_| panic!("must not move"));
-        assert_eq!(o.refused[0].reason, reason::CHANGED);
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0).1, Some(Code::Changed));
     }
 
     #[test]
@@ -216,8 +448,8 @@ mod tests {
         let d = cache_dir(&home, "app");
         let mut item = scanned(&d, Label::Safe);
         item.modified_ns = item.modified_ns.map(|n| n - 1);
-        let o = run(&[item], &home, &apps, false, false, &|_| panic!("must not move"));
-        assert_eq!(o.refused[0].reason, reason::CHANGED);
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0).1, Some(Code::Changed));
     }
 
     #[test]
@@ -225,11 +457,12 @@ mod tests {
         let (home, apps) = (temp("yours"), temp("yours-apps"));
         let d = cache_dir(&home, "mine");
         let item = scanned(&d, Label::Yours);
-        let o = run(&[item.clone()], &home, &apps, false, false, &|_| panic!("must not move"));
-        assert_eq!(o.refused[0].reason, reason::YOURS);
+        let o = go(&[item.clone()], &pol(&home, &apps), false, &never);
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::NeedsYoursConfirmation), reason::YOURS));
         let log = RefCell::new(vec![]);
-        let o = run(&[item], &home, &apps, true, false, &recording(&log));
-        assert_eq!((o.moved.len(), o.refused.len()), (1, 0));
+        let confirmed = Policy { confirm_yours: true, ..pol(&home, &apps) };
+        let o = go(&[item], &confirmed, false, &recording(&log));
+        assert_eq!((o.counts().moved, o.refused().len()), (1, 0));
     }
 
     #[test]
@@ -238,10 +471,10 @@ mod tests {
         let d = cache_dir(&home, "app");
         let mut item = scanned(&d, Label::Safe);
         item.complete = false;
-        assert_eq!(run(&[item.clone()], &home, &apps, false, false, &|_| panic!("no")).refused[0].reason, reason::UNMEASURED);
+        assert_eq!(why(&go(&[item.clone()], &pol(&home, &apps), false, &never), 0).1, Some(Code::Unmeasured));
         item.complete = true;
         item.size = Reading::Unavailable("permission denied");
-        assert_eq!(run(&[item], &home, &apps, false, false, &|_| panic!("no")).refused[0].reason, reason::UNMEASURED);
+        assert_eq!(why(&go(&[item], &pol(&home, &apps), false, &never), 0).1, Some(Code::Unmeasured));
     }
 
     #[test]
@@ -250,9 +483,10 @@ mod tests {
         let other = temp("outside-other");
         let f = other.join("file");
         fs::write(&f, "x").unwrap();
+        let confirmed = Policy { confirm_yours: true, ..pol(&home, &apps) };
         for p in [f.clone(), PathBuf::from("/etc/hosts"), home.clone(), apps.clone()] {
-            let o = run(&[scanned(&p, Label::Safe)], &home, &apps, true, false, &|_| panic!("must not move {p:?}"));
-            assert_eq!(o.refused[0].reason, reason::OUTSIDE, "{p:?}");
+            let o = go(&[scanned(&p, Label::Safe)], &confirmed, false, &never);
+            assert_eq!(why(&o, 0).1, Some(Code::Outside), "{p:?}");
         }
         assert!(f.exists());
     }
@@ -264,8 +498,32 @@ mod tests {
         fs::create_dir_all(app.join("Contents")).unwrap();
         fs::write(app.join("Contents/x"), vec![0u8; 5000]).unwrap();
         let log = RefCell::new(vec![]);
-        let o = run(&[scanned(&app, Label::Review)], &home, &apps, false, false, &recording(&log));
-        assert_eq!(o.moved.len(), 1, "{o:?}");
+        let o = go(&[scanned(&app, Label::Review)], &pol(&home, &apps), false, &recording(&log));
+        assert_eq!(o.counts().moved, 1, "{o:?}");
+    }
+
+    #[test]
+    fn an_item_owned_by_someone_else_is_refused_up_front_with_a_reason() {
+        let (home, apps) = (temp("owner"), temp("owner-apps"));
+        let d = cache_dir(&home, "app");
+        let item = scanned(&d, Label::Safe);
+        // The same item, judged by a user it does not belong to (root-owned apps look like this).
+        let stranger = Policy { uid: me().wrapping_add(1), ..pol(&home, &apps) };
+        let o = go(&[item], &stranger, false, &never);
+        assert_eq!(why(&o, 0), (Status::Refused, Some(Code::NotOwned), reason::NOT_OWNED));
+        assert!(d.exists());
+    }
+
+    #[test]
+    fn a_pre_check_refusal_does_not_halt_the_batch() {
+        let (home, apps) = (temp("mixed"), temp("mixed-apps"));
+        let a = scanned(&cache_dir(&home, "a"), Label::Yours);
+        let b = scanned(&cache_dir(&home, "b"), Label::Safe);
+        let c = scanned(&cache_dir(&home, "c"), Label::Safe);
+        let log = RefCell::new(vec![]);
+        let o = go(&[a, b, c], &pol(&home, &apps), false, &recording(&log));
+        assert_eq!((o.counts().moved, o.counts().refused, o.counts().failed, o.counts().not_attempted), (2, 1, 0, 0));
+        assert!(!o.ok());
     }
 
     #[test]
@@ -274,30 +532,101 @@ mod tests {
         let d = cache_dir(&home, "app");
         let item = scanned(&d, Label::Safe);
         fs::remove_dir_all(&d).unwrap();
-        assert_eq!(run(&[item], &home, &apps, false, false, &|_| panic!("no")).refused[0].reason, reason::GONE);
+        assert_eq!(why(&go(&[item], &pol(&home, &apps), false, &never), 0), (Status::Refused, Some(Code::Gone), reason::GONE));
     }
 
     #[test]
-    fn a_failed_move_stops_the_batch_and_lists_the_rest_as_not_attempted() {
+    fn a_failed_move_stops_the_batch_and_marks_the_failed_item() {
         let (home, apps) = (temp("half"), temp("half-apps"));
         let items: Vec<Item> = ["a", "b", "c"].iter().map(|n| scanned(&cache_dir(&home, n), Label::Safe)).collect();
         let seen = RefCell::new(0);
-        let mover = |p: &Path| { *seen.borrow_mut() += 1; if *seen.borrow() == 2 { Err("Operation not permitted".to_string()) } else { fs::remove_dir_all(p).map_err(|e| e.to_string()) } };
-        let o = run(&items, &home, &apps, false, false, &mover);
-        assert_eq!(o.moved.len(), 1);
-        assert_eq!(o.refused.iter().map(|r| r.reason.as_str()).collect::<Vec<_>>(), ["Operation not permitted", reason::NOT_ATTEMPTED]);
+        let mover = |p: &Path| { *seen.borrow_mut() += 1; if *seen.borrow() == 2 { Err(MoveError::NotPermitted("Operation not permitted".to_string())) } else { fs::remove_dir_all(p).map_err(|e| MoveError::Other(e.to_string())) } };
+        let o = go(&items, &pol(&home, &apps), false, &mover);
+        let statuses: Vec<_> = o.items.iter().map(|i| i.status).collect();
+        assert_eq!(statuses, [Status::Moved, Status::Failed, Status::NotAttempted]);
+        assert_eq!((o.items[1].code, o.items[1].reason.as_deref()), (Some(Code::MoveNotPermitted), Some("Operation not permitted")));
+        assert_eq!((o.items[2].code, o.items[2].reason.as_deref()), (Some(Code::EarlierMoveFailed), Some(reason::NOT_ATTEMPTED)));
         assert_eq!(*seen.borrow(), 2);
         assert!(Path::new(&items[2].path).exists());
     }
 
     #[test]
-    fn one_refusal_does_not_stop_the_others() {
-        let (home, apps) = (temp("mixed"), temp("mixed-apps"));
-        let a = scanned(&cache_dir(&home, "a"), Label::Yours);
-        let b = scanned(&cache_dir(&home, "b"), Label::Safe);
-        let log = RefCell::new(vec![]);
-        let o = run(&[a, b], &home, &apps, false, false, &recording(&log));
-        assert_eq!((o.moved.len(), o.refused.len()), (1, 1));
+    fn an_exhausted_time_budget_leaves_the_rest_not_attempted_and_unmoved() {
+        let (home, apps) = (temp("budget"), temp("budget-apps"));
+        let items: Vec<Item> = ["a", "b"].iter().map(|n| scanned(&cache_dir(&home, n), Label::Safe)).collect();
+        let late = Policy { deadline: Instant::now(), ..pol(&home, &apps) };
+        let o = go(&items, &late, false, &never);
+        assert!(o.items.iter().all(|i| i.status == Status::NotAttempted && i.code == Some(Code::TimeBudget)), "{o:?}");
+        assert!(items.iter().all(|i| Path::new(&i.path).exists()));
+    }
+
+    /// Records the order of audit calls against moves.
+    #[derive(Default)]
+    struct Log(Vec<String>);
+    struct Ordered<'a> { log: &'a RefCell<Log>, fail_attempt_for: Option<String> }
+    impl Audit for Ordered<'_> {
+        fn attempting(&mut self, i: &Item) -> Result<(), String> {
+            if self.fail_attempt_for.as_deref() == Some(i.id.as_str()) { return Err("locked".into()); }
+            self.log.borrow_mut().0.push(format!("attempting {}", i.id)); Ok(())
+        }
+        fn finished(&mut self, r: &ItemResult) -> Result<(), String> { self.log.borrow_mut().0.push(format!("finished {} {}", r.id, r.status.as_str())); Ok(()) }
+    }
+
+    #[test]
+    fn each_item_is_audited_before_it_moves_and_finished_after() {
+        let (home, apps) = (temp("order"), temp("order-apps"));
+        let items: Vec<Item> = ["a", "b"].iter().map(|n| scanned(&cache_dir(&home, n), Label::Safe)).collect();
+        let log = RefCell::new(Log::default());
+        let mover = |p: &Path| { log.borrow_mut().0.push(format!("move {}", p.file_name().unwrap().to_string_lossy())); fs::remove_dir_all(p).map_err(|e| MoveError::Other(e.to_string())) };
+        let o = run(&items, &pol(&home, &apps), false, &mover, &mut Ordered { log: &log, fail_attempt_for: None });
+        assert_eq!(o.counts().moved, 2);
+        let (a, b) = (&items[0].id, &items[1].id);
+        assert_eq!(log.borrow().0, [format!("attempting {a}"), "move a".to_string(), format!("finished {a} moved"), format!("attempting {b}"), "move b".to_string(), format!("finished {b} moved")]);
+    }
+
+    #[test]
+    fn an_item_whose_audit_row_cannot_be_written_is_not_moved_and_stops_the_request() {
+        let (home, apps) = (temp("auditfail"), temp("auditfail-apps"));
+        let items: Vec<Item> = ["a", "b", "c"].iter().map(|n| scanned(&cache_dir(&home, n), Label::Safe)).collect();
+        let log = RefCell::new(Log::default());
+        let moves = RefCell::new(vec![]);
+        let o = run(&items, &pol(&home, &apps), false, &recording(&moves), &mut Ordered { log: &log, fail_attempt_for: Some(items[1].id.clone()) });
+        let statuses: Vec<_> = o.items.iter().map(|i| i.status).collect();
+        assert_eq!(statuses, [Status::Moved, Status::NotAttempted, Status::NotAttempted]);
+        assert_eq!(o.items[1].code, Some(Code::AuditFailed));
+        assert_eq!(moves.borrow().len(), 1);
+        assert!(Path::new(&items[1].path).exists() && Path::new(&items[2].path).exists());
+    }
+
+    #[test]
+    fn a_dry_run_never_calls_the_audit() {
+        let (home, apps) = (temp("dry-audit"), temp("dry-audit-apps"));
+        let item = scanned(&cache_dir(&home, "a"), Label::Safe);
+        let log = RefCell::new(Log::default());
+        let o = run(&[item], &pol(&home, &apps), true, &never, &mut Ordered { log: &log, fail_attempt_for: None });
+        assert_eq!(o.counts().would_move, 1);
+        assert!(log.borrow().0.is_empty());
+    }
+
+    /// A different device inside the item: attached with `hdiutil` at a mount point in a temp folder.
+    /// Skipped (with a note) where a disk image cannot be attached, such as a sandbox.
+    #[test]
+    fn an_item_with_a_volume_mounted_inside_it_is_refused() {
+        use std::process::Command;
+        let (home, apps) = (temp("mount"), temp("mount-apps"));
+        let scratch = temp("mount-img");
+        let d = cache_dir(&home, "app");
+        let mnt = d.join("mnt");
+        fs::create_dir_all(&mnt).unwrap();
+        let img = scratch.join("v.dmg");
+        let made = Command::new("/usr/bin/hdiutil").args(["create", "-size", "8m", "-fs", "HFS+", "-volname", "mltest", "-quiet"]).arg(&img).status();
+        let attached = made.is_ok_and(|s| s.success()) && Command::new("/usr/bin/hdiutil").args(["attach", "-nobrowse", "-quiet", "-mountpoint"]).arg(&mnt).arg(&img).status().is_ok_and(|s| s.success());
+        if !attached { eprintln!("skipped: hdiutil could not attach a disk image here"); return; }
+        let item = scanned(&d, Label::Safe);
+        let o = go(&[item], &pol(&home, &apps), false, &never);
+        let detach = Command::new("/usr/bin/hdiutil").args(["detach", "-force", "-quiet"]).arg(&mnt).status();
+        assert!(detach.is_ok_and(|s| s.success()), "could not detach the test volume at {mnt:?}");
+        assert_eq!(why(&o, 0).1, Some(Code::MountInside), "{o:?}");
     }
 
     #[test]

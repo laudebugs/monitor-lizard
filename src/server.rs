@@ -1,4 +1,4 @@
-use crate::{actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, watcher};
+use crate::{actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, trash_route, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -18,6 +18,8 @@ const SEEN_LIMIT: usize = 2000;
 /// Live sudo/su rows read to explain the last two hours of authorization failures.
 const LIVE_JOIN_LIMIT: usize = 500;
 const ACTION_LIMIT: usize = 200;
+/// Removal requests `/api/history` returns, newest first; kept apart from the kill log's limit.
+const TRASH_LIMIT: usize = 200;
 const BASELINE_CHANGE_LIMIT: usize = 200;
 /// Shorter than `llm::classify`'s own 20 s default: see the comment at its call site in `/api/classify`.
 const CLASSIFY_TIMEOUT: Duration = Duration::from_secs(6);
@@ -35,10 +37,13 @@ fn refresh<T: serde::Serialize + 'static>(cache: &Cache, every: Duration, f: fn(
 }
 
 /// Per-run secret embedded in the page; required on every write so a stray request can't act.
-fn token() -> String {
+fn token() -> String { random_token().expect("random token") }
+
+/// 128 random bits as hex, for the per-run token and the removal confirmations.
+pub(crate) fn random_token() -> std::io::Result<String> {
     let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut b)).expect("random token");
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut b))?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 fn query_param(query: &str, name: &str) -> Option<String> {
@@ -90,6 +95,7 @@ pub fn serve_on(server: Arc<Server>) {
     // Say at startup if the history cannot be opened (for instance a database from a newer build), instead of showing empty pages.
     drop(history::open_or_report());
     let storage_cache: Arc<storage::Cache> = Default::default();
+    let confirmations: Arc<trash_route::ConfirmTokens> = Default::default();
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
@@ -108,10 +114,25 @@ pub fn serve_on(server: Arc<Server>) {
         let hdr = |n: &'static str| req.headers().iter().find(|h| h.field.equiv(n)).map(|h| h.value.to_string());
         let host_ok = host_allowed(&hosts, hdr("Host").as_deref()); // DNS-rebinding guard
         // Writes need: same origin (if sent) and the page's secret token.
-        let write_ok = hdr("Origin").is_none_or(|o| origins.contains(&o)) && hdr("X-MonitorLizard-Token").is_some_and(|t| t == secret);
+        let write_ok = write_allowed(&origins, hdr("Origin").as_deref(), &secret, hdr("X-MonitorLizard-Token").as_deref());
         let json_resp = |body: String| Response::from_string(body).with_header(Header::from_bytes("content-type", "application/json").unwrap()).boxed();
         let cached = |c: &Cache| json_resp(c.lock().unwrap().clone().unwrap_or_else(|| "null".into()));
         let forbidden = || Response::from_string("forbidden").with_status_code(403).boxed();
+        // Removal can take a while (re-measuring each item), so it runs on its own thread: the dashboard
+        // and Stop requests are not held up behind it. Only one runs at a time.
+        if host_ok && write_ok && *req.method() == Method::Post && path == "/api/trash" {
+            let query = query.to_string();
+            let (cache, tokens) = (storage_cache.clone(), confirmations.clone());
+            thread::spawn(move || {
+                let (code, body) = match trash_route::Busy::try_begin() {
+                    Some(_busy) => trash_route::serve_reply(&query, &cache, &tokens),
+                    None => trash_route::busy_reply(),
+                };
+                let res = Response::from_string(body).with_status_code(code).with_header(Header::from_bytes("content-type", "application/json").unwrap());
+                let _ = req.respond(res);
+            });
+            continue;
+        }
         let res = match (req.method(), path) {
             _ if !host_ok => Response::from_string("bad host").with_status_code(403).boxed(),
             (Method::Get, "/api/snapshot") if query == "fresh=1" => json_resp(serde_json::to_string(&snapshot::take()).unwrap_or_default()),
@@ -134,8 +155,16 @@ pub fn serve_on(server: Arc<Server>) {
                 let rows = processes.read().map(|r| r.clone()).unwrap_or_default();
                 json_resp(serde_json::to_string(&procusage::sort_and_limit(rows, &sort, limit)).unwrap_or_default())
             }
-            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?, h.recent_trash_moves(ACTION_LIMIT)?))) {
-                Ok((seen, actions, baseline_changes, trash_moves)) => json_resp(serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes, "trash_moves": trash_moves }).to_string()),
+            (Method::Get, "/api/history") => match History::open().and_then(|h| Ok((h.seen_rows(SEEN_LIMIT)?, h.recent_actions(ACTION_LIMIT)?, h.recent_baseline_changes(BASELINE_CHANGE_LIMIT)?, h.recent_trash_moves(TRASH_LIMIT)?))) {
+                Ok((seen, actions, baseline_changes, trash_moves)) => {
+                    // This route needs no token, so removal paths are shown relative to home; the database keeps the full ones.
+                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                    let trash_moves: Vec<_> = trash_moves.into_iter().map(|m| match &home { Some(h) => m.with_home_as_tilde(h), None => m }).collect();
+                    match serde_json::to_string(&serde_json::json!({ "seen": seen, "actions": actions, "baseline_changes": baseline_changes, "trash_moves": trash_moves })) {
+                        Ok(body) => json_resp(body),
+                        Err(e) => Response::from_string(format!("could not build the history reply: {e}")).with_status_code(500).boxed(),
+                    }
+                }
                 // An unreadable database must not look like "no history".
                 Err(e) => Response::from_string(history::unavailable(&e)).with_status_code(500).boxed(),
             }
@@ -201,10 +230,6 @@ pub fn serve_on(server: Arc<Server>) {
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
             }
-            (Method::Post, "/api/trash") if write_ok => {
-                let (code, body) = trash_reply(query, &storage_cache);
-                json_resp(body).with_status_code(code)
-            }
             (Method::Post, _) => forbidden(),
             (Method::Get, "/fonts/IBMPlexSans-Regular.woff2") => Response::from_data(FONT_REGULAR).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
             (Method::Get, "/fonts/IBMPlexSans-Medium.woff2") => Response::from_data(FONT_MEDIUM).with_header(Header::from_bytes("content-type", "font/woff2").unwrap()).with_header(Header::from_bytes("cache-control", "public, max-age=31536000, immutable").unwrap()).boxed(),
@@ -219,27 +244,6 @@ pub fn serve_on(server: Arc<Server>) {
     }
 }
 
-/// `POST /api/trash?ids=a,b[&dry=1][&confirm_yours=1]`. A real move needs the audit log to be writable,
-/// so a request that cannot be recorded moves nothing.
-fn trash_reply(query: &str, cache: &storage::Cache) -> (u16, String) {
-    let err = |code, msg: String| (code, serde_json::json!({ "error": msg }).to_string());
-    let ids = match storage::trash::parse_ids(&query_param(query, "ids").unwrap_or_default()) { Ok(v) => v, Err(e) => return err(400, e) };
-    let items = match cache.find(&ids) { Ok(v) => v, Err(e) => return err(400, e) };
-    let Some(home) = storage::home() else { return err(400, storage::reason::HOME_UNKNOWN.into()) };
-    let dry = query_param(query, "dry").as_deref() == Some("1");
-    let confirm_yours = query_param(query, "confirm_yours").as_deref() == Some("1");
-    if dry {
-        let o = storage::trash::run(&items, &home, std::path::Path::new("/Applications"), confirm_yours, true, &actions::trash);
-        return (200, serde_json::to_string(&o).unwrap_or_default());
-    }
-    let h = match History::open() { Ok(h) => h, Err(e) => return err(500, format!("the audit log is unavailable, so nothing was moved: {}", history::unavailable(&e))) };
-    let o = storage::trash::run(&items, &home, std::path::Path::new("/Applications"), confirm_yours, false, &actions::trash);
-    let audit = h.record_trash_move(unix_now(), &o);
-    let mut v = serde_json::to_value(&o).unwrap_or_default();
-    if let Err(e) = audit { v["audit_error"] = e.to_string().into(); }
-    (200, v.to_string())
-}
-
 fn unix_now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
 
 /// The capacity series and its forecast. It only reads: a read-only connection, no table creation, no
@@ -248,6 +252,11 @@ fn unix_now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UN
 fn storage_history_reply(db: &std::path::Path, now: u64) -> serde_json::Value {
     let series = history::read_capacity_series(db, now).map_err(|e| history::unavailable(&e));
     storage::forecast::reply(series, history::local_day(now, history::local_utc_offset(now)))
+}
+
+/// A write needs the same origin (when the browser sends one) and the page's per-run secret.
+fn write_allowed(origins: &[String], origin: Option<&str>, secret: &str, token: Option<&str>) -> bool {
+    origin.is_none_or(|o| origins.iter().any(|x| x == o)) && token.is_some_and(|t| t == secret)
 }
 
 /// The DNS-rebinding guard: the Host header must be exactly one of the addresses this server listens on.
@@ -290,7 +299,7 @@ fn refresh_startup_cache(cache: &Cache, key: &str, expected: bool) {
     });
 }
 
-fn urldecode(s: &str) -> String {
+pub(crate) fn urldecode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -398,6 +407,16 @@ mod tests {
         assert_eq!((v["available"].clone(), v["forecast"]["status"].clone()), (true.into(), "collecting".into()));
         assert!(!dir.join("none.db").exists(), "reading does not create the file");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_write_needs_the_per_run_token_and_a_matching_origin() {
+        let origins = ["http://127.0.0.1:4747".to_string(), "http://localhost:4747".to_string()];
+        assert!(write_allowed(&origins, None, "s3cret", Some("s3cret")), "no Origin header (curl, the shell) with the token passes");
+        assert!(write_allowed(&origins, Some("http://localhost:4747"), "s3cret", Some("s3cret")));
+        for (o, t) in [(None, None), (None, Some("wrong")), (None, Some("")), (Some("http://evil.example"), Some("s3cret")), (Some("http://127.0.0.1:4748"), Some("s3cret")), (Some("null"), Some("s3cret")), (Some("http://localhost:4747"), None)] {
+            assert!(!write_allowed(&origins, o, "s3cret", t), "{o:?} {t:?}");
+        }
     }
 
     #[test]
