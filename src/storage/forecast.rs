@@ -1,6 +1,6 @@
 //! Capacity history and the "full in about N days" forecast. One sample a day (used, purgeable and
 //! free bytes, nothing about apps or folders), a straight-line fit over the last 14 days, and the
-//! reply for `GET /api/storage/history`. Pure: the database lives in `history.rs`.
+//! reply for `GET /api/storage/history`. Pure: the database lives in `history/capacity.rs`.
 use serde::Serialize;
 use serde_json::{json, Value};
 

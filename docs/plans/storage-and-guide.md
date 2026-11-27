@@ -75,6 +75,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | T2 | Split the dashboard page into CSS and script files (after S4) | S4 |
 | T3 | Resizable (expandable) table columns (done 2026-11-27) | T1b, N3 |
 | T4 | A mobile-width layout direction (done 2026-11-27) | T1b |
+| T5 | Split `history.rs` into modules | None |
 | T1b | Page shell, sidebar groups, table styles (done 2026-11-26; forced colors in T1c) | T1a, N1 |
 | R1 | Overview redesign | T1b, N1, A9 |
 | R2 | Network redesign | T1b, N1, N3, A9 |
