@@ -1,4 +1,4 @@
-use crate::{actions, baseline::{self, Kind}, history, history::History, persistence, privilege, procusage, sampler, settings, snapshot, storage, watcher};
+use crate::{actions, baseline::{self, Kind}, classify, history, history::History, llm, llm_server, persistence, privilege, procusage, sampler, settings, snapshot, storage, watcher};
 use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tiny_http::{Header, Method, Response, Server};
@@ -81,6 +81,7 @@ pub fn serve_on(server: Arc<Server>) {
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
     let metrics = sampler::start();
     let processes = procusage::start(actions::my_username());
+    let agent = llm_server::start();
     history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
     thread::spawn(|| {
         let h = history::open_or_report();
@@ -143,6 +144,29 @@ pub fn serve_on(server: Arc<Server>) {
                     Response::from_string(if c.changed { "ok" } else { "unchanged" }).boxed()
                 }
                 Err((code, msg)) => Response::from_string(msg).with_status_code(code).boxed(),
+            }
+            (Method::Post, "/api/classify") if write_ok => {
+                let key = query_param(query, "group_key").unwrap_or_default();
+                let snap = snapshot::take();
+                match snap.groups.iter().find(|g| g.key == key) {
+                    Some(g) => {
+                        let allowed = classify::allowed_actions(g.trust, g);
+                        let base_url = agent.base_url_if_ready();
+                        // A second, independent snapshot inside `evidence` is the established CLI
+                        // pattern (see `classify` in main.rs); the group disappearing between the
+                        // two is rare and distinct from the agent not being ready, so it gets its
+                        // own reason rather than borrowing the agent's.
+                        let raw = match (&base_url, classify::evidence(&key)) {
+                            (Some(url), Some(ev)) => llm::classify(url, &ev),
+                            (Some(_), None) => Err(llm::LlmError::Invalid("group vanished between snapshots".into())),
+                            (None, _) => Err(llm::LlmError::Unavailable(agent.reason().as_str().to_string())),
+                        };
+                        let agent_reason = base_url.is_none().then(|| agent.reason().as_str());
+                        let verdict = classify::validate_verdict(g.trust, &allowed, raw);
+                        json_resp(serde_json::json!({ "verdict": verdict, "agent_reason": agent_reason }).to_string())
+                    }
+                    None => Response::from_string("no such group").with_status_code(404).boxed(),
+                }
             }
             (Method::Post, "/api/kill") if write_ok => {
                 match actions::parse(&query_param(query, "pids").unwrap_or_default(), &query_param(query, "sig").unwrap_or_default()) {

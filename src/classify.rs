@@ -72,9 +72,6 @@ const RATIONALE_MAX: usize = 240;
 /// act on a verdict that skipped the checks below. Markup in `rationale` is left as plain text, not
 /// escaped: this module has no notion of a display surface, so escaping it here would be guessing
 /// at a format whatever shows it may not even use.
-// Not yet called outside its own tests: a type whose only constructor is a validating function is
-// meant to exist before anything is allowed to build one by hand.
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Verdict {
     pub label: Label,
@@ -92,7 +89,6 @@ pub struct Verdict {
 /// rule label stands alone, actions fall back to whatever of `Investigate` the rules themselves
 /// already allow (never inserted if the rules didn't allow it, so this fallback can't be the one
 /// case that violates the "never outside `allowed`" guarantee either).
-#[allow(dead_code)] // not yet called outside its own tests below; see the note on Verdict above
 pub fn validate_verdict(rule_label: Label, allowed: &[Action], verdict: Result<llm::Verdict, llm::LlmError>) -> Verdict {
     let Ok(raw) = verdict else {
         let actions = if allowed.contains(&Action::Investigate) { vec![Action::Investigate] } else { vec![] };

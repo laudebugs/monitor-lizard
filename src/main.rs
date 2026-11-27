@@ -1,4 +1,4 @@
-use monitor_lizard::{baseline, classify, guide, history, llm, model, model_store, persistence, privilege, sampler, server, snapshot, storage, watcher};
+use monitor_lizard::{baseline, classify, guide, history, llm, model, model_store, persistence, privilege, sampler, server, settings, snapshot, storage, watcher};
 use std::collections::BTreeMap;
 
 fn main() {
@@ -65,6 +65,17 @@ fn main() {
             Some("install") => model_install(args),
             Some("status") => model_status(args),
             _ => eprintln!("usage: monitor-lizard model install [--model qwen3-4b|qwen3-1.7b] [--yes] | model status [--model qwen3-4b|qwen3-1.7b]"),
+        },
+        Some("agent") => match args.next().as_deref() {
+            Some("on") => match settings::set_agent_enabled(true) {
+                Ok(()) => println!("agent: on (a running `serve` picks this up within a second or two)"),
+                Err(e) => { eprintln!("could not update settings: {e}"); std::process::exit(1); }
+            },
+            Some("off") => match settings::set_agent_enabled(false) {
+                Ok(()) => println!("agent: off (the kill switch; a running `serve` stops llama-server within a second or two)"),
+                Err(e) => { eprintln!("could not update settings: {e}"); std::process::exit(1); }
+            },
+            _ => eprintln!("usage: monitor-lizard agent on | agent off"),
         },
         Some("approve") => for arg in args {
             let (kind, key) = baseline::parse_entry(&arg);

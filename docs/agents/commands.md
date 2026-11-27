@@ -42,6 +42,15 @@ cargo run --release -- model status                            # local hash chec
 
 Without `--yes`, `install` only prints the licence, pinned repo, commit, file and size. The commit came from the Hugging Face API's own `sha` field; the SHA-256 came from the file's git-lfs pointer (`<repo>/raw/<commit>/<file>`), whose `oid sha256:<hex>` line is the git-lfs spec's own content hash. Both are pinned in `src/model_store.rs`'s `MANIFEST`, not fetched at install time, so a later push to the repo cannot change what gets downloaded. `status` never contacts the Hub.
 
+## Turn the local agent on or off
+
+```sh
+cargo run --release -- agent on    # kill switch: a running `serve` starts supervising llama-server
+cargo run --release -- agent off   # the default; any running llama-server stops within a second or two
+```
+
+With the agent on, `serve` spawns `llama-server` (found on `PATH` or Homebrew's usual install prefixes, never bundled or downloaded by this repo) loopback-only with a cleared, allowlisted environment, once the pinned model is installed and memory pressure is not critical. `POST /api/classify?group_key=` (token-guarded, like every other write route) answers with a model-backed verdict when the agent is ready, or the rule label alone otherwise -- the response's `agent_reason` says why (`disabled`, `model-not-installed`, `memory-pressure`, `binary-not-found`, `starting` or `crashed`).
+
 ## Look up a command
 
 ```sh
