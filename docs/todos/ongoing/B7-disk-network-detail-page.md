@@ -117,5 +117,4 @@ make check-docs
 - **Tests:** Node cases for bar sizing, bad numbers, whole-number percentages, capacity status, rate formatting, the network rule and the `tab` key; Rust tests for `netif` and the reply.
 - **Browser:** Chrome with a scratch HOME, own tab. Seen in dark and light: the live tab with real capacity, purgeable unavailable, no connection (page state set, not a real outage) and a 400 px frame without overflow.
 - **Open:** two acceptance items, the approved-design comparison and the 1440 px and below-1100 px browser checks (the window was not resized); and two process items, `/writing-review` on the prose and the move to `done/`.
-- **Follow-up:** two Storage page problems found while reviewing PR #72 (a safe subtotal on a partial scan, and `disabled` buttons that leave the Tab order) are in [X3](../ready/X3-storage-partial-subtotal-and-aria-disabled.md).
 - **Known gap:** the card helper is used only by the new tab; the older CPU and GPU cards still carry their own copy of the markup.

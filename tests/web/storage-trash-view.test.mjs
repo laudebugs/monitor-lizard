@@ -260,3 +260,66 @@ test('the result: the rescan advice sits above the History link, failed folders 
   assert.ok(all.includes('Moved 1 of 3 folders to the Trash (1.0 GB).'));
   assert.ok(!/removal|removed|\bitems?\b/i.test(dlg.text), 'folder and Trash are the only terms');
 });
+
+// ---- the dialog's Move button is aria-disabled, not disabled, while it cannot act
+const draw = (w) => { const dlg = w.P.trashDialog(), box = dlg.all().find((e) => e.attrs.role === 'dialog'); return { dlg, box, move: dlg.all().find((e) => e.tag === 'button' && /^(Move|Nothing can be moved|Continue)/.test(e.text)) }; };
+const previewed = (extra = {}) => ({ phase: 'previewed', seq: 2, ids: [hex(1)], key: 'k', yours: [], known: {}, token: null, confirmYours: false,
+  summary: { counts: { would_move: 0, moved: 0, refused: 1, failed: 0, not_attempted: 0 }, items: [], would: { bytes: 0, unknown: 0 } }, ...extra });
+
+test('Move with nothing movable: aria-disabled, no disabled attribute, in the focus trap, and a click, Enter or Space moves nothing', () => {
+  const reqs = [], w = world({ api: async (u) => { reqs.push(u); throw new Error('must not call'); } });
+  w.S.trash = previewed();
+  const { box, move } = draw(w);
+  assert.ok(move, 'the button is drawn');
+  assert.equal(move.attrs['aria-disabled'], 'true');
+  assert.ok(!('disabled' in move.attrs), 'the disabled attribute would drop it from the Tab order');
+  assert.equal(move.attrs['aria-describedby'], 'trash-desc');
+  const stops = box.querySelectorAll('button:not([disabled]), a[href]');
+  assert.ok(stops.includes(move), 'trashKeys reaches it');
+  // Tab from the last button wraps to the first; Tab from the one before the Move button lands on it.
+  stops[0].focus(); box.on.keydown({ key: 'Tab', shiftKey: false, currentTarget: box, preventDefault() {} });
+  stops.at(-1).focus(); let stopped = false; box.on.keydown({ key: 'Tab', shiftKey: false, currentTarget: box, preventDefault: () => { stopped = true; } });
+  assert.equal(stopped, true); assert.equal(w.doc.activeElement, stops[0]);
+  // A keyboard activation is a click event on a button; each path must do nothing but say why.
+  let prevented = 0;
+  for (let n = 0; n < 3; n++) move.on.click({ preventDefault: () => { prevented++; } });
+  assert.equal(prevented, 3);
+  assert.equal(w.S.trash.phase, 'previewed', 'the phase did not change');
+  assert.equal(reqs.length, 0, 'no request');
+  assert.equal(w.calls.render, 0);
+  assert.equal(w.said.length, 3);
+  assert.match(w.said[0], /Nothing can be moved/);
+});
+
+test('Move with a preview token is a live button, and one click sends one request', () => {
+  const reqs = [], w = world({ api: async (u) => { reqs.push(u); return { status: 200, json: async () => ({}) }; } });
+  w.S.trash = previewed({ token: 'T', summary: { counts: { would_move: 1, moved: 0, refused: 0, failed: 0, not_attempted: 0 }, items: [], would: { bytes: 1e9, unknown: 0 } } });
+  const { move } = draw(w);
+  assert.equal(move.attrs['aria-disabled'], undefined);
+  move.on.click({ preventDefault() {} });
+  assert.equal(w.S.trash.phase, 'moving');
+  assert.equal(reqs.length, 1);
+  const again = draw(w).dlg.all().find((e) => e.tag === 'button' && e.text === 'Moving...');
+  assert.equal(again.attrs['aria-disabled'], 'true');
+  again.on.click({ preventDefault() {} }); again.on.click({ preventDefault() {} });
+  assert.equal(reqs.length, 1, 'the Moving button cannot start a second move');
+  assert.equal(w.S.trash.phase, 'moving');
+});
+
+// The figure is the server's exact size for the chosen folders, so it is qualified rather than withheld: "at least"
+// whenever the scan is not complete, and for any folder the scan only partly measured.
+async function previewText(rows, partial) {
+  const body = { dry_run: true, items: rows.map((r) => ({ id: r.id, status: 'would_move', bytes: 5e9, path: r.path })), confirm_token: 'T' };
+  const w = world({ api: async () => ({ status: 200, json: async () => body }) });
+  const sel = w.P.trashSelection(rows, rows.map((r) => r.id), partial);
+  w.P.openTrash(sel);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(w.S.trash.phase, 'previewed');
+  return draw(w).dlg.allText();
+}
+
+test('the dialog says "at least" on a partial scan even for exact folders, and a plain size on a complete scan', async () => {
+  assert.match(await previewText([row(1)], true), /would move to the Trash \(at least 5\.0 GB\)/);
+  assert.match(await previewText([row(1)], false), /would move to the Trash \(5\.0 GB\)/);
+  assert.match(await previewText([row(1, { lowerBound: true })], false), /\(at least 5\.0 GB\)/, 'a partly measured folder on a complete scan');
+});
