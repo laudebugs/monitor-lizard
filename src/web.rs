@@ -9,6 +9,7 @@ pub struct Source { pub path: &'static str, pub content_type: &'static str, pub 
 const HTML: &str = "text/html; charset=utf-8";
 const CSS: &str = "text/css; charset=utf-8";
 const JS: &str = "text/javascript; charset=utf-8";
+const TXT: &str = "text/plain; charset=utf-8";
 
 /// The order of the scripts is the load order the shell's `<script>` tags use (tests/web/split.test.mjs
 /// and a test below check the two agree). Nothing is read from disk at request time: a path not listed
@@ -31,6 +32,9 @@ pub const SOURCES: &[Source] = &[
     Source { path: "/js/page-guide.js", content_type: JS, text: include_str!("../web/page-guide.js") },
     Source { path: "/js/helpers.js", content_type: JS, text: include_str!("../web/helpers.js") },
     Source { path: "/js/page-storage-logic.js", content_type: JS, text: include_str!("../web/page-storage-logic.js") },
+    Source { path: "/vendor/preact.mjs", content_type: JS, text: include_str!("../web/vendor/preact.mjs") },
+    Source { path: "/vendor/preact-hooks.mjs", content_type: JS, text: include_str!("../web/vendor/preact-hooks.mjs") },
+    Source { path: "/vendor/PREACT-LICENSE", content_type: TXT, text: include_str!("../web/vendor/PREACT-LICENSE") },
     Source { path: "/js/shell.js", content_type: JS, text: include_str!("../web/shell.js") },
 ];
 

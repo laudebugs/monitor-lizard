@@ -1,0 +1,5 @@
+Throwaway spike (docs/plans/ui-components.md, "The spike"). Not for merge.
+preact 11.2.0 dist/preact.mjs and hooks/dist/hooks.mjs from the npm tarball
+(sha512 /HfHI/7N84e6GrWBJ3J280z3mLaRJiDcSvj/A+y/4AbLnND/1UlGHe1sR6oYuTGwId0nP7dqDU9OnLxMPZ7xBg==),
+served at /vendor/*, import map in index.html, `h` in core.js changed from const to let so the
+experiment could swap in Preact's h from the console.

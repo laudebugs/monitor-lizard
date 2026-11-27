@@ -101,7 +101,7 @@ function justStoppedRows(prevRows, freshRows) {
 // null argument as the text "null", so a conditional section (`cond ? h(...) : null`) must be dropped first.
 const nodesOf = (items) => items.flat(Infinity).filter((c) => c != null && c !== false);
 /* view-items:end */
-const h = (tag, attrs = {}, ...kids) => {
+let h = (tag, attrs = {}, ...kids) => {
   const e = tag === 'svg' ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
