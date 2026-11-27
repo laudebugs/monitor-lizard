@@ -7,15 +7,15 @@ const trustTag = (i) => { const t = psig(i), label = t === 'apple' ? 'Apple' : '
 const PERS_FILTERS = ['all', 'new', 'user', 'system', 'unsigned'];
 // Rows carry `sig` (apple, signed, unsigned or null), computed once from the item's signing result.
 const persMatches = (r, id) => id === 'all' || (id === 'new' ? r.is_new : id === 'unsigned' ? r.sig === 'unsigned' : r.scope === id);
-// Apple items are hidden until asked for, but a search always reaches them.
-const persVisible = (rows, showApple, q) => (showApple || q ? rows : rows.filter((r) => r.sig !== 'apple'));
+// Apple items are hidden until asked for, but a search always reaches them and a new item is never hidden.
+const persVisible = (rows, showApple, q) => (showApple || q ? rows : rows.filter((r) => r.sig !== 'apple' || r.is_new));
 const persCounts = (rows) => Object.fromEntries(PERS_FILTERS.map((id) => [id, rows.filter((r) => persMatches(r, id)).length]));
 const PERS_KIND_LABEL = { added: 'ADDED', changed: 'CHANGED', restored: 'RESTORED', removed: 'REMOVED' };
 // The change list: entries since the baseline, minus items the owner has since marked expected.
 function persChangeRows(changes, items) {
   const expected = new Set(items.filter((i) => i.expected).map((i) => i.path));
   return changes.filter((c) => !expected.has(c.path)).map((c) => ({ path: c.path, label: c.label, kind: c.kind, chip: PERS_KIND_LABEL[c.kind] || String(c.kind).toUpperCase(), at: c.at,
-    note: c.kind === 'changed' ? 'program or plist changed' : c.kind === 'removed' ? 'plist no longer present' : c.kind === 'restored' ? 'back after being removed' : c.changed_since_added ? 'changed since it was added' : '' }));
+    note: c.kind === 'changed' ? 'Program or plist changed' : c.kind === 'removed' ? 'Plist removed' : c.kind === 'restored' ? 'Plist restored' : c.changed_since_added ? 'Changed since it was added' : '' }));
 }
 // Why an item is flagged, only from fields the server sent. An item with nothing to say says so.
 function persWhy(i) {
@@ -25,10 +25,10 @@ function persWhy(i) {
   if (i.program_missing) out.push('The program it starts is not on disk.');
   if (i.unreadable) out.push('Its plist could not be read: ' + i.unreadable);
   if (i.keep_alive && i.is_new) out.push('It is restarted if it stops.');
-  return out.length ? out : ['Nothing about this item is flagged.'];
+  return out.length ? out : ['Nothing is flagged for this item.'];
 }
-const persSigning = (i) => (i.sig === 'apple' ? 'Signed by Apple' : i.sig === 'signed' ? 'Signed' + (i.signing && i.signing.team ? ', team ' + i.signing.team : '') : i.sig === 'unsigned' ? 'None' : (i.trust_note || 'Not checked'));
-const persSubtitle = (rows, baselineAt) => plural(rows.length, 'item runs', 'items run') + ' at login or boot: ' + rows.filter((r) => r.scope === 'user').length + ' yours, ' + rows.filter((r) => r.scope === 'system').length + ' from the system';
+const persSigning = (i) => (i.sig === 'apple' ? 'Signed by Apple' : i.sig === 'signed' ? 'Signed' + (i.signing && i.signing.team ? ', team ' + i.signing.team : '') : i.sig === 'unsigned' ? 'Unsigned' : (i.trust_note || 'Not checked'));
+const persSubtitle = (rows, baselineAt) => plural(rows.length, 'item runs', 'items run') + ' at login or boot: ' + rows.filter((r) => r.scope === 'user').length + ' user, ' + rows.filter((r) => r.scope === 'system').length + ' system';
 /* persistence-page:end */
 
 const persRows = () => S.pers.map((i) => Object.assign({}, i, { sig: psig(i) }));
@@ -48,8 +48,8 @@ function persInspector(i) {
       h('p', { style: 'margin:4px 0' }, h('a', { href: writeHash({ view: 'guide', q: 'launch' }) }, 'Open the Guide on startup items'))),
     h('div', { class: 'insp-sec', style: 'display:flex;gap:8px;flex-wrap:wrap' },
       markBtn([['startup', { key: i.mark_key }]], i.expected, i.label, i.expected ? '' : 'btn-acc'),
-      h('button', { class: 'btn sm', type: 'button', onClick: () => navigator.clipboard.writeText(i.path).then(() => toast('Copied the plist path.'), () => toast('Could not copy. Select the path and copy it yourself.')) }, 'Copy plist path')),
-    h('p', { class: 'mut small', style: 'padding:0 16px 14px;margin:0' }, 'Monitor Lizard does not disable startup items. Remove one yourself in Finder.'));
+      h('button', { class: 'btn sm', type: 'button', onClick: () => { const fail = () => toast('Could not copy. Select the path and copy it yourself.'); try { navigator.clipboard.writeText(i.path).then(() => toast('Copied the plist path.'), fail); } catch (e) { fail(); } } }, 'Copy plist path')),
+    h('p', { class: 'mut small', style: 'padding:0 16px 14px;margin:0' }, 'Monitor Lizard only reads startup items and never changes them. To stop one, remove its plist in Finder.'));
 }
 function persistence() {
   const q = S.q.toLowerCase(), f = S.pfilter, all = persRows();
@@ -65,7 +65,7 @@ function persistence() {
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('pers', [{ label: 'Label', sort: 'label' }, { label: 'Kind', sort: 'kind' }, { label: 'Scope', sort: 'scope' }, { label: 'Program', sort: 'program' }, { label: 'Trust', sort: 'trust' }, { label: 'Added', sort: 'added' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
     pg.slice.map((i) => h('div', { class: 'tr ell' + (S.pItem === i.path ? ' on' : ''), style: cols },
-      h('span', nameAttrs(i.label, 'display:flex;align-items:center;gap:6px'), i.is_new ? h('span', { class: 'tag warn', title: 'First seen after the first scan' }, 'NEW') : null,
+      h('span', nameAttrs(i.label, 'display:flex;align-items:center;gap:6px'), i.is_new ? h('span', { class: 'tag warn', title: 'First seen after your baseline' }, 'NEW') : null,
         h('button', { class: 'linkbtn', type: 'button', 'data-pers-item': i.path, 'aria-pressed': String(S.pItem === i.path), title: i.label, style: 'background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis', onClick: () => persSelect(i.path) }, i.label)),
       h('span', { class: 'mut small' }, i.kind), h('span', { class: 'mut small' }, i.scope),
       h('span', { class: 'mut small', title: i.program }, i.program), h('span', {}, trustTag(i)),
@@ -78,5 +78,5 @@ function persistence() {
       h('div', { class: 'grow', style: 'min-width:0;overflow-wrap:anywhere' }, h('b', {}, c.label), c.note ? h('span', { class: 'mut small' }, ' \u00b7 ' + c.note) : null), timeCell(c.at, 'mut small')))
       : h('div', { class: 'item' }, h('p', {}, 'No changes since your baseline.')),
     changes.length > 20 ? h('p', { class: 'mut small', style: 'padding:0 16px 12px;margin:0' }, (changes.length - 20) + ' older changes are not shown.') : null);
-  return pageShell({ title: verdict('persist', { fresh: all.filter((i) => i.is_new).length }), subtitle: all.length ? persSubtitle(all) : 'No startup items found', filters: chips, body: [changeList, table], inspector: sel ? persInspector(sel) : null });
+  return pageShell({ title: verdict('persist', { fresh: all.filter((i) => i.is_new).length, changed: persChangeRows(S.persChanges || [], S.pers).length }), subtitle: all.length ? persSubtitle(all) : 'No startup items found', filters: chips, body: [changeList, table], inspector: sel ? persInspector(sel) : null });
 }

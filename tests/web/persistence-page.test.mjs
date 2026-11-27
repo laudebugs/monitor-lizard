@@ -15,6 +15,8 @@ const items = [item('sync', { is_new: true, sig: 'unsigned', keep_alive: true })
 
 test('Apple items are hidden by default, shown on request, and always reached by a search', () => {
   assert.deepEqual(P.persVisible(items, false, '').map((r) => r.label), ['sync', 'keystone', 'daemon']);
+  const newApple = item('newapple', { sig: 'apple', is_new: true });
+  assert.ok(P.persVisible([...items, newApple], false, '').some((r) => r.label === 'newapple'), 'a new Apple item is never hidden');
   assert.equal(P.persVisible(items, true, '').length, 5);
   assert.equal(P.persVisible(items, false, 'apple').length, 5);
 });
@@ -39,7 +41,7 @@ test('an unknown change kind is shown, not hidden', () => {
 });
 test('the reasons come only from the item fields', () => {
   assert.deepEqual(P.persWhy(items[0]), ['It appeared after your baseline was set.', 'Its program is not signed.', 'It is restarted if it stops.']);
-  assert.deepEqual(P.persWhy(items[1]), ['Nothing about this item is flagged.']);
+  assert.deepEqual(P.persWhy(items[1]), ['Nothing is flagged for this item.']);
   assert.ok(P.persWhy(item('x', { is_new: true, was_expected: true }))[0].startsWith('You marked an earlier version'));
 });
 test('an unreadable plist and a missing program give their reason', () => {
@@ -50,9 +52,9 @@ test('an unreadable plist and a missing program give their reason', () => {
 test('signing text names the team, Apple, or says there is none', () => {
   assert.equal(P.persSigning(item('a', { signing: { team: 'T1' } })), 'Signed, team T1');
   assert.equal(P.persSigning(item('b', { sig: 'apple' })), 'Signed by Apple');
-  assert.equal(P.persSigning(item('c', { sig: 'unsigned' })), 'None');
+  assert.equal(P.persSigning(item('c', { sig: 'unsigned' })), 'Unsigned');
   assert.equal(P.persSigning(item('d', { sig: null, trust_note: 'program missing' })), 'program missing');
 });
 test('the subtitle counts yours and the system ones', () => {
-  assert.equal(P.persSubtitle(items), '5 items run at login or boot: 3 yours, 2 from the system');
+  assert.equal(P.persSubtitle(items), '5 items run at login or boot: 3 user, 2 system');
 });

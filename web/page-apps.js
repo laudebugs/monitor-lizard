@@ -27,7 +27,7 @@ function apps() {
 }
 
 // The pages that know about this app, each with how many rows it opens. Network, Listeners and History filter by the
-// app's name; startup items by its path. The Network and Persistence pages have no inspector of their own.
+// app's name; startup items by its path. Network and Persistence each open the item in their own inspector.
 function related(g) {
   const path = unprefixed(g.key), isPath = path.startsWith('/');
   const hosts = new Set(g.conns.filter((c) => c.direction === 'outbound' && c.remote_addr && c.scope !== 'loopback').map((c) => c.remote_addr)).size;

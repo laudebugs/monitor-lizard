@@ -82,23 +82,24 @@ Plan status; the Persistence section of the README.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/writing-review` run on any prose
+- [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
-2026-11-27.
-
-- **Board:** built from the owner's Persistence board.
-- **Title:** "N new startup items since your baseline", or "No changes since your baseline". N equals the rows under the New filter.
+- **Board:** built from the owner's `H-Persistence` board (2026-11-27).
+- **Title:** "N new startup items since your baseline", "No new startup items, N changes since your baseline" when only the change list has entries, or "No changes since your baseline". N equals the rows under the New filter, and a new Apple item is never hidden by the Apple toggle.
 - **Change list:** Added, Changed, Restored and Removed entries with relative times, from `changes` in `/api/persistence`. An item marked expected leaves the list. With no entries it says "No changes since your baseline." The page now keeps `changes`, which it dropped before.
 - **Table:** filters All, New, User, System and Unsigned, each with a count, and an Apple items toggle that is hidden by default and shows its count. A search always includes Apple items. The filter, the toggle and the selected item are in the address (`apple` and `item`).
 - **Inspector:** why it is flagged, when it runs, program, plist path, signing, first seen, Related links (app, its connections, the Guide), Mark as expected and Copy plist path. Every field comes from the item the server sent. An unreadable plist and a missing program show their reason.
-- **Not built:** Reveal in Finder, because the server has no route to open a folder and one needs its own safety review (token check, audit row, the item's folder only). The rule id: the server has no rule for startup items, so the page shows the reasons in words and does not invent an id. The board's "Export CSV" and "Export JSON" buttons already exist as the table's export chips.
+- **Not built:** Reveal in Finder. The server has no route to open a folder, and a new route needs its own safety review (token check, audit row, the item's folder only).
+- **Not shown:** a rule id. The server has no rule for startup items, so the page gives the reasons in words.
+- **Not needed:** the board's Export CSV and Export JSON buttons already exist as the table's export chips.
 - **Tests:** `tests/web/persistence-page.test.mjs` and a round-trip case in `url-state.test.mjs`.
-- **Checked in Chrome (scratch HOME, release build):** the title, the chips with counts, the Apple toggle and its address, selecting an item to open the inspector, and focus returning to the row button. At 400 px the page was 396 px wide with the inspector open.
-- **Not verified:** the layout side by side with the board image, 1360 px (Chrome would not open a window that wide), and a non-zero New count, Apple count or change list, because the scratch machine had none.
+- **Checked in Chrome (scratch HOME, release build):** the title, the chips with counts, the Apple toggle and its address, selecting an item to open the inspector, and focus returning to the row button. With the inspector open, the page was 396 px wide at 400 px.
+- **Not verified:** the layout against the board image, and 1360 px, because Chrome would not open a window that wide.
+- **Not verified:** a non-zero New count, Apple count or change list, because the scratch machine had none.

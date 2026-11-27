@@ -64,6 +64,8 @@ test('titles say what the page found, singular and plural', () => {
   assert.equal(P.verdictTitle('listeners', { exposed: 0 }), 'No listening socket is open to your network');
   assert.equal(P.verdictTitle('persist', { fresh: 4 }), '4 new startup items since your baseline');
   assert.equal(P.verdictTitle('persist', { fresh: 0 }), 'No changes since your baseline');
+  assert.equal(P.verdictTitle('persist', { fresh: 0, changed: 2 }), 'No new startup items, 2 changes since your baseline');
+  assert.equal(P.verdictTitle('persist', { fresh: 1, changed: 2 }), '1 new startup item since your baseline');
   assert.equal(P.verdictTitle('network', { newHosts: 1 }), '1 new host in the last hour');
   assert.equal(P.verdictTitle('network', { newHosts: 0 }), 'No new hosts in the last hour');
 });

@@ -247,7 +247,7 @@ function writeHash(st) {
 function historyMode(prev, next) {
   if (prev === next) return 'none';
   const a = parseHash(prev), b = parseHash(next);
-  return a.view !== b.view || a.sel !== b.sel || a.ex.gsel !== b.ex.gsel || a.ex.perfTab !== b.ex.perfTab || a.ex.stTile !== b.ex.stTile || a.ex.stItem !== b.ex.stItem ? 'push' : 'replace';
+  return a.view !== b.view || a.sel !== b.sel || a.ex.gsel !== b.ex.gsel || a.ex.perfTab !== b.ex.perfTab || a.ex.stTile !== b.ex.stTile || a.ex.stItem !== b.ex.stItem || a.ex.pItem !== b.ex.pItem ? 'push' : 'replace';
 }
 
 const toHashState = (s) => {
