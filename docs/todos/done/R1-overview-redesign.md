@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | ID | `R1` |
-| Status | `ongoing` |
+| Status | `done` |
 | Plan | [storage-and-guide](../../plans/storage-and-guide.md), D9, D11, D12 |
 | Depends on | T1b, N1, A9 |
 | ADRs | None |
 | Branch | `feat/r1-overview-redesign` |
 | PR title | `feat(web): redesign Overview as a list of decisions with evidence` |
 | Size | M (200-400) |
-| PR | pending |
+| PR | [#82](https://github.com/laudebugs/monitor-lizard/pull/82), then the board follow-up |
 
 ## Goal
 
@@ -43,9 +43,9 @@ Replace the Overview with the layout on design board "F · Overview". It has a o
 
 ## Steps
 
-- [ ] Check `/api/snapshot` findings already carry a rule id; add it if not, with a test.
-- [ ] Build the feed from `S.seen`, `S.pers` and `S.sudo` filtered by the last-looked time.
-- [ ] Check in a real browser at 1360 px and 400 px.
+- [x] Check `/api/snapshot` findings already carry a rule id; add it if not, with a test.
+- [x] Build the feed from `S.seen`, `S.pers` and `S.sudo` filtered by the last-looked time.
+- [ ] Check in a real browser at 1360 px and 400 px. (400 px done; 1360 px pending, the window cannot open that wide)
 
 ## Edge cases (must be covered)
 
@@ -83,12 +83,12 @@ README screenshots or page descriptions; plan status.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [ ] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
-- [ ] `make check` and `make test` green
-- [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/writing-review` run on any prose
+- [x] `make check` and `make test` green
+- [x] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
 ## Implementation Record
 
@@ -96,10 +96,19 @@ README screenshots or page descriptions; plan status.
 
 - **Title:** "N things need a decision" or "Nothing needs a decision". The count is the number of rows in the decisions list.
 - **Decisions:** each row has a severity, a title that links to the item, why, evidence (paths, hosts, ports), the rule text with its id, and at most two actions. The Details buttons became the title link. `/api/snapshot` findings already carried `rule` and `evidence`, so `src/rules.rs` did not change. Decisions that do not come from a finding use the ids `unreviewed`, `failed-sudo` and `new-startup-item`, which `RULE_TEXT` now explains. The list paginates with the shared pager.
-- **Feed:** new hosts, apps whose first recorded host is newer than the last visit, new startup items and sudo launches. Each row links to the item. The last visit is a `localStorage` time written when the page is hidden or closed; a first visit covers 24 hours and says so.
+- **Feed ("Since you last looked"):** new hosts, apps whose first recorded host is newer than the last visit, new startup items and sudo launches. Each row links to the item. The last visit is a `localStorage` time written when the page is hidden or closed; a first visit covers 24 hours and says so.
 - **Machine strip:** free space, the capacity forecast (when the history has one), memory pressure and CPU. Each row links to Storage or Performance and shows "Unavailable: reason" when its source is missing. The Overview now polls metrics and volume, which only the Performance page did before.
 - **Tests:** `tests/web/overview-page.test.mjs`, and the title text in `page-shell.test.mjs`. `make check` and `make test` pass.
-- **Real browser (Chrome, scratch HOME, release build):** at 919 px the page rendered the title, the tiles, the decisions with evidence and rule, the feed, the Machine strip and the sockets list, with no horizontal scroll. In a 400 px frame the page was 396 px wide with nothing past the edge. Marking a finding expected took the count from 6 to 5 with no reload. CPU read 100% then 62%, matching `/api/metrics`.
+- **Real browser (Chrome, scratch HOME, release build):** at 919 px the page rendered the title, the tiles, the decisions with evidence and rule, the feed, the Machine strip and the sockets list, with no horizontal scroll. In a 400 px frame the page was 396 px wide with nothing past the edge. Marking a decision expected took the count from 6 to 5 with no reload. CPU read 100% then 62%, matching `/api/metrics`.
 - **Review fixes:** the Machine strip refreshes in place, because polling metrics every 2 s redrew the whole page and dropped keyboard focus. The Memory link opens the Memory tab. The feed lists only startup items marked new, and an app new on the network gets one row, not one per host. The LAN tile opens Listeners filtered to exposed. The Forecast row shows why it has no value. The visit is stamped only when the Overview is the open page.
-- **Not done from the review:** decisions with no second action (unsigned network use, unapproved apps) keep only the title link, because the spec's "two actions that already exist" has no second action for them. The in-place refresh was checked in Chrome on a release build: the strip changed five times in 16 s while the page body and the open "Marked as expected" list stayed untouched, and the Memory link opened the Memory tab. Focus still drops about every 10 s, because the existing snapshot and sudo polls redraw the whole page; that is the same on main. The Outbound tile still opens Apps unfiltered, and the plan and README are unchanged.
-- **Open:** the layout was not compared with the "F · Overview" board; the owner's design file was not available. Chrome could not open a 1360 px window, so that width was not checked. The feed on a fresh history lists every host as new, because every host is first seen after the database starts.
+- **Checked in the browser (2026-11-27):** the Machine strip changed five times in 16 s while the page body and the open "Marked as expected" list stayed untouched. The Memory link opened the Memory tab.
+- **Known gap:** focus still drops about every 10 s, because the snapshot and sudo polls redraw the whole page. Main behaves the same way.
+- **Board comparison (2026-11-27):** I read the owner's canvas and matched the page to the F board.
+  - Every decision has a primary and a secondary action, and some have a third, Mute.
+  - The list is sorted by severity and shows its count.
+  - The count tiles link to filtered pages.
+  - The feed has a time column.
+  - The Machine strip shows memory pressure with percent free and the CPU five-minute average.
+  - The sockets list links to Network, and the header has a Rescan button.
+- **Not matched:** the board's Export view button, and its search box that reaches every page (N2). The Outbound tile opens Network unfiltered.
+- **Open:** I could not check 1360 px, because Chrome would not open a window that wide. The feed on a fresh history lists every host as new, because every host is first seen after the database starts.
