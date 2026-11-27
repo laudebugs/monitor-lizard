@@ -147,6 +147,7 @@
       "sm-json",
       "sm-serve",
       "sm-model",
+      "sm-agent",
       "sm-approve",
       "sm-help",
       "df-root",
@@ -170,7 +171,7 @@
       "group",
       "trust-label"
     ],
-    "shown": 23
+    "shown": 24
   },
   {
     "q": "  ",
@@ -187,6 +188,7 @@
       "sm-json",
       "sm-serve",
       "sm-model",
+      "sm-agent",
       "sm-approve",
       "sm-help",
       "df-root",
@@ -210,7 +212,7 @@
       "group",
       "trust-label"
     ],
-    "shown": 23
+    "shown": 24
   },
   {
     "q": "-",
@@ -227,6 +229,7 @@
       "sm-json",
       "sm-serve",
       "sm-model",
+      "sm-agent",
       "sm-approve",
       "sm-help",
       "df-root",
@@ -250,7 +253,7 @@
       "group",
       "trust-label"
     ],
-    "shown": 23
+    "shown": 24
   },
   {
     "q": "disk",

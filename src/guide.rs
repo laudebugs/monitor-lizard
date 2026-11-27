@@ -148,6 +148,14 @@ pub static COMMANDS: &[Command] = &[
         tags: &["model", "llm", "download", "install", "sha256"],
     },
     Command {
+        id: "sm-agent", topic: OWN_TOPIC, title: "Turn the local agent on or off",
+        command: "monitor-lizard agent on|off",
+        description: "The agent's kill switch, off by default. On: a running `serve` starts supervising llama-server (loopback only, cleared environment) once the model is installed and memory pressure allows it, and `/api/classify` can get a model-backed verdict. Off: any running llama-server stops, and every classification is the rule label alone.",
+        example: None, safety: Safety::ChangesFiles, appears_in: None,
+        undo: Some("Run `monitor-lizard agent off` (or the other way, to undo turning it off)."),
+        tags: &["agent", "llm", "model", "classify", "kill switch"],
+    },
+    Command {
         id: "sm-approve", topic: OWN_TOPIC, title: "Mark items as expected",
         command: "monitor-lizard approve <key>...",
         description: "Adds each item to the baseline of expected things, so it is no longer reported as new. A key is an app group key, or app:<key>, host:<app key>|<address>, startup:<plist path>#<fingerprint> (as the dashboard sends it; a startup entry that is only the path matches any version of that item, and exists only if you wrote it by hand) or finding:<app key>:<rule>#<ports>.",

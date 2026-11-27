@@ -422,6 +422,13 @@ pub fn one_shot() -> Sample {
     s.tick()
 }
 
+/// A single, cheap `kern.memorystatus_vm_pressure_level` read, for a caller (the agent supervisor)
+/// that needs to check pressure before doing real work and cannot afford `one_shot`'s 250 ms double
+/// sample or `Sampler::default()`'s IOKit handles for GPU and disk it has no use for here.
+pub fn pressure_level() -> Reading<u8> {
+    Reading::or(sysctl_i32("kern.memorystatus_vm_pressure_level", "sysctl kern.memorystatus_vm_pressure_level failed").map(|v| v as u8))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,7 @@ pub mod guide;
 pub mod history;
 pub mod iokit;
 pub mod llm;
+pub mod llm_server;
 pub mod model;
 pub mod model_store;
 pub mod netif;
