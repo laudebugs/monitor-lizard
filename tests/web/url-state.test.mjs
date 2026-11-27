@@ -443,6 +443,7 @@ test('network: a grouping or host outside the allowed shapes falls back, and an 
   for (const bad of ['evil', '', '__proto__', 'APP']) assert.equal(L.parseHash('#network?group=' + bad).ex.ngroup, 'app', bad);
   for (const bad of ['<script>', '', 'a b', 'x'.repeat(65)]) assert.equal(L.parseHash('#network?pick=' + encodeURIComponent(bad)).ex.nhost, null, bad);
   assert.equal(L.parseHash('#network?pick=' + encodeURIComponent('2607:f8b0::2003')).ex.nhost, '2607:f8b0::2003');
+  assert.equal(L.parseHash('#network?pick=' + encodeURIComponent('fe80::1%en0')).ex.nhost, 'fe80::1%en0');
 });
 
 test('network: a host search link from the old address still searches', () => {

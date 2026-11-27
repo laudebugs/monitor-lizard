@@ -5,8 +5,11 @@ const netKey = (groupKey, remote) => groupKey + '|' + remote;
 const NET_GROUPS = ['app', 'host', 'port'], NET_NEW_SECS = 3600;
 // One test for every filter chip, the verdict and the inspector, so they cannot disagree.
 const netMatches = (r, id) => id === 'all' || (id === 'new' ? r.isNew : id === 'unsigned' ? r.unsigned : r.scope === id);
-const netCounts = (rows) => Object.fromEntries(['all', 'new', 'public', 'lan', 'unsigned'].map((id) => [id, rows.filter((r) => netMatches(r, id)).length]));
-const minOrNull = (xs) => { const v = xs.filter((x) => typeof x === 'number'); return v.length ? Math.min(...v) : null; };
+
+// The oldest known time, or null when any row was seen before history began: the merged row is then older than any time we hold.
+// Each chip counts the rows the table would show under it in the current grouping, so a chip, the verdict and the table agree.
+const netCounts = (rows, by) => Object.fromEntries(['all', 'new', 'public', 'lan', 'unsigned'].map((id) => [id, netGroup(rows.filter((r) => netMatches(r, id)), by || 'app').length]));
+const minOrNull = (xs) => (xs.length && xs.every((x) => typeof x === 'number') ? Math.min(...xs) : null);
 const uniq = (xs) => [...new Set(xs)];
 // Rows are one per app and host. Host grouping merges the apps that reached one address, port grouping merges every
 // host behind one port; each merged row keeps the fields of an app row so sorting and export read it the same way.
@@ -34,17 +37,18 @@ function netFacts(hostRows, now) {
   const apps = [], first = minOrNull(hostRows.map((r) => r.first_seen));
   for (const r of hostRows) if (!apps.some((g) => g.key === r.g.key)) apps.push(r.g);
   const isNew = hostRows.some((r) => r.isNew), unsigned = hostRows.some((r) => r.unsigned), names = apps.map((g) => g.label).join(', ');
-  const why = isNew ? names + ' is approved, but had not contacted this address before. Hosts for approved apps are flagged for one hour after first contact.'
-    : unsigned ? names + ' is not signed.' : 'Nothing about this address is flagged.';
+  const many = apps.length > 1, why = isNew ? names + ' had not contacted this address before. A new address for an approved app is flagged for one hour, so you can check it before it becomes routine.'
+    : unsigned ? (many ? 'Some of these apps are' : names + ' is') + ' not signed.' : 'Nothing about this address is flagged.';
   return { host: hostRows[0].remote, apps, first, ago: first == null ? null : Math.max(0, now - first), sockets: hostRows.reduce((n, r) => n + r.sockets, 0),
     ports: uniq(hostRows.flatMap((r) => r.ports)).sort((a, b) => a - b), scope: hostRows[0].scope, isNew, unsigned, expected: hostRows.every((r) => r.expected), why };
 }
 // "Before monitoring" only once history has loaded, so an unloaded history is not reported as old.
-const netFirstSeenText = (first, histOk) => (typeof first === 'number' ? null : histOk ? 'before monitoring' : 'not known yet');
+const netFirstSeenText = (first, histOk) => (typeof first === 'number' ? null : histOk ? 'before monitoring' : 'loading history');
 // An IPv6 address is shown plain in the table and with brackets and the port when copied.
 const netCopyAddress = (remote, port) => (remote.includes(':') ? '[' + remote + ']' : remote) + (port == null ? '' : ':' + port);
-const netSubtitle = (rows, sockets) => plural(sockets, 'outbound socket', 'outbound sockets') + ' to ' + plural(uniq(rows.map((r) => r.remote)).length, 'host', 'hosts') + ' across ' + plural(uniq(rows.map((r) => r.g.key)).length, 'app', 'apps');
+const netSubtitle = (rows, sockets) => plural(sockets, 'outbound socket', 'outbound sockets') + ' to ' + plural(uniq(rows.map((r) => r.remote)).length, 'host', 'hosts') + ', from ' + plural(uniq(rows.map((r) => r.g.key)).length, 'app', 'apps');
 /* network-page:end */
+
 
 
 const NET_GROUP_LABEL = { app: 'App', host: 'Host', port: 'Port' };
@@ -67,35 +71,36 @@ function netBaseRows() {
       isNew: !!r.g.approved && first != null && now - first < NET_NEW_SECS && !expected });
   });
 }
-const netSelect = (host) => rec({ nhost: S.nhost === host ? null : host });
+// render() rebuilds the page, so focus goes back to the row's own button.
+const netSelect = (host) => { rec({ nhost: S.nhost === host ? null : host }); const el = document.querySelector('[data-net-host="' + CSS.escape(host) + '"]'); if (el) el.focus(); };
 function netInspector(f, hostRows) {
   const kv = (...pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
   const first = f.first == null ? netFirstSeenText(f.first, S.histOk) : timeCell(f.first);
   const tags = [h('span', { class: 'tag' }, f.scope), f.isNew ? h('span', { class: 'tag warn' }, 'new') : null, f.unsigned ? h('span', { class: 'tag bad' }, 'unsigned app') : null, f.expected ? expectedTag() : null];
   const apps = f.apps.length > 1 ? f.apps.map((g) => g.label).join(', ') : 'No other app';
   return h('aside', { class: 'drawer card', 'aria-label': 'Host detail' },
-    h('div', { class: 'insp-head' }, h('div', { class: 'grow', style: 'font-size:16px;font-weight:600;word-break:break-all' }, f.host), h('button', { class: 'btn sm', type: 'button', onClick: () => rec({ nhost: null }) }, 'Close')),
+    h('div', { class: 'insp-head' }, h('div', { class: 'grow', style: 'font-size:16px;font-weight:600;word-break:break-all' }, f.host), h('button', { class: 'btn sm', type: 'button', onClick: () => { const host = S.nhost; rec({ nhost: null }); const el = document.querySelector('[data-net-host="' + CSS.escape(host) + '"]'); if (el) el.focus(); } }, 'Close')),
     h('div', { class: 'insp-sec', style: 'display:flex;gap:6px;flex-wrap:wrap' }, tags),
     h('p', { style: 'margin:0;padding:0 16px 12px' }, f.why),
-    kv(['First seen', first], ['Sockets', f.sockets + ' now'], ['Ports', f.ports.join(', ')], ['Also used by', apps], ['Apps', f.apps.map((g) => g.label + (g.approved ? ' (approved)' : ' (not approved)')).join(', ')]),
+    kv(['First seen', first], ['Sockets', f.sockets + ' now'], ['Ports', f.ports.join(', ')], ['Also used by', apps]),
     h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, 'Related'),
       f.apps.map((g) => h('p', { style: 'margin:4px 0' }, h('a', { href: writeHash({ view: 'apps', sel: g.key }) }, 'Open app ' + g.label))),
-      h('p', { style: 'margin:4px 0' }, h('a', { href: writeHash({ view: 'persist', q: f.apps[0].label }) }, 'Startup items for ' + f.apps[0].label)),
-      h('p', { style: 'margin:4px 0' }, h('a', { href: writeHash({ view: 'history', q: f.host }) }, 'History of this host'))),
+      h('p', { style: 'margin:4px 0' }, h('a', { href: writeHash({ view: 'persist', q: f.apps[0].label }) }, 'Open startup items for ' + f.apps[0].label)),
+      h('p', { style: 'margin:4px 0' }, h('a', { href: writeHash({ view: 'history', q: f.host }) }, 'Open History for this host'))),
     h('div', { class: 'insp-sec', style: 'display:flex;gap:8px;flex-wrap:wrap' },
-      hostRows.map((r) => h('button', { class: 'btn sm ' + (r.expected ? '' : 'btn-acc'), type: 'button', onClick: () => mark([['host', { app: r.g.key, addr: r.remote }]], !r.expected, r.remote + ' for ' + r.g.label) }, r.expected ? 'Unmark ' + r.g.label : (hostRows.length > 1 ? 'Mark expected for ' + r.g.label : 'Mark host as expected'))),
+      hostRows.map((r) => h('button', { class: 'btn sm ' + (r.expected ? '' : 'btn-acc'), type: 'button', onClick: () => mark([['host', { app: r.g.key, addr: r.remote }]], !r.expected, r.remote + ' for ' + r.g.label) }, r.expected ? 'Unmark as expected for ' + r.g.label : (hostRows.length > 1 ? 'Mark as expected for ' + r.g.label : 'Mark as expected'))),
       h('button', { class: 'btn sm', type: 'button', onClick: () => copyText(netCopyAddress(f.host, f.ports[0])) }, 'Copy address')));
 }
 function network() {
   const q = S.q.toLowerCase(), f = S.nfilter, by = NET_GROUPS.includes(S.ngroup) ? S.ngroup : 'app', now = S.snap.at;
   const base = netBaseRows();
-  const counts = netCounts(base);
+  const counts = netCounts(base, by);
   const searched = base.filter((r) => !q || r.g.label.toLowerCase().includes(q) || r.remote.toLowerCase().includes(q) || r.ports.some((p) => String(p) === q));
   const list = searched.filter((r) => netMatches(r, f));
   const grouped = netOrder(netGroup(list, by));
   const shown = sortRows(grouped, 'net', { app: (r) => r.apps.map((g) => g.label).join(', '), remote: (r) => r.remote, scope: (r) => r.scope, sockets: (r) => r.sockets, seen: (r) => r.first_seen });
   const pg = paginate(shown, 'net');
-  const hostRows = S.nhost ? list.filter((r) => r.remote === S.nhost) : [];
+  const hostRows = S.nhost ? base.filter((r) => r.remote === S.nhost) : [];
   const facts = hostRows.length ? netFacts(hostRows, now) : null;
   const chips = [['all', 'All'], ['new', 'New'], ['public', 'Public'], ['lan', 'LAN'], ['unsigned', 'Unsigned']].map(([id, l]) => h('button', { class: 'chip ' + (f === id ? 'on' : ''), 'aria-pressed': String(f === id), onClick: () => rec({ nfilter: id, page: {} }) }, l + ' \u00b7 ' + counts[id]));
   const groupBy = h('div', { class: 'seg', role: 'group', 'aria-label': 'Group by' }, NET_GROUPS.map((id) => h('button', { class: 'chip ' + (by === id ? 'on' : ''), 'aria-pressed': String(by === id), onClick: () => rec({ ngroup: id, page: {} }) }, NET_GROUP_LABEL[id])));
@@ -103,7 +108,7 @@ function network() {
   const firstCell = (r) => (r.first_seen == null ? h('span', { class: 'mut small' }, netFirstSeenText(null, S.histOk)) : timeCell(r.first_seen, 'mut small'));
   const nameCell = (r) => {
     const label = r.apps.map((g) => g.label).join(', '), pickable = by !== 'port', on = pickable && S.nhost === r.hosts[0];
-    return h('span', nameAttrs(label), pickable ? h('button', { class: 'linkbtn', type: 'button', 'aria-pressed': String(on), title: label, style: 'background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis', onClick: () => netSelect(r.hosts[0]) }, label) : label);
+    return h('span', nameAttrs(label), pickable ? h('button', { class: 'linkbtn', type: 'button', 'data-net-host': r.hosts[0], 'aria-pressed': String(on), title: label, style: 'background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis', onClick: () => netSelect(r.hosts[0]) }, label) : label);
   };
   const table = h('section', { class: 'card tbl', style: 'min-width:0' },
     sortHeader('net', [{ label: 'App', sort: 'app' }, { label: 'Remote', sort: 'remote' }, { label: 'Ports' }, { label: 'Scope', sort: 'scope' }, { label: 'Sockets', sort: 'sockets', cls: 'num' }, { label: 'First seen', sort: 'seen', title: 'Sort by first seen, newest first' }, { label: 'Expected', id: 'actions', action: true }], cols, 'ell'),
@@ -114,7 +119,7 @@ function network() {
       h('span', { style: 'display:flex;align-items:center;gap:6px' }, r.expected ? expectedTag() : null, by === 'app' ? markBtn([['host', { app: r.g.key, addr: r.remote }]], r.expected, r.remote + ' for ' + r.g.label) : null))),
     shown.length ? null : h('div', { class: 'item' }, h('p', {}, base.length ? 'No connections match the current filters. ' : 'No outbound connections right now.'), base.length ? clearBtn() : null), pg.pager);
   const sockets = base.reduce((n, r) => n + r.sockets, 0);
-  const foot = h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'Hosts are shown as IP addresses only. A name lookup would tell a DNS server which hosts you contact. "First seen" is the app\'s own history on this Mac, not the age of the connection.');
+  const foot = h('p', { class: 'mut small', style: 'margin:12px 0 0' }, 'This page shows IP addresses, not names, because a name lookup would tell a DNS server which hosts you contact. First seen is the app\'s own history on this Mac, not the age of the connection.');
   return pageShell({ title: base.length || !titleReady('network', loadedNow()) ? verdict('network', { newHosts: counts.new }) : 'No outbound connections right now', subtitle: base.length ? netSubtitle(base, sockets) : 'Nothing is connected to the network right now', filters: [chips, h('span', { class: 'mut small' }, 'Group by'), groupBy],
     body: [table, foot], inspector: facts ? netInspector(facts, hostRows) : null });
 }

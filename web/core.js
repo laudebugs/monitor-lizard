@@ -165,7 +165,7 @@ const PERF_TABS = ['overview', 'cpugpu', 'disknet', 'memory', 'topconsumers'];
 const ST_TILES = ['all', 'developer', 'caches', 'logs', 'downloads', 'mail', 'applications', 'other', 'rest'];
 const PAGE_PARAMS = {
   performance: { tab: ['perfTab', 'overview', (v) => PERF_TABS.includes(v), 'filters'] },
-  network: { group: ['ngroup', 'app', (v) => ['app', 'host', 'port'].includes(v), 'filters'], pick: ['nhost', null, (v) => typeof v === 'string' && v.length <= 64 && /^[0-9A-Fa-f:.]+$/.test(v), 'sel'] },
+  network: { group: ['ngroup', 'app', (v) => ['app', 'host', 'port'].includes(v), 'filters'], pick: ['nhost', null, (v) => typeof v === 'string' && v.length <= 64 && /^[0-9A-Za-z:.%_-]+$/.test(v), 'sel'] },
   storage: { tile: ['stTile', 'all', (v) => ST_TILES.includes(v), 'sel'], item: ['stItem', null, isItemId, 'sel'] },
   guide: { tab: ['gtab', 'commands', (v) => v === 'glossary', 'filters'], topic: ['gtopic', 'all', isId, 'filters'], entry: ['gsel', null, isId, 'sel'] },
 };

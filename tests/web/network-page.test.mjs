@@ -21,7 +21,7 @@ const rows = [
 ];
 
 test('filter counts match what each filter shows', () => {
-  const c = P.netCounts(rows);
+  const c = P.netCounts(rows, 'app');
   assert.deepEqual(c, { all: 4, new: 1, public: 3, lan: 1, unsigned: 1 });
   for (const id of Object.keys(c)) assert.equal(rows.filter((r) => P.netMatches(r, id)).length, c[id]);
 });
@@ -49,6 +49,16 @@ test('a merged row with no known first-seen time keeps null, not zero', () => {
   const g = P.netGroup([rows[3]], 'host');
   assert.equal(g[0].first_seen, null);
 });
+test('a host one app saw before history began stays unknown when merged with a known time', () => {
+  const g = P.netGroup([row(notion, '1.1.1.1', [443], 1, null), row(slack, '1.1.1.1', [443], 1, 900)], 'host');
+  assert.equal(g[0].first_seen, null);
+});
+test('the counts follow the grouping, so the New chip equals the New rows', () => {
+  const two = [row(notion, '1.2.3.4', [443], 1, 990, { isNew: true }), row(slack, '1.2.3.4', [443], 1, 995, { isNew: true })];
+  assert.equal(P.netCounts(two, 'app').new, 2);
+  assert.equal(P.netCounts(two, 'host').new, 1);
+  assert.equal(P.netGroup(two.filter((r) => r.isNew), 'host').length, P.netCounts(two, 'host').new);
+});
 test('the default order is newest first contact, then the busiest', () => {
   assert.deepEqual(P.netOrder(rows).map((r) => r.remote), ['203.0.113.44', '203.0.113.44', '198.51.100.7', '192.168.1.20']);
   assert.equal(P.netOrder(rows)[0].g.label, 'Notion');
@@ -59,7 +69,7 @@ test('inspector facts name the apps, the reason and the first contact', () => {
   assert.equal(f.first, 100);
   assert.equal(f.sockets, 12);
   assert.equal(f.isNew, true);
-  assert.match(f.why, /Notion, Slack is approved, but had not contacted this address before/);
+  assert.match(f.why, /Notion, Slack had not contacted this address before/);
 });
 test('an unsigned app is the stated reason when the host is not new', () => {
   const f = P.netFacts([rows[2]], 1000);
@@ -68,7 +78,7 @@ test('an unsigned app is the stated reason when the host is not new', () => {
 });
 test('a host seen before history existed reads before monitoring, once history has loaded', () => {
   assert.equal(P.netFirstSeenText(null, true), 'before monitoring');
-  assert.equal(P.netFirstSeenText(null, false), 'not known yet');
+  assert.equal(P.netFirstSeenText(null, false), 'loading history');
   assert.equal(P.netFirstSeenText(5, true), null);
 });
 test('an IPv6 address is copied with brackets and the port', () => {
@@ -77,5 +87,5 @@ test('an IPv6 address is copied with brackets and the port', () => {
   assert.equal(P.netCopyAddress('203.0.113.44'), '203.0.113.44');
 });
 test('the subtitle counts sockets, hosts and apps', () => {
-  assert.equal(P.netSubtitle(rows, 15), '15 outbound sockets to 3 hosts across 3 apps');
+  assert.equal(P.netSubtitle(rows, 15), '15 outbound sockets to 3 hosts, from 3 apps');
 });
