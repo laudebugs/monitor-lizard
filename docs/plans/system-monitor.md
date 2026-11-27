@@ -59,6 +59,7 @@ See [prior art](../research/prior-art/README.md): the Objective-See tools cover 
 | C1 | Sortable columns and filters on the tables | none |
 | C2 | Expand truncated lists; resizable app detail panel | none |
 | A11 | Rename to system-monitor | none; do last, it touches every file |
+| P1 | Show which process and script requested sudo | none |
 
 Not yet written (IDs A17 to A19 are free; the feedback baseline is built as A9, without muting): the menu-bar app ([A17](../todos/ready/A17-tauri-menu-bar-shell.md), proposed in [ADR 0004](../decisions/0004-tauri-menu-bar-shell.md)), enrichment (reverse DNS and ASN: reverse DNS tells a resolver which IPs you look up, so it needs an opt-in), and optional Endpoint Security.
 
