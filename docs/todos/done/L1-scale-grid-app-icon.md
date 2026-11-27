@@ -59,7 +59,7 @@ Replace the flat blue placeholder icon with a mark that fits the name: a pixel l
 | Input | Expected |
 |---|---|
 | `tray.png` cannot be decoded | The error goes to the shell log and the tray shows its text only |
-| Light and dark menu bar | The tray image is black and clear, so macOS recolours it |
+| Dark menu bar | macOS draws the same image in white; on a light bar it draws it in black |
 | Favicon at 16 px | Cells touch, so no gaps blur away |
 
 ## Acceptance criteria
@@ -91,8 +91,8 @@ cd src-tauri && cargo tauri build --debug --bundles app
 
 - [x] Claimed in the first commit
 - [x] Follows the applicable guidelines
-- [x] `/code-review` run per `AGENTS.md`: run after the merge; findings and fixes are in the commits of the follow-up PR
-- [x] `/writing-review` run on any prose: not run; the prose is one layout row and this file
+- [x] `/code-review` run per `AGENTS.md`, after the merge; its fixes are in PR #63
+- [x] `/writing-review` run on the prose, after the merge; its fixes are in PR #63
 - [ ] Dock, menu bar (light and dark) and browser tab looked at on a real screen: pending
 - [x] `make check` green
 
@@ -100,10 +100,10 @@ cd src-tauri && cargo tauri build --debug --bundles app
 
 2026-11-27.
 
-The mark is 12 by 12 cells. The app icon draws each cell 46 of 52 units wide with a gap and alternates two tints for a scale texture; the eyes are the two mint cells in the top row. The favicon and tray icon draw the cells touching, because a gap of a fraction of a pixel blurs at 16 px. The tray icon has no tints and its eyes are holes. At 18 pt the head reads as a narrow stub with two notches, not as eyes.
+The mark is 12 by 12 cells. The app icon draws each cell 46 of 52 units wide with a gap and alternates two tints for a scale texture; the eyes are the two mint cells in the top row. The favicon and tray icon draw the cells touching, because a gap of a fraction of a pixel blurs at 16 px. The tray icon has no tints and its eyes are holes. In a 10 times enlargement the head reads as a narrow stub with two notches, not as eyes; it has not been seen at 18 pt.
 
-The icon body is 824 px on a 1024 px canvas, which is Apple's grid, so the Dock does not show it larger than other icons.
+The icon body is 824 px on a 1024 px canvas, which is Apple's icon template, so the Dock does not draw it larger than other icons.
 
 Not checked: how the icon looks in the Dock and in a light and a dark menu bar on a real screen. The bundle was built (`cargo tauri build --debug --bundles app`) and its `icon.icns` is identical to the committed file; the icons were inspected as renders.
 
-The review after the merge found a stale comment above the favicon, missing todo sections and a long layout row, all fixed in the follow-up PR. `scripts/make-icons.sh` now rewrites the favicon too, so the three drawings and the page cannot drift.
+The code review after the merge found a stale comment above the favicon, missing todo sections and a long layout row. The writing review found a layout sentence over 40 words, a bare "It" as subject, a duplicated line in the edge cases and a claim about 18 pt that had not been checked. PR #63 fixes all of them. `scripts/make-icons.sh` now rewrites the favicon too, so the three drawings and the page cannot drift.
