@@ -13,7 +13,7 @@ async function load(fresh) {
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [], privOk: true }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 // The reply is { items, changes }. Items that are no longer found stay in the data but not on this page, which lists what is installed now.
-const loadPers = async () => { try { const d = await (await api('/api/persistence')).json(); quiet({ pers: (Array.isArray(d) ? d : (d && d.items) || []).filter((i) => !i.removed_at), persOk: true }); } catch (e) {} };
+const loadPers = async () => { try { const d = await (await api('/api/persistence')).json(); quiet({ pers: (Array.isArray(d) ? d : (d && d.items) || []).filter((i) => !i.removed_at), persChanges: (d && Array.isArray(d.changes)) ? d.changes : [], persOk: true }); } catch (e) {} };
 const loadHist = async () => { try { const h = (await (await api('/api/history')).json()) || {}; quiet({ seen: h.seen || [], acts: h.actions || [], baseChanges: h.baseline_changes || [], trashMoves: Array.isArray(h.trash_moves) ? h.trash_moves : [], histOk: true }); } catch (e) {} };
 const expectedTag = () => h('span', { class: 'tag', title: 'You marked this as expected' }, 'expected');
 // params is one of { key } (the server's own key for a finding or startup item) or { app, addr } for a host:

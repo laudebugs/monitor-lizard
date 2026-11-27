@@ -449,3 +449,13 @@ test('network: a grouping or host outside the allowed shapes falls back, and an 
 test('network: a host search link from the old address still searches', () => {
   assert.equal(L.parseHash('#network?host=203.0.113.44').q, '203.0.113.44');
 });
+
+test('persistence: the filter, Apple toggle and selected item round-trip through the address', () => {
+  const pBase = { view: 'persist', filter: 'all', sel: null, q: '', sorts: {}, dd: {}, ex: { pApple: '0', pItem: null } };
+  const s = { ...pBase, filter: 'unsigned', ex: { pApple: '1', pItem: '/Users/me/Library/LaunchAgents/a.plist' } };
+  const h = L.writeHash(s);
+  assert.deepEqual(L.parseHash(h), s);
+  assert.equal(L.writeHash(pBase), '#persist', 'defaults write nothing');
+  for (const bad of ['relative.plist', '', '/a\u0001b', '/' + 'x'.repeat(400)]) assert.equal(L.parseHash('#persist?item=' + encodeURIComponent(bad)).ex.pItem, null, bad);
+  assert.equal(L.parseHash('#persist?apple=yes').ex.pApple, '0');
+});

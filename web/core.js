@@ -112,7 +112,7 @@ const h = (tag, attrs = {}, ...kids) => {
   e.append(...nodesOf(kids).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return e;
 };
-const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', ngroup: 'app', nhost: null, q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, procRows: null, procFailed: false, procSort: 'cpu', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, reqLive: {}, sig: undefined, privOk: false, persOk: false, histOk: false, navOpen: false };
+const S = { view: 'overview', sel: null, filter: 'all', lfilter: 'all', pfilter: 'all', nfilter: 'all', pApple: '0', pItem: null, persChanges: [], ngroup: 'app', nhost: null, q: '', page: {}, sorts: {}, fil: {}, size: 25, menu: null, expand: { procs: false, conns: false }, drawerW: +localStorage.getItem('drawer-width') || null, theme: localStorage.getItem('monitor-lizard-theme') || 'system', modal: null, toast: null, snap: null, priv: [], sudo: [], pers: [], seen: [], acts: [], baseChanges: [], noticeHidden: false, settings: { notifications: 'off' }, muted: new Set(JSON.parse(localStorage.getItem('monitor-lizard-muted') || '[]')), metrics: [], metricsSince: 0, perfWin: '5m', perfLive: true, perfTab: 'overview', stData: null, stFailed: false, stHist: null, stHistFailed: false, stTile: 'all', stItem: null, stfilter: 'all', stNote: null, stMulti: [], stAll: false, stAsk: false, volume: null, volumeFailed: false, procRows: null, procFailed: false, procSort: 'cpu', guide: { state: 'idle', data: null }, gtab: 'commands', gtopic: 'all', gsel: null, gcopy: null, gall: null, gsig: null, gnote: null, xopen: {}, reqOpen: {}, reqLive: {}, sig: undefined, privOk: false, persOk: false, histOk: false, navOpen: false };
 const base = (p) => String(p).split('/').pop();
 // A group key's own category prefix (apple:/dev:/other:), stripped wherever the raw key would
 // otherwise leak into view: the app bundle path itself never has one, so this is always safe.
@@ -146,7 +146,7 @@ const ST_LABEL = Object.freeze({ safe: 'safe', review: 'review', yours: 'yours' 
 const TITLES = { overview: 'Overview', apps: 'Apps', priv: 'Privilege requests', listeners: 'Listeners', persist: 'Persistence', network: 'Network', history: 'History', performance: 'Performance', guide: 'Guide', storage: 'Storage' };
 // Views whose rows the search box filters in place; typing anywhere else jumps to Apps.
 const FILTERABLE = ['apps', 'listeners', 'persist', 'network', 'history', 'guide', 'storage'];
-const PAGE_FILTER = { apps: ['filter', ['all', 'review', 'approved', 'macOS']], listeners: ['lfilter', ['all', 'exposed', 'local']], persist: ['pfilter', ['all', 'new', 'user', 'system']], network: ['nfilter', ['all', 'new', 'public', 'lan', 'unsigned']], storage: ['stfilter', ['all', ...Object.values(ST_LABEL)]] };
+const PAGE_FILTER = { apps: ['filter', ['all', 'review', 'approved', 'macOS']], listeners: ['lfilter', ['all', 'exposed', 'local']], persist: ['pfilter', ['all', 'new', 'user', 'system', 'unsigned']], network: ['nfilter', ['all', 'new', 'public', 'lan', 'unsigned']], storage: ['stfilter', ['all', ...Object.values(ST_LABEL)]] };
 // Dropdown filters per page: S.fil name -> [hash key, allowed values]. Must match the dropdowns the views draw.
 const PAGE_DROPDOWNS = {
   apps: { 'apps-label': ['label', ['all', 'trusted', 'unknown', 'suspicious']], 'apps-sig': ['signing', ['all', 'apple', 'signed', 'unsigned', 'unchecked']] },
@@ -165,6 +165,7 @@ const PERF_TABS = ['overview', 'cpugpu', 'disknet', 'memory', 'topconsumers'];
 const ST_TILES = ['all', 'developer', 'caches', 'logs', 'downloads', 'mail', 'applications', 'other', 'rest'];
 const PAGE_PARAMS = {
   performance: { tab: ['perfTab', 'overview', (v) => PERF_TABS.includes(v), 'filters'] },
+  persist: { apple: ['pApple', '0', (v) => v === '1', 'filters'], item: ['pItem', null, (v) => typeof v === 'string' && v.startsWith('/') && v.length <= 400 && !/[\u0000-\u001f\u007f]/.test(v), 'sel'] },
   network: { group: ['ngroup', 'app', (v) => ['app', 'host', 'port'].includes(v), 'filters'], pick: ['nhost', null, (v) => typeof v === 'string' && v.length <= 64 && /^[0-9A-Za-z:.%_-]+$/.test(v), 'sel'] },
   storage: { tile: ['stTile', 'all', (v) => ST_TILES.includes(v), 'sel'], item: ['stItem', null, isItemId, 'sel'] },
   guide: { tab: ['gtab', 'commands', (v) => v === 'glossary', 'filters'], topic: ['gtopic', 'all', isId, 'filters'], entry: ['gsel', null, isId, 'sel'] },
@@ -247,7 +248,7 @@ function writeHash(st) {
 function historyMode(prev, next) {
   if (prev === next) return 'none';
   const a = parseHash(prev), b = parseHash(next);
-  return a.view !== b.view || a.sel !== b.sel || a.ex.gsel !== b.ex.gsel || a.ex.perfTab !== b.ex.perfTab || a.ex.stTile !== b.ex.stTile || a.ex.stItem !== b.ex.stItem ? 'push' : 'replace';
+  return a.view !== b.view || a.sel !== b.sel || a.ex.gsel !== b.ex.gsel || a.ex.perfTab !== b.ex.perfTab || a.ex.stTile !== b.ex.stTile || a.ex.stItem !== b.ex.stItem || a.ex.pItem !== b.ex.pItem ? 'push' : 'replace';
 }
 
 const toHashState = (s) => {
