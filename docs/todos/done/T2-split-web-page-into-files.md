@@ -134,3 +134,5 @@ make test
 - The Stop and Quit dialogs and approve and trash writes; the browser check covers one write, the settings write.
 - Cross-file function hoisting is gone, and a top-level throw in one script no longer stops the scripts after it. Only the stand-in-browser test and the page-by-page check guard this.
 - CI.
+
+**Tauri result (2026-11-26/27).** Amber ran the shell against main (da96481) and reported a pass: the window opened, and Storage and Privilege loaded. A token write returned 200, with no false 403. This settles the "Blocks merging" item above.
