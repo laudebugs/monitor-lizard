@@ -10,7 +10,7 @@
 | Branch | `feat/r2-network-redesign` |
 | PR title | `feat(web): redesign Network with grouping, counts and a host inspector` |
 | Size | M (200-400) |
-| PR | — |
+| PR | pending |
 
 ## Goal
 
@@ -89,3 +89,18 @@ Plan status; the Network section of the README.
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record
+
+2026-11-27.
+
+- **Board:** I read "G · Network" in the owner's canvas and built the page from it.
+- **Filters:** All, New, Public, LAN and Unsigned, each with a live count. The counts and the verdict use one test, so the verdict equals the New count.
+- **Group by:** App, Host or Port. Host grouping lists every app that reached the address. Port grouping adds up the sockets of every host behind a port. Switching keeps the filters and the selected host.
+- **Table:** first seen is relative with the exact time on hover. A host older than the history reads "before monitoring".
+- **Inspector:** first seen, sockets, ports, other apps, trust, why it is flagged, Related links (app, startup items, History of the host), Mark host as expected and Copy address. An IPv6 address is copied with brackets and the port.
+- **Address:** the filter, grouping and selected host are in the address (`group` and `pick`). The old `host` link still searches.
+- **Not built:** the board's connection map and its side panel of sockets by port. Neither is in this todo's scope.
+- **Tests:** `tests/web/network-page.test.mjs` and three cases in `url-state.test.mjs`. `make check` and `make test` pass.
+- **Real browser (Chrome, scratch HOME, release build):** the chips with counts, all three groupings, selecting a host and opening the inspector, and keeping the selection when switching groupings worked. At 400 px the page was 396 px wide with the inspector open.
+- **Open:** the layout was not compared side by side with the board image. I could not check 1360 px, because Chrome would not open a window that wide. The scratch machine had no new host, so the New chip was only checked at zero.
