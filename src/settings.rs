@@ -54,6 +54,10 @@ pub struct Settings {
     /// is no page control to drive it yet.
     #[serde(default)]
     pub agent_enabled: bool,
+    /// Off by default: hourly bytes written per app group are kept only once the owner opts in on
+    /// the Storage page, because app names with hourly counts reveal habits.
+    #[serde(default)]
+    pub disk_writes_history: bool,
 }
 impl Default for Level {
     fn default() -> Self {
@@ -62,7 +66,7 @@ impl Default for Level {
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_enabled: false }
+        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_enabled: false, disk_writes_history: false }
     }
 }
 
@@ -112,44 +116,54 @@ fn save_at(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
         .map_err(|e| crate::paths::with_context("write the settings to", path, e))
 }
 
+/// The fields `POST /api/settings` may change, each as the raw text from the query, `None` when not
+/// given. A struct rather than one parameter per field, so a new setting adds a field, not a
+/// parameter at every call site.
+#[derive(Debug, Default)]
+pub struct Update {
+    pub notifications: Option<String>,
+    pub generic_text: Option<String>,
+    pub quiet_start: Option<String>,
+    pub quiet_end: Option<String>,
+    pub metrics_history: Option<String>,
+    pub disk_writes_history: Option<String>,
+}
+
 /// Applies a settings-endpoint update: parses and validates every given field before writing
 /// anything, and resets `seeded` when notifications move away from `Off` so the next dispatch
 /// seeds the findings present at that moment rather than firing a backlog.
-pub fn update(notifications: Option<&str>, generic_text: Option<&str>, quiet_start: Option<&str>, quiet_end: Option<&str>, metrics_history: Option<&str>) -> Result<Settings, &'static str> {
-    update_at(&file(), notifications, generic_text, quiet_start, quiet_end, metrics_history)
+pub fn update(u: &Update) -> Result<Settings, &'static str> {
+    update_at(&file(), u)
 }
-fn update_at(path: &std::path::Path, notifications: Option<&str>, generic_text: Option<&str>, quiet_start: Option<&str>, quiet_end: Option<&str>, metrics_history: Option<&str>) -> Result<Settings, &'static str> {
+fn parse_bool(v: Option<&str>, err: &'static str) -> Result<Option<bool>, &'static str> {
+    match v {
+        None => Ok(None),
+        Some("true") => Ok(Some(true)),
+        Some("false") => Ok(Some(false)),
+        Some(_) => Err(err),
+    }
+}
+fn update_at(path: &std::path::Path, u: &Update) -> Result<Settings, &'static str> {
     let mut s = load_at(path);
     let was_off = s.notifications == Level::Off;
-    if let Some(v) = notifications {
+    if let Some(v) = u.notifications.as_deref() {
         s.notifications = Level::parse(v).ok_or("notifications must be off, high or all")?;
     }
-    if let Some(v) = generic_text {
-        s.generic_text = match v {
-            "true" => true,
-            "false" => false,
-            _ => return Err("generic_text must be true or false"),
-        };
-    }
+    if let Some(v) = parse_bool(u.generic_text.as_deref(), "generic_text must be true or false")? { s.generic_text = v; }
     let parse_minutes = |v: &str| -> Result<Option<u16>, &'static str> {
         if v.is_empty() {
             return Ok(None);
         }
         v.parse::<u16>().ok().filter(|m| *m < 1440).map(Some).ok_or("quiet hour must be 0-1439 minutes since midnight")
     };
-    if let Some(v) = quiet_start {
+    if let Some(v) = u.quiet_start.as_deref() {
         s.quiet_start = parse_minutes(v)?;
     }
-    if let Some(v) = quiet_end {
+    if let Some(v) = u.quiet_end.as_deref() {
         s.quiet_end = parse_minutes(v)?;
     }
-    if let Some(v) = metrics_history {
-        s.metrics_history = match v {
-            "true" => true,
-            "false" => false,
-            _ => return Err("metrics_history must be true or false"),
-        };
-    }
+    if let Some(v) = parse_bool(u.metrics_history.as_deref(), "metrics_history must be true or false")? { s.metrics_history = v; }
+    if let Some(v) = parse_bool(u.disk_writes_history.as_deref(), "disk_writes_history must be true or false")? { s.disk_writes_history = v; }
     if was_off && s.notifications != Level::Off {
         s.seeded = false;
     }
@@ -201,16 +215,16 @@ mod tests {
     #[test]
     fn update_rejects_bad_values_without_writing_anything() {
         let p = tmp_settings_path("bad");
-        assert_eq!(update_at(&p, Some("bogus"), None, None, None, None).unwrap_err(), "notifications must be off, high or all");
-        assert_eq!(update_at(&p, None, Some("maybe"), None, None, None).unwrap_err(), "generic_text must be true or false");
-        assert_eq!(update_at(&p, None, None, Some("1500"), None, None).unwrap_err(), "quiet hour must be 0-1439 minutes since midnight");
+        assert_eq!(update_at(&p, &Update { notifications: Some("bogus".into()), ..Update::default() }).unwrap_err(), "notifications must be off, high or all");
+        assert_eq!(update_at(&p, &Update { generic_text: Some("maybe".into()), ..Update::default() }).unwrap_err(), "generic_text must be true or false");
+        assert_eq!(update_at(&p, &Update { quiet_start: Some("1500".into()), ..Update::default() }).unwrap_err(), "quiet hour must be 0-1439 minutes since midnight");
         assert!(!p.exists(), "no field is ever written if any one of them fails validation");
     }
 
     #[test]
     fn update_persists_and_round_trips() {
         let p = tmp_settings_path("roundtrip");
-        update_at(&p, Some("high"), Some("false"), Some("1320"), Some("420"), None).unwrap();
+        update_at(&p, &Update { notifications: Some("high".into()), generic_text: Some("false".into()), quiet_start: Some("1320".into()), quiet_end: Some("420".into()), ..Update::default() }).unwrap();
         let s = load_at(&p);
         assert_eq!((s.notifications, s.generic_text, s.quiet_start, s.quiet_end), (Level::High, false, Some(1320), Some(420)));
     }
@@ -219,7 +233,7 @@ mod tests {
     fn turning_notifications_on_from_off_resets_seeded() {
         let p = tmp_settings_path("reseed");
         save_at(&p, &Settings { seeded: true, ..Settings::default() }).unwrap(); // off, already seeded from a prior run
-        let s = update_at(&p, Some("high"), None, None, None, None).unwrap();
+        let s = update_at(&p, &Update { notifications: Some("high".into()), ..Update::default() }).unwrap();
         assert!(!s.seeded, "moving off -> high must reseed, so the next dispatch doesn't fire a backlog");
     }
 
@@ -227,7 +241,7 @@ mod tests {
     fn staying_on_does_not_reset_seeded() {
         let p = tmp_settings_path("stay-on");
         save_at(&p, &Settings { notifications: Level::High, seeded: true, ..Settings::default() }).unwrap();
-        let s = update_at(&p, Some("all"), None, None, None, None).unwrap();
+        let s = update_at(&p, &Update { notifications: Some("all".into()), ..Update::default() }).unwrap();
         assert!(s.seeded, "high -> all is not off -> on, so the existing seed must be kept");
     }
 
@@ -235,18 +249,29 @@ mod tests {
     fn metrics_history_defaults_off_and_can_be_turned_on() {
         assert!(!Settings::default().metrics_history);
         let p = tmp_settings_path("metrics-history");
-        let s = update_at(&p, None, None, None, None, Some("true")).unwrap();
+        let s = update_at(&p, &Update { metrics_history: Some("true".into()), ..Update::default() }).unwrap();
         assert!(s.metrics_history);
-        let s = update_at(&p, None, None, None, None, Some("false")).unwrap();
+        let s = update_at(&p, &Update { metrics_history: Some("false".into()), ..Update::default() }).unwrap();
         assert!(!s.metrics_history);
-        assert_eq!(update_at(&p, None, None, None, None, Some("maybe")).unwrap_err(), "metrics_history must be true or false");
+        assert_eq!(update_at(&p, &Update { metrics_history: Some("maybe".into()), ..Update::default() }).unwrap_err(), "metrics_history must be true or false");
+    }
+
+    #[test]
+    fn disk_writes_history_defaults_off_and_can_be_turned_on_and_off() {
+        assert!(!Settings::default().disk_writes_history);
+        let p = tmp_settings_path("disk-writes-history");
+        let on = |v: &str| Update { disk_writes_history: Some(v.into()), ..Update::default() };
+        assert!(update_at(&p, &on("true")).unwrap().disk_writes_history);
+        assert!(load_at(&p).disk_writes_history, "the change is saved, not only returned");
+        assert!(!update_at(&p, &on("false")).unwrap().disk_writes_history);
+        assert_eq!(update_at(&p, &on("yes")).unwrap_err(), "disk_writes_history must be true or false");
     }
 
     #[test]
     fn agent_enabled_defaults_off_and_set_agent_enabled_flips_only_that_field() {
         assert!(!Settings::default().agent_enabled);
         let p = tmp_settings_path("agent-enabled");
-        update_at(&p, Some("high"), None, None, None, None).unwrap(); // some other field already set
+        update_at(&p, &Update { notifications: Some("high".into()), ..Update::default() }).unwrap(); // some other field already set
         set_agent_enabled_at(&p, true).unwrap();
         let s = load_at(&p);
         assert!(s.agent_enabled);

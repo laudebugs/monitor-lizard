@@ -4,6 +4,7 @@
 mod actions;
 mod baseline_changes;
 mod capacity;
+mod disk_writes;
 mod metrics;
 mod migrations;
 mod persistence;
@@ -16,12 +17,14 @@ mod test_util;
 pub use actions::ActionRow;
 pub use baseline_changes::BaselineChangeRow;
 pub use capacity::{capacity_tick, db_path, local_day, local_utc_offset, read_capacity_series, start_capacity_writer, CapacityWrite};
+pub use disk_writes::{disk_writes_hook, erase_disk_writes_now, read_disk_writes, EraseFlag, Stored, writes_reply, WriteRow, DISK_WRITES_KEEP_SECS};
 pub use metrics::{start_metrics_writer, HistoryPoint};
 pub use persistence::{persistence_baseline, persistence_changes, Change, ChangeKind, Observed, PersistRow, MAX_CHANGES};
 pub use seen::{SeenRow, FLAG_WINDOW_SECS, LEARNING_SECS};
 pub use trash::{TrashItemRow, TrashMoveRow, INTERRUPTED_REASON, TRASH_KEEP};
 
 use capacity::CAPACITY_TABLE;
+use disk_writes::DISK_WRITES_TABLE;
 use migrations::{backup_path, file_error, migrate, open_lock, remove_stale_backups, MIGRATIONS};
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -64,6 +67,7 @@ impl History {
         c.execute_batch(CAPACITY_TABLE)?;
         c.execute_batch(TRASH_TABLE)?;
         c.execute_batch(TRASH_ITEMS_TABLE)?;
+        c.execute_batch(DISK_WRITES_TABLE)?;
         // WAL so a process killed mid-batch leaves the file intact (the write-ahead log is simply
         // replayed or rolled back on next open) rather than the default rollback journal's larger
         // window for a half-written page; every table shares one connection and one journal mode.

@@ -98,7 +98,8 @@ pub fn serve_on(server: Arc<Server>) {
     let signal_confirmations: trash_route::ConfirmTokens = Default::default();
     let storage_scan: storage::ScanFn = Arc::new(storage::scan);
     let metrics = sampler::start();
-    let processes = procusage::start(actions::my_username());
+    let writes_erased: history::EraseFlag = Default::default();
+    let processes = procusage::start(actions::my_username(), history::disk_writes_hook(|| settings::load().disk_writes_history, writes_erased.clone()));
     history::start_capacity_writer();
     let agent = llm_server::start();
     history::start_metrics_writer(metrics.clone(), || settings::load().metrics_history);
@@ -141,6 +142,18 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/api/persistence") => cached(&pers),
             (Method::Get, "/api/storage") => json_resp(storage_cache.respond(query, &storage_scan)),
             (Method::Get, "/api/storage/history") => json_resp(storage_history_reply(&history::db_path(), unix_now()).to_string()),
+            // App names with hourly counts reveal habits, so even this read needs the token.
+            (Method::Get, "/api/storage/writes") if write_ok => {
+                let now = unix_now();
+                json_resp(history::writes_reply(settings::load().disk_writes_history, history::read_disk_writes(&history::db_path(), now), now, crate::iokit::ssd_lifetime_bytes_written()).to_string())
+            }
+            (Method::Get, "/api/storage/writes") => forbidden(),
+            (Method::Post, "/api/storage/writes/erase") if write_ok => {
+                match history::erase_disk_writes_now(&writes_erased) {
+                    Ok(n) => json_resp(serde_json::json!({ "erased": n }).to_string()),
+                    Err(e) => Response::from_string(history::unavailable(&e)).with_status_code(500).boxed(),
+                }
+            }
             (Method::Get, "/api/volume") => { let (code, body) = storage::boot_capacity_reply(); json_resp(body).with_status_code(code) }
             (Method::Get, "/api/metrics") => {
                 let since = query_param(query, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -187,7 +200,12 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/api/guide") => json_resp(crate::guide::to_json()),
             (Method::Get, "/api/settings") => json_resp(serde_json::to_string(&settings::load()).unwrap_or_default()),
             (Method::Post, "/api/settings") if write_ok => {
-                match settings::update(query_param(query, "notifications").as_deref(), query_param(query, "generic_text").as_deref(), query_param(query, "quiet_start").as_deref(), query_param(query, "quiet_end").as_deref(), query_param(query, "metrics_history").as_deref()) {
+                let field = |name| query_param(query, name);
+                let update = settings::Update {
+                    notifications: field("notifications"), generic_text: field("generic_text"), quiet_start: field("quiet_start"),
+                    quiet_end: field("quiet_end"), metrics_history: field("metrics_history"), disk_writes_history: field("disk_writes_history"),
+                };
+                match settings::update(&update) {
                     Ok(s) => json_resp(serde_json::to_string(&s).unwrap_or_default()),
                     Err(e) => Response::from_string(e).with_status_code(400).boxed(),
                 }
