@@ -368,18 +368,23 @@ pub fn scan_in_background() -> Storage { scan_stored(Budget::Server) }
 
 /// What the process knows about each location, loaded from the data folder on the first scan.
 static RESULTS: Mutex<Option<Results>> = Mutex::new(None);
-/// Set by a request for a fresh scan: the next scan reuses nothing and walks every location.
-static FULL_RESCAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+thread_local! {
+    /// Set on the thread a request for a fresh scan starts: that scan reuses nothing and walks every location.
+    static FULL_RESCAN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
-/// Makes the next scan walk every location instead of reusing unchanged ones.
-pub(crate) fn request_full_rescan() { FULL_RESCAN.store(true, std::sync::atomic::Ordering::SeqCst); }
+/// Makes the scan this thread runs next walk every location instead of reusing unchanged ones.
+pub(crate) fn set_full_rescan(full: bool) { FULL_RESCAN.with(|c| c.set(full)); }
+
+/// Whether this thread's scan was asked to reuse nothing; read once per scan.
+pub(crate) fn take_full_rescan() -> bool { FULL_RESCAN.with(|c| c.replace(false)) }
 
 /// Runs a scan against the result map kept for this process and saved in the data folder, so each
 /// run starts from what the last one learned. Scans never overlap (the cache starts one at a time),
 /// and the lock only guards the command line against a second caller.
 fn scan_stored(budget: Budget) -> Storage {
     let home = home_or_reason();
-    let full = FULL_RESCAN.swap(false, std::sync::atomic::Ordering::SeqCst);
+    let full = take_full_rescan();
     let store = home.is_ok().then(|| crate::paths::data_dir().join(STORE_FILE));
     // A refused home must not fill the map with an empty one that a later call would then keep.
     let Some(store) = store else { return scan_for(home, budget.duration(), &mut Results::default(), full) };
@@ -392,23 +397,37 @@ fn scan_stored(budget: Budget) -> Storage {
 
 /// Measures `items` again now, before a preview shows their size: a reused row whose folder changed
 /// deep inside would otherwise carry its old size, and the move would be refused as changed. An item
-/// that cannot be walked is returned as it was, so the move's own checks say why.
-pub(crate) fn remeasure(items: &[Item]) -> Vec<Item> {
-    let mut map = RESULTS.try_lock().ok();
-    items.iter().map(|item| {
+/// that cannot be walked is returned as it was, so the move's own checks say why. None when the
+/// deadline passes before every item was measured.
+pub(crate) fn remeasure(items: &[Item], deadline: Instant) -> Option<Vec<Item>> {
+    // Walk first, with no lock held: a background scan keeps the map for minutes.
+    let mut walked: Vec<(&Item, Option<Fresh>)> = Vec::with_capacity(items.len());
+    for item in items {
+        let now = Instant::now();
+        if now >= deadline { return None; }
         let path = Path::new(&item.path);
         let hint = trash::modified_ns(path);
-        let lim = Limits { deadline: Instant::now() + trash::REMEASURE_BUDGET, max_entries: MAX_ENTRIES_PER_LOCATION };
-        let Some(Ok(w)) = walk::walk(path, lim) else { return item.clone() };
-        let exhausted = w.stop.is_none();
-        let fresh = Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: exhausted && w.unreadable == 0, exhausted, mtime_hint: hint };
-        let now = now_secs();
+        let lim = Limits { deadline: (now + trash::REMEASURE_BUDGET).min(deadline), max_entries: MAX_ENTRIES_PER_LOCATION };
+        let fresh = match walk::walk(path, lim) {
+            Some(Ok(w)) if w.stop == Some(walk::Stop::Time) && Instant::now() >= deadline => return None,
+            Some(Ok(w)) => { let exhausted = w.stop.is_none(); Some(Fresh { bytes: w.allocated, apparent: Some(w.apparent), entries: w.entries, unreadable: w.unreadable, complete: exhausted && w.unreadable == 0, exhausted, mtime_hint: hint }) }
+            _ => None,
+        };
+        walked.push((item, fresh));
+    }
+    // The map is only touched to merge, and only when no scan is using it; that scan walks these
+    // locations itself.
+    let mut map = RESULTS.try_lock().ok();
+    let now = now_secs();
+    Some(walked.into_iter().map(|(item, fresh)| {
+        let Some(fresh) = fresh else { return item.clone() };
+        let hint = fresh.mtime_hint;
         let e = match map.as_mut().and_then(|g| g.as_mut()) {
             Some(r) => r.merge(&item.path, fresh, now),
             None => Entry { bytes: fresh.bytes, apparent: fresh.apparent, entries: fresh.entries, unreadable: fresh.unreadable, complete: fresh.complete, stale: false, measured_at: now, mtime_hint: hint },
         };
-        Item { size: Reading::Value(e.bytes), apparent_bytes: e.apparent, entries: e.entries, complete: e.complete, unreadable: e.unreadable, measured_at: e.measured_at, reused: false, stale: e.stale, modified_ns: trash::modified_ns(path), ..item.clone() }
-    }).collect()
+        Item { size: Reading::Value(e.bytes), apparent_bytes: e.apparent, entries: e.entries, complete: e.complete, unreadable: e.unreadable, measured_at: e.measured_at, reused: false, stale: e.stale, modified_ns: trash::modified_ns(Path::new(&item.path)), ..item.clone() }
+    }).collect())
 }
 
 /// `scan` for a given home, so a refused home can be tested without changing the environment.

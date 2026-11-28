@@ -49,7 +49,7 @@ Make the storage scan finish over several runs. Today every scan starts from zer
 
 ## Steps
 
-- [ ] Server budget set to the proposed 120 s and recorded in the plan (D17). The owner has not chosen the number separately; it is one constant to change.
+- [x] Server budget set to the proposed 120 s and recorded in the plan (D17). The owner has not chosen the number separately; it is one constant to change.
 - [x] Add the result map and merge rules; test that a partial scan never lowers a complete earlier result.
 - [x] Order locations: stale or never measured first, then by last known size, largest first.
 - [x] Reuse an unchanged location by its top-level modification time, and refresh the largest ones round-robin.
@@ -102,6 +102,9 @@ cargo run --release -- storage | head -40
 ## Risks and open questions
 
 - A time hint can miss a change deep inside a folder. The two oldest of the eight largest unchanged locations are walked again each scan, and so is the oldest one in twenty of all the others. So a change is found within about 20 scans that are at least 10 minutes apart; until then the row keeps its old size, and a Trash preview measures the item again first.
+- A transient permission error can lower a shown size until the next scan: a walk that reaches the end replaces the old value with what it could read. The Trash refuses incomplete rows anyway.
+- The 20-scan bound also needs the scan to reach the location before its budget ends. Locations due for the long-tail refresh are walked right after the never-measured ones, so a scan that runs out of time still reaches them.
+- Two processes saving at the same moment (the command line and the server) can lose one update; the later write wins and the next scan measures the location again.
 - A longer background scan uses disk for longer. The 20% CPU limit and the low priority stay.
 
 ## Definition of done
@@ -142,6 +145,13 @@ The owner said "let's do S1b", which approves the work. The server budget of 120
   - The save path now writes a new temporary file, flushes the file and the folder, merges what is on disk, and leaves a newer-version file alone.
   - A loaded file is refused past 20,000 entries or a 4096-byte path, and a name that is not valid UTF-8 is listed as not reached.
   - `visit_order` and `discover` moved to `order.rs` to keep `mod.rs` under 800 lines.
-- Mutation check: removing the file size cap, or the owner check, now fails a test. Removing the flush from the default save still passes: a test checks the flush calls and their order, but cannot observe a real `fsync`.
+- Third review round (coordinator), findings and fixes:
+  - A later preview rewrote the cached size, so an earlier confirmation still matched and would have moved a folder that grew to 5 GB. The confirmation is now bound to each item's size, entry count, completeness and modification time, so a re-measure that changes anything voids earlier ones. A test covers the exact scenario.
+  - A preview could spend more than its budget measuring. Measuring is capped at 15 s for all items together, the move's time budget and the confirmation's life start after it, and over the cap the preview says "preview fewer". The map lock is no longer held across walks.
+  - `fresh=1` had no test; it has one now, and the flag belongs to the scan's own thread.
+  - Replacing the cached rows after a re-measure is refused when a newer scan finished meanwhile.
+  - Saving caps the merged map at 20,000 entries (oldest first), clamps a future time read from disk, and refuses a folder that is a link or not ours.
+  - The long-tail refresh is walked before the ordinary stale locations. The owner check is tested on the load path.
+- Mutation check: removing any of these now fails a test: the file size cap, the owner check, the sizes in the confirmation, the fresh-scan flag, the scan-generation check, the merged-map cap. Removing the flush from the default save still passes: a test checks the flush calls and their order, but cannot observe a real `fsync`.
 - Known gaps left: a location with an unreadable subfolder never reports `complete: true` (its size is exact for what can be read and shown as "at least"); map entries for paths that were not candidates stay in the file; the command-line text output does not print the ages.
 - Not verified: a scan of a real developer home, so convergence in "a few runs" and the 25% CPU ceiling at 120 s are unmeasured. The node_modules search now runs before the walks on every scan and takes up to a quarter of the budget.

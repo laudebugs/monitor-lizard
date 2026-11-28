@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 pub const MAX_IDS: usize = 50;
 /// Re-measuring one item must not hold a request for long.
 pub(super) const REMEASURE_BUDGET: Duration = Duration::from_secs(10);
+/// The most time a preview spends measuring its items again, all of them together.
+pub const REMEASURE_TOTAL: Duration = Duration::from_secs(15);
 /// The whole request, checks and moves together. Items not reached by then are reported as not attempted.
 pub const REQUEST_BUDGET: Duration = Duration::from_secs(45);
 

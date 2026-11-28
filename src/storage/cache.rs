@@ -74,8 +74,6 @@ impl Cache {
         let allowed = st.last_started.is_none_or(|(at, _)| at.elapsed() >= self.interval);
         let start = (fresh || st.result.is_none()) && !st.scanning && allowed;
         if start {
-            // A request for a fresh scan means everything is walked, not reused (the first scan has nothing to reuse).
-            if fresh { super::request_full_rescan(); }
             st.scanning = true;
             let unix = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             st.last_started = Some((Instant::now(), unix));
@@ -87,6 +85,8 @@ impl Cache {
             let (cache, scan) = (self.clone(), scan.clone());
             std::thread::spawn(move || {
                 let guard = ScanGuard(cache.clone());
+                // A request for a fresh scan means everything is walked, not reused.
+                super::set_full_rescan(fresh);
                 let result = scan();
                 { let mut st = cache.lock(); st.result = Some(result); st.generation += 1; }
                 drop(guard);
@@ -107,13 +107,15 @@ impl Cache {
         Ok((st.generation, items))
     }
 
-    /// Replaces the stored items with these for the same ids, in the same scan: the ids, labels and
-    /// scan number a confirmation is bound to do not change, only the sizes. Used by a preview, which
-    /// measures the items it is about to show.
-    pub fn replace_items(&self, fresh: Vec<Item>) {
+    /// Replaces the stored items with these for the same ids, but only while the scan they came from
+    /// is still the latest: a scan that finished meanwhile has newer rows, and the caller must preview
+    /// again. The ids, labels and scan number a confirmation is bound to do not change, only the sizes.
+    pub fn replace_items(&self, generation: u64, fresh: Vec<Item>) -> bool {
         let mut st = self.lock();
-        let Some(result) = st.result.as_mut() else { return };
+        if st.generation != generation { return false; }
+        let Some(result) = st.result.as_mut() else { return false };
         for f in fresh { if let Some(slot) = result.items.iter_mut().find(|i| i.id == f.id) { *slot = f; } }
+        true
     }
 
     #[cfg(test)]

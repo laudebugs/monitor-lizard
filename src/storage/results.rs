@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Bumped when the saved shape changes. A file with a larger number came from a newer build and is
 /// neither read nor overwritten.
@@ -124,14 +125,21 @@ impl Results {
     /// implausible file gives an empty map, so the scan starts from nothing rather than trusting it.
     pub fn load(path: &Path) -> Results { Self::try_load(path).unwrap_or_default() }
 
-    fn try_load(path: &Path) -> Option<Results> {
+    fn try_load(path: &Path) -> Option<Results> { Self::try_load_as(path, crate::paths::uid()) }
+
+    /// `try_load` for a given owner, so the owner check can be tested without a second user.
+    fn try_load_as(path: &Path, uid: u32) -> Option<Results> {
         let f = crate::paths::open_nofollow(path).ok()?;
-        if !acceptable(&f.metadata().ok()?, crate::paths::uid()) { return None; }
+        if !acceptable(&f.metadata().ok()?, uid) { return None; }
         let mut text = String::new();
         f.take(MAX_FILE_BYTES + 1).read_to_string(&mut text).ok()?;
         let file: File = serde_json::from_str(&text).ok()?;
         let plausible = file.entries.len() <= MAX_ENTRIES && file.entries.keys().all(|k| k.len() <= MAX_PATH_BYTES);
-        (file.version <= VERSION && plausible).then_some(Results { entries: file.entries })
+        // A time in the future would win every comparison against a real measurement.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let mut entries = file.entries;
+        for e in entries.values_mut() { e.measured_at = e.measured_at.min(now); }
+        (file.version <= VERSION && plausible).then_some(Results { entries })
     }
 
     /// The version a file on disk says it has, when it can be read at all.
@@ -146,15 +154,18 @@ impl Results {
     /// Writes the map owner-only (0600) in an owner-only folder (0700), without losing what another
     /// process (the command line, the server) saved since this one loaded: the file on disk is read
     /// again and merged in first, the newer measurement of a path winning. A file from a newer build is
-    /// left alone and reported as an error.
+    /// left alone and reported as an error. Two processes saving at the same moment can still lose one
+    /// update: the later rename wins, and the next scan measures the location again.
     pub fn save(&mut self, path: &Path) -> std::io::Result<()> { self.save_with(path, &|f| f.sync_all()) }
 
     /// `save`, with the flush injected so a test can see what is flushed and in which order.
     fn save_with(&mut self, path: &Path, sync: &dyn Fn(&std::fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
         let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder to save in"))?;
         crate::paths::create_private_dir(dir)?;
-        let meta = std::fs::metadata(dir)?;
-        if meta.uid() == crate::paths::uid() && meta.permissions().mode() & 0o077 != 0 { std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?; }
+        // Only a real folder of ours is tightened or written into; a link could point anywhere.
+        let meta = std::fs::symlink_metadata(dir)?;
+        if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != crate::paths::uid() { return Err(std::io::Error::other("the folder for the saved results is a link or not yours, so nothing was saved")); }
+        if meta.permissions().mode() & 0o077 != 0 { std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?; }
         if Self::disk_version(path).is_some_and(|v| v > VERSION) { return Err(std::io::Error::other("the saved results come from a newer build, so they were left as they are")); }
         if let Some(disk) = Self::try_load(path) {
             for (p, e) in disk.entries {
@@ -162,6 +173,12 @@ impl Results {
                 // A path only the disk knows is kept if it still exists; one this process dropped is not revived.
                 if newer && std::fs::symlink_metadata(&p).is_ok() { self.entries.insert(p, e); }
             }
+        }
+        // The union can pass the cap the next load enforces, which would then drop the whole file.
+        if self.entries.len() > MAX_ENTRIES {
+            let mut oldest: Vec<(u64, String)> = self.entries.iter().map(|(p, e)| (e.measured_at, p.clone())).collect();
+            oldest.sort();
+            for (_, p) in oldest.into_iter().take(self.entries.len() - MAX_ENTRIES) { self.entries.remove(&p); }
         }
         let tmp = dir.join(format!(".storage-results.{}.tmp", std::process::id()));
         let written = self.write_new(&tmp, sync).and_then(|()| std::fs::rename(&tmp, path)).and_then(|()| sync(&std::fs::File::open(dir)?));
@@ -445,5 +462,66 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         assert_eq!(key_of(Path::new("/a/b")), Some("/a/b"));
         assert_eq!(key_of(Path::new(std::ffi::OsStr::from_bytes(b"/a/\xff\xfe"))), None);
+    }
+
+    #[test]
+    fn the_owner_check_applies_on_the_load_path() {
+        let dir = temp("load-owner");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("r.json");
+        let mut r = Results::default();
+        r.merge("/a", fresh(9, true), 5);
+        r.save(&f).unwrap();
+        assert_eq!(Results::try_load_as(&f, crate::paths::uid()).map(|r| r.len()), Some(1));
+        assert!(Results::try_load_as(&f, crate::paths::uid().wrapping_add(1)).is_none(), "a file that is not ours is not read");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_future_time_on_disk_does_not_beat_a_real_measurement() {
+        let dir = temp("future");
+        std::fs::create_dir_all(dir.join("x")).unwrap();
+        let x = dir.join("x").display().to_string();
+        let f = dir.join("r.json");
+        let mut disk = Results::default();
+        disk.merge(&x, fresh(1, true), u64::MAX - 1);
+        disk.entries.get_mut(&x).unwrap().measured_at = u64::MAX - 1;
+        disk.save(&f).unwrap();
+        let mut mine = Results::default();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        mine.merge(&x, fresh(77, true), now + 10);
+        mine.save(&f).unwrap();
+        assert_eq!(Results::load(&f).get(&x).unwrap().bytes, 77);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_union_past_the_cap_drops_the_oldest_so_the_file_still_loads() {
+        let dir = temp("union-cap");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("r.json");
+        let mut r = Results::default();
+        for i in 0..MAX_ENTRIES + 50 { r.insert(&format!("/p{i}"), Entry { bytes: 1, apparent: None, entries: 0, unreadable: 0, complete: true, stale: false, measured_at: i as u64, mtime_hint: None }); }
+        r.save(&f).unwrap();
+        let back = Results::load(&f);
+        assert_eq!(back.len(), MAX_ENTRIES, "the file is still trusted");
+        assert!(back.get("/p0").is_none() && back.get(&format!("/p{}", MAX_ENTRIES + 49)).is_some(), "the oldest went first");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_folder_that_is_a_link_is_neither_tightened_nor_written_into() {
+        let dir = temp("link-dir");
+        let real = dir.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let mut r = Results::default();
+        r.merge("/a", fresh(9, true), 5);
+        assert!(r.save(&link.join("r.json")).is_err());
+        assert_eq!(std::fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o755, "the target's mode is untouched");
+        assert_eq!(std::fs::read_dir(&real).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

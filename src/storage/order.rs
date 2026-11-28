@@ -14,7 +14,10 @@ pub(super) struct Candidate { pub path: PathBuf, pub category: Category, pub pro
 pub(super) enum Rank {
     /// Never measured: walked first, in the fixed order.
     Never,
-    /// Incomplete before, changed since, or due for its round-robin refresh: walked next, largest first.
+    /// Unchanged but due for its turn in the refresh of the long tail: walked next, so a scan that runs
+    /// out of time still reaches it.
+    Due,
+    /// Incomplete before, changed since, or due in the refresh of the largest: walked next, largest first.
     Stale,
     /// Complete and unchanged at the top level: reused without a walk.
     Fresh,
@@ -96,10 +99,11 @@ pub(super) fn visit_order(cands: &[Candidate], results: &Results, now: u64, full
     let (mut pool, mut tail) = (fresh, tail);
     by_age(&mut pool);
     by_age(&mut tail);
-    let old_enough = |k: &usize| now.saturating_sub(ranked[*k].3) >= REFRESH_MIN_AGE_SECS;
+    let ages: Vec<u64> = ranked.iter().map(|r| r.3).collect();
+    let old_enough = |k: &usize| now.saturating_sub(ages[*k]) >= REFRESH_MIN_AGE_SECS;
     let tail_count = tail.len().div_ceil(TAIL_SHARE);
-    let due: Vec<usize> = pool.into_iter().filter(old_enough).take(REFRESH_PER_SCAN).chain(tail.into_iter().filter(old_enough).take(tail_count)).collect();
-    for k in due { ranked[k].1 = Rank::Stale; }
+    for k in pool.into_iter().filter(old_enough).take(REFRESH_PER_SCAN).collect::<Vec<_>>() { ranked[k].1 = Rank::Stale; }
+    for k in tail.into_iter().filter(old_enough).take(tail_count).collect::<Vec<_>>() { ranked[k].1 = Rank::Due; }
     ranked.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| if a.1 == Rank::Never { a.0.cmp(&b.0) } else { b.2.cmp(&a.2).then(a.0.cmp(&b.0)) }));
     ranked.into_iter().map(|(i, r, _, _)| (i, r)).collect()
 }

@@ -85,7 +85,7 @@ fn each_scan_refreshes_the_two_oldest_of_the_largest_unchanged_locations() {
     assert_eq!(stale.len(), REFRESH_PER_SCAN);
     assert!(stale.contains(&names[0]) && stale.contains(&names[1]), "the two oldest: {stale:?}");
     // Too recent for a refresh: everything is reused.
-    let none = order_tails(&home, &r, 1010).into_iter().filter(|(_, k)| *k == Rank::Stale).count();
+    let none = order_tails(&home, &r, 1010).into_iter().filter(|(_, k)| matches!(k, Rank::Stale | Rank::Due)).count();
     assert_eq!(none, 0);
     fs::remove_dir_all(&home).unwrap();
 }
@@ -286,4 +286,74 @@ fn the_server_scan_gets_the_long_budget_and_the_command_line_keeps_twenty_second
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert!(fs::read_to_string(root.join("server.rs")).unwrap().contains("Arc::new(storage::scan_in_background)"));
     assert!(fs::read_to_string(root.join("main.rs")).unwrap().contains("storage::scan()"));
+}
+
+#[test]
+fn a_location_due_for_the_long_tail_refresh_is_walked_before_the_ordinary_stale_ones() {
+    let home = temp("due-first");
+    let mut r = Results::default();
+    let hint = |rel: &str| trash::modified_ns(&home.join(rel));
+    for i in 0..30 {
+        let rel = format!("Library/Caches/com.app{i:02}");
+        fs::create_dir_all(home.join(&rel)).unwrap();
+        r.insert(&at_path(&home, &rel), entry(if i < 8 { 5000 } else { 10 }, true, 100, hint(&rel)));
+    }
+    // One folder whose own time moved: ordinary stale, and the largest of all.
+    fs::create_dir_all(home.join("Library/Caches/com.changed")).unwrap();
+    r.insert(&at_path(&home, "Library/Caches/com.changed"), entry(9000, true, 100, Some(1)));
+    let o = order_tails(&home, &r, 100 + REFRESH_MIN_AGE_SECS * 2);
+    let pos = |name: &str| o.iter().position(|(p, _)| p.ends_with(name)).unwrap();
+    let due = o.iter().filter(|(_, k)| *k == Rank::Due).count();
+    assert!(due >= 1);
+    assert!(o.iter().enumerate().filter(|(_, (_, k))| *k == Rank::Due).all(|(i, _)| i < pos("com.changed")), "due ones are ahead of the changed, larger one");
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_fresh_request_makes_that_scan_reuse_nothing_and_a_second_inside_the_interval_starts_none() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    let seen = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let started = Arc::new(AtomicUsize::new(0));
+    let scan: ScanFn = { let (seen, started) = (seen.clone(), started.clone()); Arc::new(move || { started.fetch_add(1, Ordering::SeqCst); seen.lock().unwrap().push(take_full_rescan()); Storage::fake(1) }) };
+    let cache = Arc::new(Cache::with_interval(Duration::from_millis(60)));
+    let idle = |c: &Arc<Cache>| { let until = Instant::now() + Duration::from_secs(10); while c.request(false, &scan).contains("\"scanning\":true") { assert!(Instant::now() < until); std::thread::sleep(Duration::from_millis(5)); } };
+    cache.request(false, &scan);
+    idle(&cache);
+    std::thread::sleep(Duration::from_millis(80));
+    cache.request(true, &scan);
+    idle(&cache);
+    assert_eq!(*seen.lock().unwrap(), [false, true], "the first scan has nothing to reuse and an ordinary request walks normally; `fresh=1` walks everything");
+    let before = started.load(Ordering::SeqCst);
+    cache.request(true, &scan);
+    std::thread::sleep(Duration::from_millis(20));
+    assert_eq!(started.load(Ordering::SeqCst), before, "a second request inside the interval starts nothing");
+}
+
+#[test]
+fn replacing_items_is_refused_when_a_newer_scan_finished_meanwhile() {
+    let mut s = Storage::fake(1);
+    let mk = |bytes| Item { id: "i".into(), path: "/p".into(), category: Category::Logs, label: Label::Review, rule: Rule::Unclassified, size: Reading::Value(bytes), apparent_bytes: None, entries: 0, complete: true, unreadable: 0, measured_at: 0, reused: false, stale: false, modified_ns: None };
+    s.items.push(mk(1));
+    let cache = Cache::with_result(s);
+    assert!(cache.replace_items(1, vec![mk(5)]));
+    assert_eq!(cache.find(&["i".to_string()]).unwrap()[0].size, Reading::Value(5));
+    let mut newer = Storage::fake(2);
+    newer.items.push(mk(100));
+    cache.replace_result(newer);
+    assert!(!cache.replace_items(1, vec![mk(5)]), "the re-measure belongs to an older scan");
+    assert_eq!(cache.find(&["i".to_string()]).unwrap()[0].size, Reading::Value(100), "the newer rows were not overwritten");
+}
+
+#[test]
+fn measuring_again_gives_up_when_the_deadline_has_passed() {
+    let home = temp("remeasure-deadline");
+    let d = home.join("Library/Caches/com.a");
+    fs::create_dir_all(&d).unwrap();
+    fs::write(d.join("f"), b"x").unwrap();
+    let item = |p: &Path| Item { id: item_id(&p.display().to_string()), path: p.display().to_string(), category: Category::Caches, label: Label::Safe, rule: Rule::AppCache, size: Reading::Value(1), apparent_bytes: None, entries: 0, complete: true, unreadable: 0, measured_at: 0, reused: false, stale: false, modified_ns: None };
+    assert!(remeasure(&[item(&d)], Instant::now() - Duration::from_secs(1)).is_none(), "no time: no answer, not a guess");
+    let ok = remeasure(&[item(&d)], in_secs(30)).unwrap();
+    assert!(ok[0].complete && !ok[0].reused);
+    fs::remove_dir_all(&home).unwrap();
 }
