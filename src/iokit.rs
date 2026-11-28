@@ -206,11 +206,12 @@ extern "C" {
     fn IODestroyPlugInInterface(interface: *mut *mut IUnknownHead) -> i32;
 }
 
-fn uuid(b: [u8; 16]) -> core_foundation_sys::uuid::CFUUIDRef {
+fn constant_cfuuid(b: [u8; 16]) -> core_foundation_sys::uuid::CFUUIDRef {
     // SAFETY: a constant UUID is owned by CoreFoundation for the life of the process; nothing here
     // releases it.
     unsafe { core_foundation_sys::uuid::CFUUIDGetConstantUUIDWithBytes(std::ptr::null(), b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]) }
 }
+
 /// kIONVMeSMARTUserClientTypeID, kIONVMeSMARTInterfaceID (NVMeSMARTLibExternal.h) and
 /// kIOCFPlugInInterfaceID (IOCFPlugIn.h).
 const NVME_SMART_USER_CLIENT: [u8; 16] = [0xAA, 0x0F, 0xA6, 0xF9, 0xC2, 0xD6, 0x45, 0x7F, 0xB1, 0x0B, 0x59, 0xA1, 0x32, 0x53, 0x29, 0x2F];
@@ -251,11 +252,11 @@ unsafe fn smart_capable_services() -> Vec<(bool, io_service_t)> {
 unsafe fn read_smart_page(svc: io_service_t) -> Result<[u8; 512], &'static str> {
     let mut plugin: *mut *mut IUnknownHead = std::ptr::null_mut();
     let mut score = 0i32;
-    if IOCreatePlugInInterfaceForService(svc, uuid(NVME_SMART_USER_CLIENT), uuid(CF_PLUGIN_INTERFACE), &mut plugin, &mut score) != 0 || plugin.is_null() {
+    if IOCreatePlugInInterfaceForService(svc, constant_cfuuid(NVME_SMART_USER_CLIENT), constant_cfuuid(CF_PLUGIN_INTERFACE), &mut plugin, &mut score) != 0 || plugin.is_null() {
         return Err("macOS would not open the drive's SMART interface");
     }
     let mut smart: *mut std::ffi::c_void = std::ptr::null_mut();
-    let iid = core_foundation_sys::uuid::CFUUIDGetUUIDBytes(uuid(NVME_SMART_INTERFACE));
+    let iid = core_foundation_sys::uuid::CFUUIDGetUUIDBytes(constant_cfuuid(NVME_SMART_INTERFACE));
     let asked = ((**plugin).query_interface)(plugin as _, iid, &mut smart);
     let result = if asked != 0 || smart.is_null() {
         Err("the drive's SMART plug-in has no SMART interface")
@@ -275,14 +276,16 @@ unsafe fn read_smart_page(svc: io_service_t) -> Result<[u8; 512], &'static str> 
 /// macOS 27). Unavailable, with the reason, on a Mac whose drive does not offer it.
 pub fn ssd_lifetime_bytes_written() -> crate::sampler::Reading<u64> {
     use crate::sampler::Reading;
-    // SAFETY: each service from `smart_capable_services` is ours to release, and is released here
-    // exactly once after `read_smart_page` (which does not keep it) is done with it.
+    // SAFETY: `smart_capable_services` has no precondition; every service it returns is ours to
+    // release, which the loop below does.
     let services = unsafe { smart_capable_services() };
     let mut result = Reading::Unavailable("no drive on this Mac reports NVMe SMART data");
     for (i, &(_, svc)) in services.iter().enumerate() {
         if i == 0 {
+            // SAFETY: `svc` is live until it is released just below; `read_smart_page` does not keep it.
             result = match unsafe { read_smart_page(svc) } { Ok(page) => Reading::Value(smart_bytes_written(&page)), Err(e) => Reading::Unavailable(e) };
         }
+        // SAFETY: each service is released exactly once, here, and not used after.
         unsafe { IOObjectRelease(svc) };
     }
     result

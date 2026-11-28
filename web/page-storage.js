@@ -104,19 +104,22 @@ async function loadStorageWrites() {
     quiet({ stWrites: data, stWritesFailed: false });
   } catch (e) { quiet({ stWritesFailed: true }); }
 }
+// After a change the panel is drawn again, so focus goes back to the switch rather than to the page top.
+async function writesReloadAndFocus() {
+  await loadStorageWrites();
+  const b = $('wr-toggle'); if (b) b.focus();
+}
 async function setWritesHistory(on) {
   try {
     await api('/api/settings?disk_writes_history=' + on, 'POST');
     toast(on ? 'Disk writes history is on. Figures appear within a few minutes.' : 'Disk writes history is off. Nothing new is recorded; Erase history removes what is kept.');
   } catch (e) { toast('Could not change the disk writes setting: ' + e.message); }
-  await loadStorageWrites();
-  const b = $('wr-toggle'); if (b) b.focus();
+  await writesReloadAndFocus();
 }
 async function eraseWrites() {
   try { await api('/api/storage/writes/erase', 'POST'); toast('Disk writes history erased.'); }
   catch (e) { toast('Could not erase the disk writes history: ' + e.message); }
-  await loadStorageWrites();
-  const b = $('wr-toggle'); if (b) b.focus();
+  await writesReloadAndFocus();
 }
 function stWriteRow(r, hours) {
   const svg = h('svg', { viewBox: '0 0 ' + WR_W + ' ' + WR_H, role: 'img', 'aria-label': writesSparkLabel(r, hours), style: 'width:' + WR_W + 'px;height:' + WR_H + 'px;flex:none;display:block' });

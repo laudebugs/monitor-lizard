@@ -142,10 +142,12 @@ pub fn serve_on(server: Arc<Server>) {
             (Method::Get, "/api/persistence") => cached(&pers),
             (Method::Get, "/api/storage") => json_resp(storage_cache.respond(query, &storage_scan)),
             (Method::Get, "/api/storage/history") => json_resp(storage_history_reply(&history::db_path(), unix_now()).to_string()),
-            (Method::Get, "/api/storage/writes") => {
+            // App names with hourly counts reveal habits, so even this read needs the token.
+            (Method::Get, "/api/storage/writes") if write_ok => {
                 let now = unix_now();
-                json_resp(history::writes_reply(settings::load().disk_writes_history, history::disk_writes_stored(now), now, crate::iokit::ssd_lifetime_bytes_written()).to_string())
+                json_resp(history::writes_reply(settings::load().disk_writes_history, history::read_disk_writes(&history::db_path(), now), now, crate::iokit::ssd_lifetime_bytes_written()).to_string())
             }
+            (Method::Get, "/api/storage/writes") => forbidden(),
             (Method::Post, "/api/storage/writes/erase") if write_ok => {
                 match history::erase_disk_writes_now(&writes_erased) {
                     Ok(n) => json_resp(serde_json::json!({ "erased": n }).to_string()),

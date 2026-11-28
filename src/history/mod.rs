@@ -17,7 +17,7 @@ mod test_util;
 pub use actions::ActionRow;
 pub use baseline_changes::BaselineChangeRow;
 pub use capacity::{capacity_tick, db_path, local_day, local_utc_offset, read_capacity_series, start_capacity_writer, CapacityWrite};
-pub use disk_writes::{disk_writes_hook, disk_writes_stored, erase_disk_writes_now, EraseFlag, writes_reply, WriteRow, DISK_WRITES_KEEP_SECS};
+pub use disk_writes::{disk_writes_hook, erase_disk_writes_now, read_disk_writes, EraseFlag, Stored, writes_reply, WriteRow, DISK_WRITES_KEEP_SECS};
 pub use metrics::{start_metrics_writer, HistoryPoint};
 pub use persistence::{persistence_baseline, persistence_changes, Change, ChangeKind, Observed, PersistRow, MAX_CHANGES};
 pub use seen::{SeenRow, FLAG_WINDOW_SECS, LEARNING_SECS};

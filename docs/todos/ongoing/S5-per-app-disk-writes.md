@@ -88,10 +88,10 @@ Plan status; the privacy paragraph in `README.md` and `SECURITY.md`.
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [x] Follows the applicable guidelines
-- [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
-- [ ] `/writing-review` run on any prose
+- [x] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
+- [x] `/writing-review` run on any prose
 - [x] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
 
@@ -100,8 +100,8 @@ Plan status; the privacy paragraph in `README.md` and `SECURITY.md`.
 2026-11-27.
 
 - **Stays in `ongoing/`.** The work is built, but `make check-docs` refuses a done todo whose dependency is unfinished, and S2a is still in `ongoing/`. S3b waits on S2a the same way. Move this file to `done/` once S2a is done.
-- **Built:** `src/history/disk_writes.rs` holds the `disk_writes_hourly(hour, app, bytes)` table, made by `CREATE TABLE IF NOT EXISTS` in `History::at` as the plan's risk item 7 says new tables are. `WriteRollup` sums write-counter growth per app group and hour, keyed by (pid, start time). The hook that `procusage::start` now takes runs it after every 5 s pass, writes pending bytes once a minute and prunes rows older than 7 days.
-- **Built, around the table:** `Tracker::write_counters` (`src/procusage.rs`) gives each own process's lifetime `ri_diskio_byteswritten`, named by `group::group_of(exe).label`, never the path. `settings::Update` replaces the five fixed `update` parameters. `GET /api/storage/writes` and the token-guarded `POST /api/storage/writes/erase` are in `src/server.rs`. The Storage page panel is `stWrites` in `web/page-storage.js`, with its pure logic in the `storage-writes` block.
+- **Built:** `src/history/disk_writes.rs` holds the `disk_writes_hourly(hour, app, bytes)` table, made by `CREATE TABLE IF NOT EXISTS` in `History::at` as the plan's risk item 7 says new tables are. `WriteRollup` sums write-counter growth per app group and hour, keyed by (pid, start time). The hook that `procusage::start` now takes runs it after every 5 s pass, writes pending bytes once a minute and prunes rows older than 7 days, at most hourly while the setting is off too.
+- **Built, around the table:** `Tracker::write_counters` (`src/procusage.rs`) gives each own process's lifetime `ri_diskio_byteswritten`, named by `group::group_of(exe).label`, never the path. `settings::Update` replaces the five fixed `update` parameters. `GET /api/storage/writes` (read-only connection, token required because the rows reveal habits) and `POST /api/storage/writes/erase` are in `src/server.rs`. The Storage page panel is `stWrites` in `web/page-storage.js`, with its pure logic in the `storage-writes` block.
 - **Edge cases, as built:** setting off drops the in-memory state and writes nothing. A process that exits mid-hour keeps the bytes counted up to its last sample, and is forgotten. A counter lower than the last one drops the sample and keeps the higher baseline, so a glitch can undercount but never counts twice. A pid reused by a new process is a new key.
 - **Edge cases, first sight and ownership:** a process first seen after watching began counts from zero; an older one counts from its first reading. Another user's process never reaches the roll-up, and a pid that moves to another user drops our stored counters. Erase and the hook share one lock, so bytes pending before an erase are not written back.
 - **Lifetime SSD writes: readable without root (verified 2026-11-27, macOS 27, MacBookPro18,3, APPLE SSD AP0512R).** The drive's registry entry says `"NVMe SMART Capable" = Yes` and names `NVMeSMARTLib.plugin`. A C probe built against the SDK's `NVMeSMARTLibExternal.h`, run as uid 501, read the SMART page with return code 0 and Data Units Written 406,048,281 (about 208 TB). `iokit::ssd_lifetime_bytes_written` reads the same page from Rust and the running server returned 207,918,157,824,000 bytes. A Mac whose drive does not offer the plug-in gets the figure hidden with the reason.

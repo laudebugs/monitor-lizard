@@ -53,7 +53,7 @@ Limits: a process swapped for another in the instant between the last check and 
 
 ## What the disk writes history holds
 
-The `disk_writes_history` setting is off by default. While it is on, the history database keeps one row per app and hour: the app group's name and the bytes its processes wrote, for 7 days. It never stores a pid, a path or a file name, and it counts only your own processes. `GET /api/storage/writes` needs no token, like `GET /api/storage`, so any process on your Mac can read those rows. Turning the setting on or off goes through `POST /api/settings`, and `POST /api/storage/writes/erase` deletes every row. Both need the Origin check and the per-run token.
+The `disk_writes_history` setting is off by default. While it is on, the history database keeps one row per app and hour: the app group's name and the bytes its processes wrote, for 7 days. It never stores a pid, a path or a file name, and it counts only your own processes. App names with hourly counts reveal habits, so `GET /api/storage/writes` needs the per-run token even though it only reads. Turning the setting on or off goes through `POST /api/settings`, and `POST /api/storage/writes/erase` deletes every row. All three need the Origin check and the per-run token.
 
 The same reply carries the internal SSD's lifetime bytes written. That figure comes from the drive's NVMe SMART data, read through Apple's SMART plug-in without root. Where the drive does not offer it, the reply says why and the page hides the figure.
 
