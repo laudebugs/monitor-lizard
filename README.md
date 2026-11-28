@@ -48,7 +48,7 @@ Build and run, ad-hoc signed (the default: fine for trying it, but Gatekeeper st
 ```sh
 cargo install tauri-cli --locked          # once: installs the `cargo tauri` subcommand
 cd src-tauri && cargo tauri build --bundles app
-open "target/release/bundle/macos/Monitor Lizard.app"
+open "../target/release/bundle/macos/Monitor Lizard.app"   # the bundle lands in the workspace's target/, not src-tauri/target/
 ```
 
 Sign with your own Developer ID instead, so a Full Disk Access grant keeps working after you rebuild:
@@ -57,9 +57,9 @@ Sign with your own Developer ID instead, so a Full Disk Access grant keeps worki
 security find-identity -v -p codesigning            # lists the exact identity strings on this Mac
 codesign --force --options runtime \
   --sign "Developer ID Application: <your name> (<team id>)" \
-  "target/release/bundle/macos/Monitor Lizard.app"
-codesign --verify --deep --strict "target/release/bundle/macos/Monitor Lizard.app"   # confirms the signature took
-open "target/release/bundle/macos/Monitor Lizard.app"
+  "../target/release/bundle/macos/Monitor Lizard.app"
+codesign --verify --deep --strict "../target/release/bundle/macos/Monitor Lizard.app"   # confirms the signature took
+open "../target/release/bundle/macos/Monitor Lizard.app"
 ```
 
 Re-sign with the *same* identity string every time you rebuild -- a new identity, or no identity, loses any Full Disk Access grant you already added in System Settings. This needs an Apple Developer Program membership (99 USD/year) for the Developer ID Application certificate; notarization, for distributing the app outside your own Mac, is a separate step this repo does not yet automate (see [docs/agents/ci-and-release.md](docs/agents/ci-and-release.md)). Background and the owner's own Full Disk Access test are in the [Tauri shell spike report](docs/research/tauri-shell-spike/README.md).
