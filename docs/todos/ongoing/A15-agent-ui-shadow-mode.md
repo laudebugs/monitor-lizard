@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | ID | `A15` |
-| Status | `ready` |
+| Status | `ongoing` |
 | Plan | [classifier-agent](../../plans/classifier-agent.md) |
 | Depends on | A13 |
 | ADRs | [0003](../../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md) |
@@ -80,7 +80,7 @@ make test
 
 ## Definition of done
 
-- [ ] Claimed: first commit moved this file `ready/` -> `ongoing/`
+- [x] Claimed: first commit moved this file `ready/` -> `ongoing/`
 - [ ] Follows the applicable guidelines
 - [ ] `/code-review` run per `AGENTS.md`; findings and fixes in commit messages
 - [ ] `/writing-review` run on any prose
