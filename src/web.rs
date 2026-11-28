@@ -21,6 +21,7 @@ pub const SOURCES: &[Source] = &[
     Source { path: "/js/data.js", content_type: JS, text: include_str!("../web/data.js") },
     Source { path: "/js/page-overview.js", content_type: JS, text: include_str!("../web/page-overview.js") },
     Source { path: "/js/page-apps.js", content_type: JS, text: include_str!("../web/page-apps.js") },
+    Source { path: "/js/page-agent.js", content_type: JS, text: include_str!("../web/page-agent.js") },
     Source { path: "/js/page-privilege.js", content_type: JS, text: include_str!("../web/page-privilege.js") },
     Source { path: "/js/page-signal.js", content_type: JS, text: include_str!("../web/page-signal.js") },
     Source { path: "/js/page-listeners.js", content_type: JS, text: include_str!("../web/page-listeners.js") },

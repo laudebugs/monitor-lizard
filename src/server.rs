@@ -238,11 +238,22 @@ pub fn serve_on(server: Arc<Server>) {
                             (None, _) => Err(llm::LlmError::Unavailable(agent.reason().as_str().to_string())),
                         };
                         let agent_reason = base_url.is_none().then(|| agent.reason().as_str());
+                        let answered = raw.is_ok();
                         let verdict = classify::validate_verdict(g.trust, &allowed, raw);
+                        // Shadow and On both keep what the model said, so the two can be compared with
+                        // the rules before anything is shown. A reply that never came is not a verdict
+                        // and is not written.
+                        let mode = settings::load().agent_mode;
+                        if answered && mode.records_verdicts() {
+                            if let Ok(h) = History::open() {
+                                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                                let _ = h.record_verdict(now, &g.key, if mode == settings::AgentMode::On { "on" } else { "shadow" }, g.trust, &verdict);
+                            }
+                        }
                         // `rule_label`/`allowed_actions` alongside the clamped verdict, per the todo's
                         // own Scope line: a caller needs the rules' own answer, not just what the
                         // agent did or didn't add to it.
-                        json_resp(serde_json::json!({ "rule_label": g.trust, "allowed_actions": allowed, "verdict": verdict, "agent_reason": agent_reason }).to_string())
+                        json_resp(serde_json::json!({ "rule_label": g.trust, "allowed_actions": allowed, "verdict": verdict, "agent_reason": agent_reason, "agent_mode": mode }).to_string())
                     }
                     None => Response::from_string("no such group").with_status_code(404).boxed(),
                 }

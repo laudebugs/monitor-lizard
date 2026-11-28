@@ -149,10 +149,10 @@ pub static COMMANDS: &[Command] = &[
     },
     Command {
         id: "sm-agent", topic: OWN_TOPIC, title: "Turn the local agent on or off",
-        command: "monitor-lizard agent on|off",
-        description: "The agent's kill switch, off by default. On: a running `serve` starts supervising llama-server (loopback only, cleared environment) once the model is installed and memory pressure allows it, and `/api/classify` can get a model-backed verdict. Off: any running llama-server stops, and every classification is the rule label alone.",
+        command: "monitor-lizard agent on|shadow|off",
+        description: "The agent's kill switch, off by default. On: the Apps drawer shows the suggestion, and a running `serve` starts supervising llama-server (loopback only, cleared environment) once the model is installed and memory pressure allows it, and `/api/classify` can get a model-backed verdict. Shadow: the same, and every verdict is recorded in the history for 14 days, but the dashboard shows nothing. Off: any running llama-server stops, and every classification is the rule label alone.",
         example: None, safety: Safety::ChangesFiles, appears_in: None,
-        undo: Some("Run `monitor-lizard agent off` (or the other way, to undo turning it off)."),
+        undo: Some("Run `monitor-lizard agent off` (or `on` or `shadow`, to undo turning it off)."),
         tags: &["agent", "llm", "model", "classify", "kill switch"],
     },
     Command {

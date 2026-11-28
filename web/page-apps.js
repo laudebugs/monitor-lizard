@@ -50,6 +50,7 @@ function drawer(g, listen, sig) {
       mine.length ? h('button', { class: 'btn btn-danger quiet sm', onClick: () => askStop(g.label, mine) }, 'Quit app...') : null,
       h('button', { class: 'btn sm', disabled: true, title: 'Needs the network extension (later phase)' }, 'Block network (soon)')),
     (g.rules_fired || []).length ? h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, 'Label: ' + g.trust + ' (decided by rules)'), g.rules_fired.map((r) => h('p', { style: 'margin:0 0 4px;font-size:13px' }, h('span', { class: 'mut' }, r + ': '), RULE_TEXT[r] || r))) : null,
+    agentBlock(g, mine),
     flags.length ? h('div', { class: 'insp-sec' }, h('h3', { class: 'sec' }, 'Why it is flagged'), flags.map((f) => h('p', { style: 'margin:0 0 6px;font-size:13px;line-height:1.45' }, f.detail))) : null,
     h('dl', { class: 'kv' }, h('dt', {}, 'Signing'), h('dd', {}, sig), h('dt', {}, 'Listening'), h('dd', {}, listen), h('dt', {}, 'Outbound'), h('dd', {}, outs.length + ' sockets to ' + new Set(outs.map((c) => c.remote_addr)).size + ' hosts')),
     related(g),

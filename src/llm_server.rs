@@ -183,7 +183,7 @@ impl LlmServer {
     }
 
     fn tick(&self) {
-        let enabled = settings::load().agent_enabled;
+        let enabled = settings::load().agent_mode.runs_model();
         if !enabled {
             // Idempotent: killing an already-absent child and re-setting an already-Disabled
             // reason both cost nothing, so there is no need to check first whether anything changed.

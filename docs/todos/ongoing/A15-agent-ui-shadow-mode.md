@@ -37,14 +37,16 @@ Show label, confidence band, rationale and suggested actions in the Apps drawer 
 
 | File | Change |
 |---|---|
-| `web/index.html` | drawer block, card line, setting stored in `localStorage` |
-| `src/history.rs` | a `verdicts` table for shadow recording |
+| `web/page-agent.js` | (new) the suggestion block and when to ask; `web/page-apps.js` places it in the drawer |
+| `src/history/verdicts.rs` | (new) the `verdicts` table for shadow recording |
+| `src/settings.rs`, `src/main.rs`, `src/llm_server.rs` | `agent_mode` (off, shadow, on) replaces `agent_enabled` |
+| `src/server.rs` | `/api/classify` records the verdict and returns `agent_mode` |
 
 ## Steps
 
-- [ ] Record verdicts server-side in shadow mode.
-- [ ] Render the block when the setting is On.
-- [ ] Show "Unsure, investigate" and no quit suggestion when confidence is low or rules and model disagree.
+- [x] Record verdicts server-side in shadow mode.
+- [x] Render the block when the setting is On.
+- [x] Show "Unsure, investigate" and no quit suggestion when confidence is low or rules and model disagree.
 
 ## Edge cases (must be covered)
 
@@ -86,3 +88,29 @@ make test
 - [ ] `/writing-review` run on any prose
 - [ ] `make check` and `make test` green
 - [ ] Moved `ongoing/` -> `done/` in the last work commit; plan updated; Implementation Record added
+
+## Implementation Record (2026-11-28)
+
+**Decisions (the owner, 2026-11-28).** Shadow records a verdict when `POST /api/classify` runs, for any caller; there is no background worker. The setting is server-side and three-valued.
+
+**Built.**
+
+- `settings.agent_mode` (`off`, `shadow`, `on`) replaces `agent_enabled`. `monitor-lizard agent on|shadow|off` sets it; no web route can. A file with the old `agent_enabled: true` loads as `shadow`, which keeps its model running and shows nothing new; the old key is not written back. `llm_server` runs the model whenever the mode is not `off`.
+- `verdicts` table (`src/history/verdicts.rs`): time, group key, mode, rule label, checked label, confidence, actions and rationale. Written only when the model answered. Rows older than 14 days are deleted on every write.
+- `POST /api/classify` writes the row in shadow and on mode and returns `agent_mode`.
+- `web/page-agent.js`: the "Suggestion (AI-generated, unverified)" block under the rule evidence in the Apps drawer, with the raw name, key and command in a code box. Shown only when the reply says `on`, the model server was ready and a rationale came back, so an unavailable model shows no block and no banner. A low-confidence verdict, or a label that differs from the rules', reads "Unsure, investigate" and offers only Investigate. Approve and Quit open the existing flows; Quit opens the existing Stop dialog, where Force quit is its own button. Rationale text is set as a text node.
+- The page asks about an app at most once per ten minutes, and only when the mode is shadow or on.
+
+**Deviations.**
+
+- The attention-card line is not built. The drawer is the one place the page asks the server; a card line would need a verdict per card on the Overview, which the owner's trigger decision (on `/api/classify` only) does not cover.
+- "Ignore" is shown as a label, not a button: nothing runs it until the mark-as-expected-or-suspicious todo.
+- The todo asked for a jsdom smoke test. The repo has none; the logic is a pure block tested in Node (`tests/web/agent-suggestion.test.mjs`) like the other pages.
+
+**Risk to know.** `/api/classify` handles one request at a time and waits up to `CLASSIFY_TIMEOUT` for the model. In shadow or on mode, opening an app's drawer starts that call, so a slow model can delay other tabs for that long. Off, the default, never calls it.
+
+**Not verified.**
+
+- The Rust was not compiled or run here (macOS-only crate); CI's `code` job is the first compile.
+- No real browser and no real llama-server: the drawer layout, the block's look in both themes, and a live shadow row are pending. Marked for the owner.
+- `agent on`, `shadow` and `off` against a running `serve` were not run.
