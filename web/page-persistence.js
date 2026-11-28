@@ -32,7 +32,7 @@ const persSubtitle = (rows, baselineAt) => plural(rows.length, 'item runs', 'ite
 /* persistence-page:end */
 
 const persRows = () => S.pers.map((i) => Object.assign({}, i, { sig: psig(i) }));
-const persSelect = (path) => { rec({ pItem: S.pItem === path ? null : path }); const el = document.querySelector('[data-pers-item="' + CSS.escape(path) + '"]'); if (el) el.focus(); };
+const persSelect = (path) => { rec({ pItem: S.pItem === path ? null : path }); const el = document.querySelector('[data-pers-item="' + CSS.escape(path) + '"]'); if (el) el.focus({ preventScroll: true }); };
 function persInspector(i) {
   const kv = (...pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', { style: 'word-break:break-all' }, v)]));
   const g = S.snap && S.snap.groups.find((x) => i.program && i.program.startsWith(unprefixed(x.key) + '/'));

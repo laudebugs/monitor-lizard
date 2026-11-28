@@ -5,7 +5,7 @@
 - **Baseline:** `main` after the scaffold adoption PR, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [resource monitoring research](../research/resource-monitoring/README.md), [system-monitor plan](system-monitor.md), [ADR 0002](../decisions/0002-rust-core-polling-collectors-local-web-ui.md)
-- **Todos:** [B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md), [B2](../todos/done/B2-gpu-and-disk-metrics.md), [B3](../todos/done/B3-per-process-usage-table.md), [B4](../todos/done/B4-performance-overview-page.md), [B5](../todos/done/B5-cpu-gpu-detail-page.md), [B6](../todos/done/B6-memory-detail-page.md), [B7](../todos/ongoing/B7-disk-network-detail-page.md), [B8](../todos/done/B8-top-consumers-and-guarded-stop.md), [B9](../todos/done/B9-metrics-history-sqlite.md), [B10](../todos/ready/B10-interactive-performance-charts.md)
+- **Todos:** [B1](../todos/done/B1-sampler-ring-buffer-cpu-memory-network.md), [B2](../todos/done/B2-gpu-and-disk-metrics.md), [B3](../todos/done/B3-per-process-usage-table.md), [B4](../todos/done/B4-performance-overview-page.md), [B5](../todos/done/B5-cpu-gpu-detail-page.md), [B6](../todos/done/B6-memory-detail-page.md), [B7](../todos/ongoing/B7-disk-network-detail-page.md), [B8](../todos/done/B8-top-consumers-and-guarded-stop.md), [B9](../todos/done/B9-metrics-history-sqlite.md), [B10](../todos/ongoing/B10-interactive-performance-charts.md)
 
 ## 1. Goal
 
@@ -53,4 +53,4 @@ See the [research](../research/resource-monitoring/README.md): Stats and macmon 
 3. `tiny_http` cannot be assumed to stream; polling avoids the question.
 4. Sampling cost has not been measured; B1 records the monitor's own CPU use.
 5. The UI can only be smoke-tested in a simulated DOM unless a real browser is available.
-6. B10 has no approved design for its tooltip/marker look yet; see its own Risks section.
+6. B10 shipped a minimal tooltip and marker look picked from the existing card and legend language; the owner can redirect it once seen.

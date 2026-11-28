@@ -214,7 +214,7 @@ test('the toggle has its own name, points at the detail only while it exists, an
 test('render gives focus back to the toggle after a redraw, and the open state is pruned to the page', () => {
   const r = html.slice(html.indexOf('function render()'), html.indexOf('// A button, not a #link'));
   assert.match(r, /dataset\.req/);
-  assert.match(r, /el\.focus\(\)/);
+  assert.match(r, /el\.focus\(\{ preventScroll: true \}\)/);
   const p = html.slice(html.indexOf('function priv()'), html.indexOf('// Where a listening socket'));
   assert.match(p, /S\.reqOpen = Object\.fromEntries/);
 });
