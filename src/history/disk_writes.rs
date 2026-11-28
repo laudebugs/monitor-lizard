@@ -149,7 +149,9 @@ fn disk_writes_tick(state: &mut HookState, enabled: bool, counters: &[WriteCount
     if !enabled {
         state.rollup = None;
         if now.saturating_sub(state.pruned_at) >= HOUR_SECS {
-            if let Some(h) = open() { if h.prune_disk_writes(now).is_ok() { state.pruned_at = now; } }
+            // Stamped before the attempt, so a database that cannot be opened is retried hourly, not every sample.
+            state.pruned_at = now;
+            if let Some(h) = open() { let _ = h.prune_disk_writes(now); }
         }
         return;
     }
@@ -324,9 +326,13 @@ mod tests {
         let mut state = HookState::default();
         disk_writes_tick(&mut state, false, &[], now, &erased, || History::at(&db).ok());
         assert_eq!(History::at(&db).unwrap().disk_writes_since(0).unwrap().iter().map(|r| r.app.as_str()).collect::<Vec<_>>(), vec!["New"]);
-        let opened = std::cell::Cell::new(false);
-        disk_writes_tick(&mut state, false, &[], now + 5, &erased, || { opened.set(true); None });
-        assert!(!opened.get(), "while off, the database is opened at most once an hour");
+        let opened = std::cell::Cell::new(0);
+        disk_writes_tick(&mut state, false, &[], now + 5, &erased, || { opened.set(opened.get() + 1); None });
+        assert_eq!(opened.get(), 0, "while off, the database is opened at most once an hour");
+        // A failed open is not retried on every sample either.
+        disk_writes_tick(&mut state, false, &[], now + HOUR_SECS, &erased, || { opened.set(opened.get() + 1); None });
+        disk_writes_tick(&mut state, false, &[], now + HOUR_SECS + 5, &erased, || { opened.set(opened.get() + 1); None });
+        assert_eq!(opened.get(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 
