@@ -48,10 +48,10 @@ test('a failed load clears the note of the earlier one', async () => {
   const quiet = (o) => Object.assign(S, o);
   const env = {
     S, document: { hidden: false }, clearTimeout() {}, setTimeout() { return 1; }, Date, TOKEN: 't', quiet, announce() {},
-    loadStorageHistory() {}, stHistAt: 0, staleReply: () => false, rescanInfo: () => ({}), storageAnnouncement: () => null,
+    loadStorageHistory() {}, loadStorageWrites() {}, stHistAt: 0, staleReply: () => false, rescanInfo: () => ({}), storageAnnouncement: () => null,
     retryDelay: () => 0, fetch: async () => { throw new Error('offline'); },
   };
-  const run = new Function(...Object.keys(env), 'let stTimer = 0, stSeq = 0, stFails = 0;\n' + src + '\nreturn loadStorage;')(...Object.values(env));
+  const run = new Function(...Object.keys(env), 'let stTimer = 0, stSeq = 0, stFails = 0, stWritesAt = 0;\n' + src + '\nreturn loadStorage;')(...Object.values(env));
   await run(false);
   assert.equal(S.stFailed, true);
   assert.equal(S.stNote, null);
@@ -78,10 +78,10 @@ test('loadStorage asks for ?fresh=1 only when the argument is truthy', async () 
   const S = { view: 'storage', stData: null, stFailed: false };
   const env = {
     S, document: { hidden: false }, clearTimeout() {}, setTimeout() { return 1; }, Date, TOKEN: 't', quiet() {}, announce() {},
-    loadStorageHistory() {}, stHistAt: 0, staleReply: () => false, rescanInfo: () => ({}), storageAnnouncement: () => null,
+    loadStorageHistory() {}, loadStorageWrites() {}, stHistAt: 0, staleReply: () => false, rescanInfo: () => ({}), storageAnnouncement: () => null,
     retryDelay: () => 0, fetch: async (u) => { urls.push(u); return { ok: true, json: async () => ({ scanning: true }) }; },
   };
-  const run = new Function(...Object.keys(env), 'let stTimer = 0, stSeq = 0, stFails = 0;\n' + src + '\nreturn loadStorage;')(...Object.values(env));
+  const run = new Function(...Object.keys(env), 'let stTimer = 0, stSeq = 0, stFails = 0, stWritesAt = 0;\n' + src + '\nreturn loadStorage;')(...Object.values(env));
   await run(false); await run(new Event('visibilitychange')); await run(true);
   assert.deepEqual(urls, ['/api/storage', '/api/storage?fresh=1', '/api/storage?fresh=1'], 'the third case is why the listener must not pass the Event');
 });
