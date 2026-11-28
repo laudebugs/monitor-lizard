@@ -90,7 +90,7 @@ fn main() {
                 Ok(h) => match h.recent_verdicts(args.next().and_then(|n| n.parse().ok()).unwrap_or(50)) {
                     Ok(rows) if rows.is_empty() => println!("no verdicts recorded (run `monitor-lizard agent shadow`, then open an app in the dashboard)"),
                     Ok(rows) => for r in rows {
-                        println!("{}\t{}\t{}\trules {} / agent {} ({})\t{}\t{}", r.ts, r.mode, r.group_key, r.rule_label, r.label, r.confidence, r.actions.join(","), r.rationale);
+                        println!("{}\t{}\t{}\trules {} / agent {} ({})\t{}\t{}", r.ts, r.mode, watcher::visible(&r.group_key), r.rule_label, r.label, r.confidence, r.actions.join(","), watcher::visible(&r.rationale));
                     },
                     Err(e) => { eprintln!("could not read the verdicts: {e}"); std::process::exit(1); }
                 },

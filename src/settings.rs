@@ -84,11 +84,6 @@ pub struct Settings {
     /// model on.
     #[serde(default)]
     pub agent_mode: AgentMode,
-    /// The old on/off kill switch. Read once so a file written before `agent_mode` existed keeps
-    /// its model running (as `Shadow`, which shows nothing new); never written back.
-    #[serde(default, skip_serializing)]
-    #[doc(hidden)]
-    pub agent_enabled: bool,
     /// Off by default: hourly bytes written per app group are kept only once the owner opts in on
     /// the Storage page, because app names with hourly counts reveal habits.
     #[serde(default)]
@@ -101,7 +96,7 @@ impl Default for Level {
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_mode: AgentMode::Off, agent_enabled: false, disk_writes_history: false }
+        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_mode: AgentMode::Off, disk_writes_history: false }
     }
 }
 
@@ -122,12 +117,7 @@ pub fn load() -> Settings {
     load_at(&file())
 }
 fn load_at(path: &std::path::Path) -> Settings {
-    let mut s: Settings = fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    if s.agent_mode == AgentMode::Off && s.agent_enabled {
-        s.agent_mode = AgentMode::Shadow;
-    }
-    s.agent_enabled = false;
-    s
+    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -328,17 +318,13 @@ mod tests {
     }
 
     #[test]
-    fn a_file_with_the_old_agent_enabled_switch_keeps_its_model_running_as_shadow_and_drops_the_old_key() {
+    fn a_file_with_the_old_agent_enabled_switch_loads_as_off_so_nothing_is_recorded_without_a_new_opt_in() {
         let p = tmp_settings_path("agent-legacy");
         fs::create_dir_all(p.parent().unwrap()).unwrap();
-        fs::write(&p, r#"{"agent_enabled": true}"#).unwrap();
-        assert_eq!(load_at(&p).agent_mode, AgentMode::Shadow);
-        fs::write(&p, r#"{"agent_enabled": false}"#).unwrap();
-        assert_eq!(load_at(&p).agent_mode, AgentMode::Off);
-        fs::write(&p, r#"{"agent_enabled": true}"#).unwrap();
-        set_agent_mode_at(&p, AgentMode::Off).unwrap();
-        assert_eq!(load_at(&p).agent_mode, AgentMode::Off, "an explicit off after the old key wins");
-        assert!(!fs::read_to_string(&p).unwrap().contains("agent_enabled"), "the old key is not written back");
+        fs::write(&p, r#"{"agent_enabled": true, "notifications": "high"}"#).unwrap();
+        let s = load_at(&p);
+        assert_eq!(s.agent_mode, AgentMode::Off);
+        assert_eq!(s.notifications, Level::High, "the rest of the file still loads");
     }
 
     #[test]

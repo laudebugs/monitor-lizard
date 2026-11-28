@@ -41,14 +41,14 @@ function agentShouldAsk(mode, key, askedAt, now) {
 }
 /* agent-suggestion:end */
 
-const agentAskedAt = {}, agentBusy = new Set();
-let agentSettingsAt = 0;
+const agentAskedAt = {};
+let agentSettingsAt = 0, agentBusy = false; // one ask in flight at a time: the server answers one request at a time
 // Asks the server for a verdict. In shadow mode the answer is only recorded, never drawn (agentSuggestion returns null
 // for it); a failure shows nothing, not an error banner, since the agent is optional. A failed or not-ready answer is
 // asked again after a minute, a real one after ten.
 async function agentAsk(g) {
-  if (agentBusy.has(g.key)) return;
-  agentBusy.add(g.key);
+  if (agentBusy) return;
+  agentBusy = true;
   const later = (ms) => { agentAskedAt[g.key] = Date.now() + ms; };
   try {
     if (Date.now() - agentSettingsAt > AGENT_SETTINGS_MS) { agentSettingsAt = Date.now(); await loadSettings(); }
@@ -58,7 +58,7 @@ async function agentAsk(g) {
     if (!reply.agent_reason) later(AGENT_ASKED_MS);
     quiet({ agent: Object.assign({}, S.agent, { [g.key]: reply }) });
   } catch (e) { /* no banner: the agent being down is its normal state */ }
-  finally { agentBusy.delete(g.key); }
+  finally { agentBusy = false; }
 }
 function agentBlock(g, mine) {
   agentAsk(g);
@@ -73,6 +73,6 @@ function agentBlock(g, mine) {
     h('div', { class: 'code', style: 'margin:0 0 8px;white-space:pre-wrap' }, visible(g.label) + '\n' + visible(unprefixed(g.key)) + (cmd ? '\n' + visible(cmd) : '')),
     h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, s.actions.map((a) => a.kind === 'link'
       ? h('a', { class: 'btn sm', href: writeHash({ view: 'network', q: g.label }) }, a.text)
-      : a.kind === 'note' ? h('span', { class: 'tag' }, a.text)
+      : a.kind === 'note' ? h('button', { class: 'btn sm', disabled: true, title: 'Nothing runs this yet' }, a.text)
       : h('button', { class: 'btn sm' + (a.kind === 'stop' ? ' btn-danger quiet' : ''), onClick: () => run(a) }, a.text))));
 }

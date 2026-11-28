@@ -245,9 +245,10 @@ pub fn serve_on(server: Arc<Server>) {
                         // and is not written.
                         let mode = settings::load().agent_mode;
                         if answered && mode.records_verdicts() {
-                            if let Ok(h) = History::open() {
-                                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                                let _ = h.record_verdict(now, &g.key, if mode == settings::AgentMode::On { "on" } else { "shadow" }, g.trust, &verdict);
+                            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                            match History::open().and_then(|h| h.record_verdict(now, &g.key, if mode == settings::AgentMode::On { "on" } else { "shadow" }, g.trust, &verdict)) {
+                                Ok(()) => {}
+                                Err(e) => eprintln!("monitor-lizard: could not record the verdict: {}", history::unavailable(&e)),
                             }
                         }
                         // `rule_label`/`allowed_actions` alongside the clamped verdict, per the todo's
