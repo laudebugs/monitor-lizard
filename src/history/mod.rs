@@ -11,6 +11,7 @@ mod persistence;
 mod seen;
 mod sudo;
 mod trash;
+mod verdicts;
 #[cfg(test)]
 mod test_util;
 
@@ -22,6 +23,7 @@ pub use metrics::{start_metrics_writer, HistoryPoint};
 pub use persistence::{persistence_baseline, persistence_changes, Change, ChangeKind, Observed, PersistRow, MAX_CHANGES};
 pub use seen::{SeenRow, FLAG_WINDOW_SECS, LEARNING_SECS};
 pub use trash::{TrashItemRow, TrashMoveRow, INTERRUPTED_REASON, TRASH_KEEP};
+pub use verdicts::{VerdictRow, VERDICTS_KEEP_SECS};
 
 use capacity::CAPACITY_TABLE;
 use disk_writes::DISK_WRITES_TABLE;
@@ -29,6 +31,7 @@ use migrations::{backup_path, file_error, migrate, open_lock, remove_stale_backu
 use rusqlite::Connection;
 use std::path::PathBuf;
 use trash::{TRASH_ITEMS_TABLE, TRASH_TABLE};
+use verdicts::VERDICTS_TABLE;
 
 /// What the dashboard and the command line say when the history cannot be opened.
 pub fn unavailable(e: &rusqlite::Error) -> String { format!("history unavailable: {e} (database: {})", path().display()) }
@@ -68,6 +71,9 @@ impl History {
         c.execute_batch(TRASH_TABLE)?;
         c.execute_batch(TRASH_ITEMS_TABLE)?;
         c.execute_batch(DISK_WRITES_TABLE)?;
+        c.execute_batch(VERDICTS_TABLE)?;
+        // Best effort: a busy or read-only database must still open for the callers that only read it.
+        let _ = verdicts::prune(&c, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
         // WAL so a process killed mid-batch leaves the file intact (the write-ahead log is simply
         // replayed or rolled back on next open) rather than the default rollback journal's larger
         // window for a half-written page; every table shares one connection and one journal mode.

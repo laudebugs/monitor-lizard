@@ -75,15 +75,28 @@ fn main() {
             _ => eprintln!("usage: monitor-lizard model install [--model qwen3-4b|qwen3-1.7b] [--yes] | model status [--model qwen3-4b|qwen3-1.7b]"),
         },
         Some("agent") => match args.next().as_deref() {
-            Some("on") => match settings::set_agent_enabled(true) {
-                Ok(()) => println!("agent: on (a running `serve` picks this up within a second or two)"),
-                Err(e) => { eprintln!("could not update settings: {e}"); std::process::exit(1); }
+            Some(word @ ("on" | "shadow" | "off")) => {
+                let mode = settings::AgentMode::parse(word).expect("matched above");
+                match settings::set_agent_mode(mode) {
+                    Ok(()) => println!("{}", match mode {
+                        settings::AgentMode::On => "agent: on (a running `serve` picks this up within a second or two; the Apps drawer shows the suggestion)",
+                        settings::AgentMode::Shadow => "agent: shadow (the model runs and each verdict is recorded; the dashboard shows nothing)",
+                        settings::AgentMode::Off => "agent: off (the kill switch; a running `serve` stops llama-server within a second or two)",
+                    }),
+                    Err(e) => { eprintln!("could not update settings: {e}"); std::process::exit(1); }
+                }
+            }
+            Some("verdicts") => match history::History::open() {
+                Ok(h) => match h.recent_verdicts(args.next().and_then(|n| n.parse().ok()).unwrap_or(50)) {
+                    Ok(rows) if rows.is_empty() => println!("no verdicts recorded (run `monitor-lizard agent shadow`, then open an app in the dashboard)"),
+                    Ok(rows) => for r in rows {
+                        println!("{}\t{}\t{}\trules {} / agent {} ({})\t{}\t{}", r.ts, r.mode, watcher::visible(&r.group_key), r.rule_label, r.label, r.confidence, r.actions.join(","), watcher::visible(&r.rationale));
+                    },
+                    Err(e) => { eprintln!("could not read the verdicts: {e}"); std::process::exit(1); }
+                },
+                Err(e) => { eprintln!("{}", history::unavailable(&e)); std::process::exit(1); }
             },
-            Some("off") => match settings::set_agent_enabled(false) {
-                Ok(()) => println!("agent: off (the kill switch; a running `serve` stops llama-server within a second or two)"),
-                Err(e) => { eprintln!("could not update settings: {e}"); std::process::exit(1); }
-            },
-            _ => eprintln!("usage: monitor-lizard agent on | agent off"),
+            _ => eprintln!("usage: monitor-lizard agent on | agent shadow | agent off | agent verdicts [count]"),
         },
         Some("approve") => for arg in args {
             let (kind, key) = baseline::parse_entry(&arg);

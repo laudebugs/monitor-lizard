@@ -25,6 +25,36 @@ impl Level {
     }
 }
 
+/// What the local classifier agent does. `Off` is the kill switch: no model process, every
+/// classification is the rule label alone. `Shadow` runs the model and records each verdict, and the
+/// dashboard shows nothing. `On` also shows the suggestion. Off by default, like every opt-in here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentMode {
+    #[default]
+    Off,
+    Shadow,
+    On,
+}
+impl AgentMode {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "off" => Some(AgentMode::Off),
+            "shadow" => Some(AgentMode::Shadow),
+            "on" => Some(AgentMode::On),
+            _ => None,
+        }
+    }
+    /// Whether `llama-server` should be running and `/api/classify` may ask it.
+    pub fn runs_model(self) -> bool {
+        self != AgentMode::Off
+    }
+    /// Whether a verdict is written to the history database.
+    pub fn records_verdicts(self) -> bool {
+        self != AgentMode::Off
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -49,11 +79,11 @@ pub struct Settings {
     /// in, same as every other disk-persisted feature in this app.
     #[serde(default)]
     pub metrics_history: bool,
-    /// The local classifier agent's kill switch: off by default, same as every other opt-in
-    /// feature here. Set only via `monitor-lizard agent on`/`off`, not `/api/settings`, since there
-    /// is no page control to drive it yet.
+    /// The local classifier agent: off by default, same as every other opt-in feature here. Set only
+    /// via `monitor-lizard agent on|shadow|off`, not `/api/settings`, so a web page cannot turn the
+    /// model on.
     #[serde(default)]
-    pub agent_enabled: bool,
+    pub agent_mode: AgentMode,
     /// Off by default: hourly bytes written per app group are kept only once the owner opts in on
     /// the Storage page, because app names with hourly counts reveal habits.
     #[serde(default)]
@@ -66,7 +96,7 @@ impl Default for Level {
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_enabled: false, disk_writes_history: false }
+        Settings { notifications: Level::Off, generic_text: true, quiet_start: None, quiet_end: None, seeded: false, metrics_history: false, agent_mode: AgentMode::Off, disk_writes_history: false }
     }
 }
 
@@ -97,14 +127,14 @@ pub fn save(s: &Settings) -> std::io::Result<()> {
     save_at(&file(), s)
 }
 
-/// `monitor-lizard agent on`/`off`'s whole job: read-modify-write just this one field, leaving
+/// `monitor-lizard agent on|shadow|off`'s whole job: read-modify-write just this one field, leaving
 /// every other setting as it was.
-pub fn set_agent_enabled(enabled: bool) -> std::io::Result<()> {
-    set_agent_enabled_at(&file(), enabled)
+pub fn set_agent_mode(mode: AgentMode) -> std::io::Result<()> {
+    set_agent_mode_at(&file(), mode)
 }
-fn set_agent_enabled_at(path: &std::path::Path, enabled: bool) -> std::io::Result<()> {
+fn set_agent_mode_at(path: &std::path::Path, mode: AgentMode) -> std::io::Result<()> {
     let mut s = load_at(path);
-    s.agent_enabled = enabled;
+    s.agent_mode = mode;
     save_at(path, &s)
 }
 fn save_at(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
@@ -268,16 +298,33 @@ mod tests {
     }
 
     #[test]
-    fn agent_enabled_defaults_off_and_set_agent_enabled_flips_only_that_field() {
-        assert!(!Settings::default().agent_enabled);
-        let p = tmp_settings_path("agent-enabled");
+    fn agent_mode_defaults_off_and_set_agent_mode_changes_only_that_field() {
+        assert_eq!(Settings::default().agent_mode, AgentMode::Off);
+        let p = tmp_settings_path("agent-mode");
         update_at(&p, &Update { notifications: Some("high".into()), ..Update::default() }).unwrap(); // some other field already set
-        set_agent_enabled_at(&p, true).unwrap();
+        for mode in [AgentMode::Shadow, AgentMode::On, AgentMode::Off] {
+            set_agent_mode_at(&p, mode).unwrap();
+            let s = load_at(&p);
+            assert_eq!(s.agent_mode, mode);
+            assert_eq!(s.notifications, Level::High, "changing the mode must not disturb other settings");
+        }
+    }
+
+    #[test]
+    fn only_off_stops_the_model_and_only_off_skips_recording() {
+        assert!(!AgentMode::Off.runs_model() && !AgentMode::Off.records_verdicts());
+        for m in [AgentMode::Shadow, AgentMode::On] { assert!(m.runs_model() && m.records_verdicts()); }
+        assert_eq!([AgentMode::parse("off"), AgentMode::parse("shadow"), AgentMode::parse("on"), AgentMode::parse("yes")], [Some(AgentMode::Off), Some(AgentMode::Shadow), Some(AgentMode::On), None]);
+    }
+
+    #[test]
+    fn a_file_with_the_old_agent_enabled_switch_loads_as_off_so_nothing_is_recorded_without_a_new_opt_in() {
+        let p = tmp_settings_path("agent-legacy");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, r#"{"agent_enabled": true, "notifications": "high"}"#).unwrap();
         let s = load_at(&p);
-        assert!(s.agent_enabled);
-        assert_eq!(s.notifications, Level::High, "flipping the kill switch must not disturb other settings");
-        set_agent_enabled_at(&p, false).unwrap();
-        assert!(!load_at(&p).agent_enabled);
+        assert_eq!(s.agent_mode, AgentMode::Off);
+        assert_eq!(s.notifications, Level::High, "the rest of the file still loads");
     }
 
     #[test]

@@ -5,7 +5,7 @@
 - **Baseline:** `main` at `d310e18`, inspected 2026-11-26
 - **Asked for by:** laudebugs
 - **Builds on:** [local classifier research](../research/local-classifier/README.md), [buildanagent adoption research](../research/buildanagent-adoption/README.md), [ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md), [system-monitor plan](system-monitor.md) decisions D4 and D7
-- **Todos:** A6 (done), A7 (done), A8 (done), A10 (done), A12 (done), A13 (done), A15, A16: see section 12.
+- **Todos:** A6 (done), A7 (done), A8 (done), A10 (done), A12 (done), A13 (done), A15 (done), A16: see section 12.
 
 ## 1. Goal
 
@@ -25,7 +25,7 @@ As of 2026-11-26 on `main`, after A6:
 - `src/group.rs` and `src/snapshot.rs` build app groups from processes and sockets; `src/rules.rs` produces findings (exposed listener, unsigned binary with sockets, unreviewed app, open debug port, new remote host); `src/actions.rs` signals own-user processes behind a confirm dialog.
 - Every group carries a rule-based label and the rules that produced it (`Group.trust` and `Group.rules_fired`, filled in by `rules::classify`, todo A6). The dashboard's own `status()` in `web/index.html` still drives the review filters.
 - `src/classify.rs` computes `allowed_actions(label, group)` (never an action `actions::execute` would refuse) and `evidence(group_key)` (a bounded, 256-character-capped fact record for one group), both Rust-only decisions the model cannot override (A7).
-- `src/model_store.rs` (A12) can download, verify and report on the pinned model file; `src/llm_server.rs` (A13) supervises `llama-server` against it, behind the `agent_enabled` kill switch, with `POST /api/classify` the one caller. No UI wiring yet (A15).
+- `src/model_store.rs` (A12) can download, verify and report on the pinned model file; `src/llm_server.rs` (A13) supervises `llama-server` against it, behind the `agent_mode` setting (`off` is the kill switch; A15 replaced `agent_enabled`), with `POST /api/classify` the one caller. A15 added the Apps drawer block.
 
 ## 3. What the research found
 
@@ -144,10 +144,10 @@ User message: one JSON object `{"evidence": {...}}`. Attacker-controlled strings
 | The model has no tools and cannot cause any action | one call, no tool schema ([ADR 0003](../decisions/0003-classifier-agent-rust-loop-buildanagent-evals.md)) |
 | Suggested actions are a subset of what rules allow and `actions.rs` accepts | `allowed_actions` ([A7](../todos/done/A7-agent-allowed-actions-and-group-query.md)) |
 | Attacker strings are capped, cleaned and quoted as data; the system prompt never contains them | `evidence`, `llm.rs`; a test asserts the built request |
-| Every action still passes the confirm dialog, with focus on Cancel and a second step for force quit | existing dialog, [A15](../todos/ready/A15-agent-ui-shadow-mode.md) |
+| Every action still passes the confirm dialog, with focus on Cancel and a second step for force quit | existing dialog, [A15](../todos/done/A15-agent-ui-shadow-mode.md) |
 | The model server binds loopback only, runs with a cleared environment, and the app contacts the network only for the explicit model download | [A13](../todos/done/A13-agent-supervisor-and-fallback.md), [A12](../todos/done/A12-model-install.md) |
 | The model file is pinned to a Hugging Face commit and its SHA-256 is verified after download, and refused on a mismatch; only GGUF is accepted | [A12](../todos/done/A12-model-install.md) (download-time; load-time verification is `model_store::status`'s check, used by A13) |
-| Model text is labelled "AI-generated, unverified" and shown below the rule evidence, rendered as text | [A15](../todos/ready/A15-agent-ui-shadow-mode.md) |
+| Model text is labelled "AI-generated, unverified" and shown below the rule evidence, rendered as text | [A15](../todos/done/A15-agent-ui-shadow-mode.md) |
 
 **What this does not defend against:** a wrong but plausible rationale that lowers the owner's guard. The rule label and evidence are always shown first, and low confidence or disagreement shows "Unsure, investigate" with no quit suggestion.
 
@@ -170,7 +170,7 @@ These are design choices, not measurements.
 
 - **On demand first.** A group is classified when the owner opens its drawer or an attention card for it is shown, not for all ~400 groups on every refresh.
 - **Cache by evidence.** The key is a hash of the evidence plus the prompt version; unchanged evidence is not asked again.
-- **Shadow mode** ([A15](../todos/ready/A15-agent-ui-shadow-mode.md)) records verdicts in the background at a low, fixed rate without showing them. Process names are kept in that table, so its retention is an open question (section 11).
+- **Shadow mode** ([A15](../todos/done/A15-agent-ui-shadow-mode.md)) records the verdict of each `/api/classify` call without showing it (the owner chose this over a background worker, 2026-11-28). Process names are kept in that table, so rows are deleted after 14 days (section 11).
 - **Memory.** Qwen3-4B at Q4_K_M is a 2.5 GB file; its resident memory and latency on this Mac are unmeasured. 8 GB Macs use the Qwen3-1.7B fallback.
 
 ## 9. Evaluation and rollout
@@ -189,7 +189,7 @@ Rollout: off, then shadow (record, show nothing), then on for the owner, only af
 
 ## 10. UI
 
-[A15](../todos/ready/A15-agent-ui-shadow-mode.md): a "Suggestion (AI-generated, unverified)" block in the Apps drawer under the rule evidence, one suggested action at most on an attention card, the raw name and command in a code box, a setting with Off, Shadow and On, and "Unsure, investigate" when confidence is low or the model disagrees with the rules. Suggested actions open the existing confirm dialog.
+[A15](../todos/done/A15-agent-ui-shadow-mode.md): a "Suggestion (AI-generated, unverified)" block in the Apps drawer under the rule evidence, one suggested action at most on an attention card, the raw name and command in a code box, a setting with Off, Shadow and On, and "Unsure, investigate" when confidence is low or the model disagrees with the rules. Suggested actions open the existing confirm dialog.
 
 ## 11. Decisions
 
@@ -210,7 +210,7 @@ Rollout: off, then shadow (record, show nothing), then on for the owner, only af
 | A10 | Clamp the verdict to the rules | A8 |
 | A12 | Download and verify the model (done) | A6 |
 | A13 | Supervise llama-server, rules-only fallback (done) | A10, A12 |
-| A15 | Rationale and actions in the UI, shadow mode first | A13 |
+| A15 | Rationale and actions in the UI, shadow mode first (done 2026-11-28, drawer block only) | A13 |
 | A16 | Eval corpus and pass^k runner | A10 |
 
 ## 13. Risks and open questions
@@ -219,6 +219,6 @@ Rollout: off, then shadow (record, show nothing), then on for the owner, only af
 2. **Unverified:** that llama-server's JSON-schema response format works with the chosen model; its real context window; RAM and latency on this Mac. A8 settles the first two and records the third.
 3. **Unverified, from general knowledge:** Qwen3 chat templates may emit reasoning text unless it is switched off; the response must be constrained and any reasoning disabled. Check in A8.
 4. **How users get `llama-server`** (Homebrew's `llama.cpp` or a pinned release binary with its own hash) is undecided; see A12.
-5. **Shadow-table retention:** it stores process names on disk. Decide how long, and whether the owner can clear it, before A15 ships.
+5. **Shadow-table retention:** decided in A15: 14 days, pruned on every write and every open. The owner can read the rows with `monitor-lizard agent verdicts`; there is no erase command yet, so turning the agent off stops new rows and old ones age out.
 6. **The feedback baseline** ("mark as expected or suspicious", with similarity search) is not yet a todo; it changes `user_baseline` in the evidence.
 7. **Prompt wording is draft** and will change once A8 runs against the real model; the version string exists so results stay comparable.
