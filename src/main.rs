@@ -86,7 +86,17 @@ fn main() {
                     Err(e) => { eprintln!("could not update settings: {e}"); std::process::exit(1); }
                 }
             }
-            _ => eprintln!("usage: monitor-lizard agent on | agent shadow | agent off"),
+            Some("verdicts") => match history::History::open() {
+                Ok(h) => match h.recent_verdicts(args.next().and_then(|n| n.parse().ok()).unwrap_or(50)) {
+                    Ok(rows) if rows.is_empty() => println!("no verdicts recorded (run `monitor-lizard agent shadow`, then open an app in the dashboard)"),
+                    Ok(rows) => for r in rows {
+                        println!("{}\t{}\t{}\trules {} / agent {} ({})\t{}\t{}", r.ts, r.mode, r.group_key, r.rule_label, r.label, r.confidence, r.actions.join(","), r.rationale);
+                    },
+                    Err(e) => { eprintln!("could not read the verdicts: {e}"); std::process::exit(1); }
+                },
+                Err(e) => { eprintln!("{}", history::unavailable(&e)); std::process::exit(1); }
+            },
+            _ => eprintln!("usage: monitor-lizard agent on | agent shadow | agent off | agent verdicts [count]"),
         },
         Some("approve") => for arg in args {
             let (kind, key) = baseline::parse_entry(&arg);

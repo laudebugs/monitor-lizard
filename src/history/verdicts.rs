@@ -1,7 +1,7 @@
 //! What the local classifier said about a group, kept so the owner can compare it with the rules
 //! before the dashboard shows it (shadow mode). Rows hold app group names and the model's rationale,
-//! which say what runs on this Mac, so they are pruned by age on every write and `agent off` stops
-//! new ones.
+//! which say what runs on this Mac, so they are pruned by age on every write and every time the
+//! database is opened (the server opens it all the time), and `agent off` stops new ones.
 use super::History;
 use crate::classify::Verdict;
 use rusqlite::params;
@@ -33,6 +33,12 @@ fn word<T: Serialize>(v: &T) -> String {
     serde_json::to_value(v).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
 }
 
+/// Deletes the verdicts older than `VERDICTS_KEEP_SECS`. Run when the database is opened as well as
+/// on every write, so rows do not outlive the keep window after the agent is turned off.
+pub(super) fn prune(c: &rusqlite::Connection, now: u64) -> rusqlite::Result<()> {
+    c.execute("DELETE FROM verdicts WHERE ts < ?1", params![now.saturating_sub(VERDICTS_KEEP_SECS) as i64]).map(|_| ())
+}
+
 impl History {
     /// Writes one checked verdict and deletes the ones past `VERDICTS_KEEP_SECS`. `mode` is the
     /// agent mode in force (`shadow` or `on`), so a later comparison knows whether the owner saw it.
@@ -42,8 +48,7 @@ impl History {
             "INSERT INTO verdicts(ts,group_key,mode,rule_label,label,confidence,actions,rationale) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
             params![ts as i64, group_key, mode, word(&rule_label), word(&v.label), word(&v.confidence), serde_json::to_string(&actions).unwrap_or_default(), v.rationale],
         )?;
-        self.0.execute("DELETE FROM verdicts WHERE ts < ?1", params![ts.saturating_sub(VERDICTS_KEEP_SECS) as i64])?;
-        Ok(())
+        prune(&self.0, ts)
     }
 
     /// Newest first.
@@ -79,6 +84,16 @@ mod tests {
         assert_eq!((rows[1].mode.as_str(), rows[1].rule_label.as_str(), rows[1].label.as_str(), rows[1].confidence.as_str()), ("shadow", "unknown", "suspicious", "medium"));
         assert_eq!(rows[1].actions, ["investigate", "force_quit"]);
         assert_eq!(rows[0].rationale, "<b>signed</b>", "markup is stored as the text it is");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn opening_the_database_deletes_old_verdicts_even_when_nothing_is_written() {
+        let (h, dir) = tmp_history("verdict-open-prune");
+        h.record_verdict(5, "/Apps/A.app", "shadow", Label::Unknown, &verdict(Label::Unknown, "")).unwrap(); // far older than the keep window
+        drop(h);
+        let again = History::at(&dir.join("h.db")).unwrap();
+        assert!(again.recent_verdicts(10).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 

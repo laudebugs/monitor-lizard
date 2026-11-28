@@ -72,6 +72,7 @@ impl History {
         c.execute_batch(TRASH_ITEMS_TABLE)?;
         c.execute_batch(DISK_WRITES_TABLE)?;
         c.execute_batch(VERDICTS_TABLE)?;
+        verdicts::prune(&c, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))?;
         // WAL so a process killed mid-batch leaves the file intact (the write-ahead log is simply
         // replayed or rolled back on next open) rather than the default rollback journal's larger
         // window for a half-written page; every table shares one connection and one journal mode.
