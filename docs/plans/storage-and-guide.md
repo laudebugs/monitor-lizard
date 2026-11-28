@@ -49,6 +49,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 - **D13.** One search box, focused with `/`, finds apps, ports, hosts, startup items and Guide entries across pages (N2).
 - **D14.** Every table can export what is on screen as CSV or JSON, choose its columns and copy a row as JSON (N3). Times show relative text with the absolute time on hover, and status is always text, never color alone.
 - **D16.** The app theme is green (2026-11-27): the owner chose the Moss palette with option B (outline) buttons on boards J, K, L and M of the same canvas. Green is the brand and the selection colour (`--acc`), so the OK status moved to cyan (`--ok`): a healthy chip must never look like a selected one. Buttons are square with a 2px border and a transparent fill. T6 delivers it.
+- **D17.** The storage scan converges across runs (2026-11-27). Each location keeps its last size, whether it was complete, when it was measured and its top-level modification time; a cut-off scan never lowers a complete earlier size. The server's background scan runs for 120 s at 20% of one core; the command-line `storage` stays at 20 s. The owner said "let's do S1b", which approves the work. The 120 s figure is the todo's proposal and the owner has not chosen it separately: it is one constant (`SERVER_TIME_BUDGET` in `src/storage/cache.rs`) to change.
 
 ## 5. Order of work
 
@@ -84,7 +85,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | R3a | Persistence data: schedule, fingerprints, removals | M1 |
 | R3b | Persistence page redesign | R3a, T1b, N1, N3, A9 |
 
-S5 is built (2026-11-27, PR open): the lifetime SSD figure turned out to be readable without root, see the S5 Implementation Record. S4 is built (2026-11-26, PR pending merge). S1 is built (2026-11-26, PR pending merge). N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2 is built (2026-11-26, PR pending merge). N2 is built (2026-11-27, PR open; browser check partly done). N3 and A9 are built and merged, and so is M1. R3a is built and merged (2026-11-26). T1a is done after a browser sweep (2026-11-26). A17 is built (2026-11-26): the owner's Full Disk Access test passed, ADR 0004 is Accepted, and the shell runs the server and dashboard in a window with a tray. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
+S1b is built (2026-11-27, PR open). S5 is built (2026-11-27, PR open): the lifetime SSD figure turned out to be readable without root, see the S5 Implementation Record. S4 is built (2026-11-26, PR pending merge). S1 is built (2026-11-26, PR pending merge). N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2 is built (2026-11-26, PR pending merge). N2 is built (2026-11-27, PR open; browser check partly done). N3 and A9 are built and merged, and so is M1. R3a is built and merged (2026-11-26). T1a is done after a browser sweep (2026-11-26). A17 is built (2026-11-26): the owner's Full Disk Access test passed, ADR 0004 is Accepted, and the shell runs the server and dashboard in a window with a tray. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
 
 ## 6. Risks and open questions
 

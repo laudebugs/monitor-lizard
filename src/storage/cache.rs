@@ -9,6 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// The least time between two scans that requests start.
 pub const MIN_INTERVAL: Duration = Duration::from_secs(60);
 
+/// Total time for one background scan the server runs. Longer than the command line's 20 s because a
+/// developer home takes more than that, and each run adds to what the last one learned. The 20% CPU
+/// limit and the low priority stay.
+pub const SERVER_TIME_BUDGET: Duration = Duration::from_secs(120);
+
 pub type ScanFn = Arc<dyn Fn() -> Storage + Send + Sync>;
 
 #[derive(Serialize)]
@@ -80,6 +85,8 @@ impl Cache {
             let (cache, scan) = (self.clone(), scan.clone());
             std::thread::spawn(move || {
                 let guard = ScanGuard(cache.clone());
+                // A request for a fresh scan means everything is walked, not reused.
+                super::set_full_rescan(fresh);
                 let result = scan();
                 { let mut st = cache.lock(); st.result = Some(result); st.generation += 1; }
                 drop(guard);
@@ -98,6 +105,17 @@ impl Cache {
         let Some(result) = st.result.as_ref() else { return Err("no scan has finished yet; scan first".into()) };
         let items = ids.iter().map(|id| result.items.iter().find(|i| &i.id == id).cloned().ok_or_else(|| format!("id {id} is not in the latest scan"))).collect::<Result<Vec<_>, _>>()?;
         Ok((st.generation, items))
+    }
+
+    /// Replaces the stored items with these for the same ids, but only while the scan they came from
+    /// is still the latest: a scan that finished meanwhile has newer rows, and the caller must preview
+    /// again. The ids, labels and scan number a confirmation is bound to do not change, only the sizes.
+    pub fn replace_items(&self, generation: u64, fresh: Vec<Item>) -> bool {
+        let mut st = self.lock();
+        if st.generation != generation { return false; }
+        let Some(result) = st.result.as_mut() else { return false };
+        for f in fresh { if let Some(slot) = result.items.iter_mut().find(|i| i.id == f.id) { *slot = f; } }
+        true
     }
 
     #[cfg(test)]

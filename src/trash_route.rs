@@ -90,7 +90,10 @@ pub struct ConfirmTokens(Mutex<Vec<Issued>>);
 /// What a confirmation is bound to: the scan, each requested id with its label, and whether the
 /// second confirmation for yours items was given. A real move must match all of it.
 pub fn binding(generation: u64, items: &[Item], confirm_yours: bool) -> String {
-    let mut parts: Vec<String> = items.iter().map(|i| format!("{}:{}", i.id, i.label.as_str())).collect();
+    // The measurement is part of the binding: a token confirms what the preview measured, so a later
+    // measurement that differs (the folder grew, a re-measure rewrote the cached row) voids it.
+    let size = |i: &Item| match i.size { crate::sampler::Reading::Value(b) => b.to_string(), _ => "unavailable".into() };
+    let mut parts: Vec<String> = items.iter().map(|i| format!("{}:{}:{}:{}:{:?}:{}:{:?}", i.id, i.label.as_str(), size(i), i.entries, i.apparent_bytes, i.complete, i.modified_ns)).collect();
     parts.sort();
     format!("{generation}|{}|{}", u8::from(confirm_yours), parts.join(","))
 }
@@ -206,15 +209,27 @@ pub fn reply(query: &str, ctx: &Ctx) -> (u16, String) {
 fn handle(query: &str, ctx: &Ctx) -> Result<(u16, String), ApiError> {
     let req = parse(query)?;
     let home = ctx.home.clone().map_err(|why| fail(400, "home_untrusted", why))?;
-    let (generation, items) = ctx.cache.find_in_generation(&req.ids).map_err(|e| fail(400, "unknown_id", e))?;
-    let policy = |previewed| Policy { home: &home, apps: ctx.apps, uid: ctx.uid, confirm_yours: req.confirm_yours, previewed, deadline: ctx.now + ctx.budget };
+    let (generation, mut items) = ctx.cache.find_in_generation(&req.ids).map_err(|e| fail(400, "unknown_id", e))?;
+    // Time spent measuring before the preview is not taken out of the move's budget or the token's life.
+    let mut spent = Duration::ZERO;
+    if matches!(req.mode, Mode::Preview) {
+        // A row the scan reused may be out of date inside the folder. Measure the previewed items now, so
+        // the size shown, the size the token is bound to and the size the move checks are the same.
+        let began = Instant::now();
+        let deadline = ctx.now + trash::REMEASURE_TOTAL.min(ctx.budget);
+        let fresh = storage::remeasure(&items, deadline).ok_or_else(|| fail(409, "too_slow", "too many items to measure in time; preview fewer"))?;
+        if !ctx.cache.replace_items(generation, fresh.clone()) { return Err(fail(409, "scan_changed", "a new scan finished while the items were measured; preview again")); }
+        items = fresh;
+        spent = began.elapsed();
+    }
+    let policy = |previewed| Policy { home: &home, apps: ctx.apps, uid: ctx.uid, confirm_yours: req.confirm_yours, previewed, deadline: ctx.now + spent + ctx.budget };
     let bound = binding(generation, &items, req.confirm_yours);
     match req.mode {
         Mode::Preview => {
             let o = trash::run(&items, &policy(None), true, ctx.mover, &mut NoAudit);
             let movable: Vec<String> = o.items.iter().filter(|i| i.status == trash::Status::WouldMove).map(|i| i.id.clone()).collect();
             let token = if movable.is_empty() { None } else {
-                Some(ctx.tokens.issue(bound, movable, ctx.now).map_err(|e| match e {
+                Some(ctx.tokens.issue(bound, movable, ctx.now + spent).map_err(|e| match e {
                     IssueError::TooMany => fail(429, "too_many_previews", "too many previews are waiting for confirmation; use or wait out one of them"),
                     IssueError::NoRandom(m) => fail(500, "no_confirmation", m),
                 })?)
@@ -311,6 +326,43 @@ mod tests {
         assert!(v["confirm_token"].as_str().unwrap().len() >= 32 && v["note"].as_str().unwrap().contains("Put Back"));
         assert!(f.exists(0) && f.exists(1));
         assert!(!f.db.exists() || f.audit_rows().is_empty(), "a dry run writes no audit row");
+    }
+
+    #[test]
+    fn a_preview_measures_the_item_again_so_a_deep_change_does_not_make_it_unmovable() {
+        let f = fx("deep-change", &[Label::Safe]);
+        // The folder's own time does not move when a file inside is rewritten, so a scan would reuse the old size.
+        fs::write(Path::new(&f.items[0].path).join("blob"), vec![1u8; 120_000]).unwrap();
+        let (code, v) = f.call(&format!("ids={}", f.ids(1)), &never);
+        assert_eq!(code, 200, "{v}");
+        assert_eq!((v["counts"]["would_move"].clone(), v["counts"]["refused"].clone()), (1.into(), 0.into()), "{v}");
+        assert!(v["confirm_token"].as_str().is_some());
+        let shown = f.cache.find(&[f.items[0].id.clone()]).unwrap();
+        assert!(matches!(shown[0].size, crate::sampler::Reading::Value(b) if b > 100_000), "the cached row now holds the fresh size");
+    }
+
+    #[test]
+    fn a_later_preview_that_measures_a_grown_folder_voids_the_earlier_confirmation() {
+        let f = fx("p1-p2", &[Label::Safe]);
+        let t1 = f.preview(1);
+        // The folder grows after the first preview; any caller's second preview measures it again and
+        // rewrites the cached row.
+        fs::write(Path::new(&f.items[0].path).join("blob"), vec![1u8; 400_000]).unwrap();
+        let _t2 = f.preview(1);
+        let (code, v) = f.call(&format!("ids={}&dry=0&confirm_token={t1}", f.ids(1)), &remove);
+        assert_eq!((code, v["code"].as_str()), (409, Some("confirmation_mismatch")), "{v}");
+        assert!(f.exists(0), "nothing was moved on a confirmation for a size nobody saw");
+        assert!(f.audit_rows().is_empty());
+    }
+
+    #[test]
+    fn a_preview_with_no_time_to_measure_says_so_and_issues_no_token() {
+        let f = fx("slow-preview", &[Label::Safe, Label::Safe]);
+        let ctx = Ctx { cache: &f.cache, tokens: &f.tokens, db: &f.db, home: Ok(f.home.clone()), apps: &f.apps, uid: crate::storage::current_uid(), mover: &never, now: Instant::now(), unix_now: 1, budget: Duration::ZERO };
+        let (code, body) = reply(&format!("ids={}&dry=1", f.ids(2)), &ctx);
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!((code, v["code"].as_str()), (409, Some("too_slow")), "{v}");
+        assert!(v.get("confirm_token").is_none());
     }
 
     #[test]

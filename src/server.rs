@@ -96,7 +96,7 @@ pub fn serve_on(server: Arc<Server>) {
     let storage_cache: Arc<storage::Cache> = Default::default();
     let confirmations: Arc<trash_route::ConfirmTokens> = Default::default();
     let signal_confirmations: trash_route::ConfirmTokens = Default::default();
-    let storage_scan: storage::ScanFn = Arc::new(storage::scan);
+    let storage_scan: storage::ScanFn = Arc::new(storage::scan_in_background);
     let metrics = sampler::start();
     let writes_erased: history::EraseFlag = Default::default();
     let processes = procusage::start(actions::my_username(), history::disk_writes_hook(|| settings::load().disk_writes_history, writes_erased.clone()));

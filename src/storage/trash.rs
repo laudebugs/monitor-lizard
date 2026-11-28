@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 /// The most ids one request may name.
 pub const MAX_IDS: usize = 50;
 /// Re-measuring one item must not hold a request for long.
-const REMEASURE_BUDGET: Duration = Duration::from_secs(10);
+pub(super) const REMEASURE_BUDGET: Duration = Duration::from_secs(10);
+/// The most time a preview spends measuring its items again, all of them together.
+pub const REMEASURE_TOTAL: Duration = Duration::from_secs(15);
 /// The whole request, checks and moves together. Items not reached by then are reported as not attempted.
 pub const REQUEST_BUDGET: Duration = Duration::from_secs(45);
 
@@ -323,7 +325,7 @@ pub(crate) mod tests {
     pub(crate) fn scanned(path: &Path, label: Label) -> Item {
         let text = path.display().to_string();
         let w = walk::walk(path, Limits { deadline: Instant::now() + Duration::from_secs(5), max_entries: 1000 }).unwrap().unwrap();
-        Item { id: item_id(&text), path: text, category: Category::Caches, label, rule: Rule::AppCache, size: Reading::Value(w.allocated), apparent_bytes: Some(w.apparent), entries: w.entries, complete: true, unreadable: 0, modified_ns: modified_ns(path) }
+        Item { id: item_id(&text), path: text, category: Category::Caches, label, rule: Rule::AppCache, size: Reading::Value(w.allocated), apparent_bytes: Some(w.apparent), entries: w.entries, complete: true, unreadable: 0, measured_at: 0, reused: false, stale: false, modified_ns: modified_ns(path) }
     }
 
     fn me() -> u32 { crate::storage::current_uid() }
