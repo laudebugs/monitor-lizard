@@ -1,10 +1,12 @@
 // ---- Storage page. One GET when the page opens and one per Rescan; while a scan runs it is read every 2 s so the
 // page can say how long it has taken and show the result the moment it lands. A failed read is retried with a growing pause.
-let stTimer = 0, stSeq = 0, stFails = 0, stHistAt = 0;
+let stTimer = 0, stSeq = 0, stFails = 0, stHistAt = 0, stWritesAt = 0;
 async function loadStorage(fresh) {
   if (S.view !== 'storage' || (document.hidden && !fresh)) return;
   clearTimeout(stTimer);
+  // Each has its own clock: the Overview also reads the capacity history, which must not hold the writes back.
   if (fresh || Date.now() - stHistAt > 60000) loadStorageHistory();
+  if (fresh || Date.now() - stWritesAt > 60000) loadStorageWrites();
   const mine = ++stSeq, before = { data: S.stData, failed: S.stFailed };
   let after, note = null;
   try {
@@ -91,6 +93,55 @@ function stHistory() {
     out.note ? h('p', { class: 'small mut', style: 'margin:6px 0 0' }, out.note) : null,
     svg, svg ? h('p', { class: 'small mut', style: 'margin:4px 0 0', 'aria-hidden': 'true' }, 'Used space, ' + when(chart.from) + ' to ' + when(chart.to) + '.'
       + (chart.dash ? ' Dashed line: the forecast.' : '') + ' Top line: the disk size.') : null);
+}
+// The disk writes panel: an opt-in setting, so it explains itself, offers the switch and an erase, and shows the
+// busiest apps of the last 24 hours with an hourly trace each. Only your own processes can be read without root.
+async function loadStorageWrites() {
+  stWritesAt = Date.now();
+  try {
+    const data = await (await api('/api/storage/writes')).json();
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('empty reply');
+    quiet({ stWrites: data, stWritesFailed: false });
+  } catch (e) { quiet({ stWritesFailed: true }); }
+}
+// After a change the panel is drawn again, so focus goes back to the switch rather than to the page top.
+async function writesReloadAndFocus() {
+  await loadStorageWrites();
+  const b = $('wr-toggle'); if (b) b.focus();
+}
+async function setWritesHistory(on) {
+  try {
+    await api('/api/settings?disk_writes_history=' + on, 'POST');
+    toast(on ? 'Disk writes history is on. Figures appear within a few minutes.' : 'Disk writes history is off. Nothing new is recorded; Erase history removes what is kept.');
+  } catch (e) { toast('Could not change the disk writes setting: ' + e.message); }
+  await writesReloadAndFocus();
+}
+async function eraseWrites() {
+  try { await api('/api/storage/writes/erase', 'POST'); toast('Disk writes history erased.'); }
+  catch (e) { toast('Could not erase the disk writes history: ' + e.message); }
+  await writesReloadAndFocus();
+}
+function stWriteRow(r, hours) {
+  const svg = h('svg', { viewBox: '0 0 ' + WR_W + ' ' + WR_H, role: 'img', 'aria-label': writesSparkLabel(r, hours), style: 'width:' + WR_W + 'px;height:' + WR_H + 'px;flex:none;display:block' });
+  svg.innerHTML = '<path d="' + writesSpark(r.hourly) + '" fill="none" stroke="var(--acc)" stroke-width="1.5" vector-effect="non-scaling-stroke"></path>';
+  return h('li', { style: 'display:flex;gap:12px;align-items:center;padding:6px 0;border-top:1px solid var(--line);min-width:0' },
+    h('span', { style: 'flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: visible(r.app) }, visible(r.app)),
+    h('span', { class: 'bar', style: 'flex:1 1 80px;min-width:40px', 'aria-hidden': 'true' }, h('i', { style: 'width:' + r.share + '%' })),
+    h('span', { class: 'mut', style: 'flex:none;width:72px;text-align:right' }, r.text), svg);
+}
+function stWrites() {
+  const d = S.stWrites, state = writesState(d, S.stWritesFailed), on = !!(d && d.enabled);
+  const list = state === 'data' ? writesRows(d) : null, life = d ? writesLifetimeText(d.lifetime_written) : null;
+  const toggle = d && state !== 'unavailable' ? h('button', { id: 'wr-toggle', class: 'btn sm', type: 'button', 'aria-pressed': String(on), onClick: () => setWritesHistory(!on) }, on ? 'Turn off' : 'Turn on') : null;
+  const erase = writesHasRows(d) ? h('button', { class: 'btn sm', type: 'button', onClick: eraseWrites }, 'Erase history') : null;
+  return h('section', { class: 'card', style: 'padding:16px;margin-bottom:14px', 'aria-labelledby': 'wr-head' },
+    h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
+      h('h2', { id: 'wr-head', class: 'sec grow', style: 'margin:0' }, 'Disk writes by app'), toggle, erase),
+    h('p', { id: 'wr-note', class: 'small', style: 'margin:8px 0 0' }, writesNote(state, d)),
+    list ? h('ul', { style: 'list-style:none;margin:10px 0 0;padding:0' }, list.rows.map((r) => stWriteRow(r, d.hours))) : null,
+    list && list.more ? h('p', { class: 'small mut', style: 'margin:6px 0 0' }, plural(list.more, 'more app', 'more apps') + ' wrote less.') : null,
+    life ? h('p', { id: 'wr-life', class: 'small' + (life.shown ? '' : ' mut'), style: 'margin:10px 0 0' }, life.text) : null,
+    h('p', { class: 'small mut', style: 'margin:6px 0 0' }, 'Own processes only: reading another user\'s processes, root\'s included, needs root. Stores app names and byte counts, never file names.'));
 }
 function stStrip(d, state, now) {
   const snaps = d.snapshots || {}, n = rv(snaps.count);
@@ -365,7 +416,7 @@ function storage() {
   const title = verdict('storage', storageFacts(d, now)), actions = stActions(d, now);
   const note = S.stNote ? h('p', { class: 'small mut' }, S.stNote) : null;
   if (state !== 'partial' && state !== 'complete') return pageShell({ title, actions, body: [note, stWaiting(state, d,
-    now)] });
+    now), stWrites()] });
   const failed = S.stFailed ? h('p', { class: 'small', style: 'color:var(--warn)' }, refreshFailure(d, now)) : null;
   const rows = storageRows(d), tiles = storageTiles(d), tile = resolveTile(S.stTile, tiles);
   for (const r of rows) r.measuredText = r.kind === 'pending' ? 'not yet scanned' : measuredText(r.at, now);
@@ -383,7 +434,7 @@ function storage() {
     filters: stFilterChips(labelCounts(found)),
     body: h('div', { style: 'flex:999 1 640px;min-width:0' }, note, failed, stStrip(d, state, now), stBanner(d,
       state), stExportPanel(d, rows, shown, now, filterText), stTreemap(tiles, tile, state),
-      storageCleanups(cleanList, sel, picked), systemDataCard(d), stTable(shown, sel, tile)),
+      storageCleanups(cleanList, sel, picked), systemDataCard(d), stWrites(), stTable(shown, sel, tile)),
     inspector: sel ? stItemInspector(sel) : picked.length ? stMultiInspector(picked, safeSumFor(d, picked)) : stSectionInspector(d, state, rows, tiles, tile) });
 }
 

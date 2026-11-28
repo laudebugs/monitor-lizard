@@ -155,6 +155,8 @@ impl Tracker {
         for p in procs {
             seen.insert(p.pid);
             if p.user != me {
+                // A pid that was ours and now belongs to another user keeps no counters of ours.
+                self.prev.remove(&p.pid);
                 out.push(ProcessUsage {
                     pid: p.pid, command: p.command.clone(), restricted: true,
                     cpu_pct: Reading::Value(p.cpu), mem_bytes: Reading::Value(p.rss_kb * 1024),
@@ -183,6 +185,28 @@ impl Tracker {
         self.prev.retain(|pid, _| seen.contains(pid));
         out
     }
+
+    /// The lifetime bytes-written counter of each of your own processes as of the last `sample`,
+    /// named by app group. Another user's process is never in `prev`, so it never appears here.
+    /// The app's name is kept, never its executable path.
+    pub fn write_counters(&self, procs: &[Proc]) -> Vec<WriteCounter> {
+        procs.iter().filter_map(|p| {
+            let pv = self.prev.get(&p.pid)?;
+            let start_unix = match start_unix(pv.start_abstime, self.timebase, self.boottime) { Reading::Value(v) => Some(v), _ => None };
+            Some(WriteCounter { pid: p.pid, start_ticks: pv.start_abstime, start_unix, app: crate::group::group_of(&p.exe).label, written: pv.disk_write? })
+        }).collect()
+    }
+}
+
+/// One own process's lifetime bytes written, for the opt-in hourly roll-up. `(pid, start_ticks)`
+/// names one process: a recycled pid has a different start time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WriteCounter {
+    pub pid: u32,
+    pub start_ticks: u64,
+    pub start_unix: Option<u64>,
+    pub app: String,
+    pub written: u64,
 }
 
 /// The one place "is this the same process as last time" is decided: a pid match alone is not
@@ -231,8 +255,9 @@ fn build_usage(pid: u32, command: String, raw: &RawUsage, prev: Option<&Prev>, n
 pub type Rows = Arc<RwLock<Vec<ProcessUsage>>>;
 
 /// Spawns the 5 s background sampler and returns the shared, read-only row cache; `sort`/`limit`
-/// are applied at request time in `src/server.rs`, not here.
-pub fn start(me: String) -> Rows {
+/// are applied at request time in `src/server.rs`, not here. `on_writes` gets every pass's write
+/// counters; it decides itself whether to keep anything.
+pub fn start(me: String, mut on_writes: impl FnMut(&[WriteCounter]) + Send + 'static) -> Rows {
     let rows: Rows = Arc::new(RwLock::new(Vec::new()));
     let r = rows.clone();
     std::thread::spawn(move || {
@@ -240,6 +265,7 @@ pub fn start(me: String) -> Rows {
         loop {
             let procs = crate::collect::processes();
             let sampled = tracker.sample(&procs, &me);
+            on_writes(&tracker.write_counters(&procs));
             if let Ok(mut w) = r.write() {
                 *w = sampled;
             }
@@ -326,6 +352,28 @@ mod tests {
         assert_eq!(rows[0].mem_bytes, Reading::Value(4096 * 1024));
         assert!(matches!(rows[0].disk_read_bytes_per_sec, Some(Reading::Unavailable(_))));
         assert!(matches!(rows[0].start_unix, Reading::Unavailable(_)), "never ours to echo back on /api/kill");
+    }
+
+    #[test]
+    fn write_counters_cover_only_your_own_processes() {
+        let mut t = Tracker::default();
+        let me = crate::actions::my_username();
+        let own = Proc { pid: std::process::id(), ppid: 0, user: me.clone(), cpu: 0.0, rss_kb: 0, command: "test".into(), exe: "/Applications/Own.app/Contents/MacOS/Own".into() };
+        let other = Proc { pid: 1, ppid: 0, user: "root".into(), cpu: 0.0, rss_kb: 0, command: "launchd".into(), exe: "/sbin/launchd".into() };
+        let procs = vec![own, other];
+        t.sample(&procs, &me);
+        let got = t.write_counters(&procs);
+        assert_eq!(got.iter().map(|c| c.pid).collect::<Vec<_>>(), vec![std::process::id()], "another user's process is never counted");
+        assert_eq!(got[0].app, "Own", "the app's name, never its path");
+    }
+
+    #[test]
+    fn a_pid_that_moves_to_another_user_drops_our_old_counters() {
+        let mut t = Tracker::default();
+        t.prev.insert(1, Prev { start_abstime: 5, at: Instant::now(), user_ns: 0, system_ns: 0, disk_read: Some(0), disk_write: Some(9) });
+        let procs = vec![Proc { pid: 1, ppid: 0, user: "root".into(), cpu: 0.0, rss_kb: 0, command: "x".into(), exe: "/sbin/x".into() }];
+        t.sample(&procs, "not-root");
+        assert!(t.write_counters(&procs).is_empty());
     }
 
     #[test]

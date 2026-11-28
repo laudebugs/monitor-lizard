@@ -62,7 +62,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | S3a | Move to Trash route and audit log | S1 |
 | S3b | Move to Trash on the page (built; the owner's real-move check on a throwaway folder checked out on 2026-11-27, without further detail; stays ongoing while S2a is) | S2a, S3a |
 | S4 | Capacity history and forecast | S1 |
-| S5 | Per-app disk writes (opt-in) | S2a, B3, B9 |
+| S5 | Per-app disk writes (opt-in) (built 2026-11-27, PR open) | S2a, B3, B9 |
 | G1 | Guide table, `help` and `/api/guide` | None |
 | G2 | Guide page | G1 |
 | A17 | Tauri menu-bar shell | None (held by ADR 0004) |
@@ -85,7 +85,7 @@ The evidence is in the [research note](../research/storage-and-navigation-compla
 | R3a | Persistence data: schedule, fingerprints, removals | M1 |
 | R3b | Persistence page redesign | R3a, T1b, N1, N3, A9 |
 
-S1b is built (2026-11-27, PR open). S4 is built (2026-11-26, PR pending merge). S1 is built (2026-11-26, PR pending merge). N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2 is built (2026-11-26, PR pending merge). N2 is built (2026-11-27, PR open; browser check partly done). N3 and A9 are built and merged, and so is M1. R3a is built and merged (2026-11-26). T1a is done after a browser sweep (2026-11-26). A17 is built (2026-11-26): the owner's Full Disk Access test passed, ADR 0004 is Accepted, and the shell runs the server and dashboard in a window with a tray. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
+S1b is built (2026-11-27, PR open). S5 is built (2026-11-27, PR open): the lifetime SSD figure turned out to be readable without root, see the S5 Implementation Record. S4 is built (2026-11-26, PR pending merge). S1 is built (2026-11-26, PR pending merge). N1 is delivered and G1 is built (2026-11-26, PR pending merge). G2 is built (2026-11-26, PR pending merge). N2 is built (2026-11-27, PR open; browser check partly done). N3 and A9 are built and merged, and so is M1. R3a is built and merged (2026-11-26). T1a is done after a browser sweep (2026-11-26). A17 is built (2026-11-26): the owner's Full Disk Access test passed, ADR 0004 is Accepted, and the shell runs the server and dashboard in a window with a tray. The S chain waits for B2, B7 and B9. R4 (Apps, Listeners, Privilege and History) is not written because those pages have no design yet.
 
 ## 6. Risks and open questions
 
