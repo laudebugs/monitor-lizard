@@ -3,13 +3,23 @@ async function api(path, method = 'GET') {
   if (!r.ok) { const text = await r.text(), e = new Error(text); e.status = r.status; e.text = text; throw e; } // the Trash flow reads the status and the body of a refusal
   return r;
 }
+/* snapshot-load:begin */
+// Right after launch the server's cache has no snapshot yet (the first collect+codesign pass is
+// still running) and /api/snapshot replies `null`, not an error: load() must tell that apart from
+// "no data yet, nothing to do" and retry soon, or the page reads "Collecting the first snapshot..."
+// for up to the full 10 s poll interval even though the real snapshot is usually ready within ~1-2 s.
+const SNAPSHOT_RETRY_MS = 500;
 async function load(fresh) {
   try {
     const snap = await (await api('/api/snapshot' + (fresh ? '?fresh=1' : ''))).json();
     // A shared link can name an app that has quit since; open the page without it rather than with an empty panel.
-    quiet(Object.assign({ snap }, selPatch(S, snap))); $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString(); }
+    quiet(Object.assign({ snap }, selPatch(S, snap)));
+    if (snap) $('live').textContent = 'live, refreshed ' + new Date().toLocaleTimeString();
+    else setTimeout(() => load(fresh), SNAPSHOT_RETRY_MS);
+  }
   catch (e) { $('live').textContent = 'offline: ' + e.message; }
 }
+/* snapshot-load:end */
 const loadPriv = async () => { try { quiet({ priv: (await (await api('/api/privilege')).json()) || [], privOk: true }); } catch (e) {} };
 const loadSudo = async () => { try { quiet({ sudo: (await (await api('/api/sudo')).json()) || [] }); } catch (e) {} };
 // The reply is { items, changes }. Items that are no longer found stay in the data but not on this page, which lists what is installed now.
